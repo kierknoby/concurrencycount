@@ -73,6 +73,7 @@ class Concurrencycount implements \BMO {
 			case 'wizardstep':
 			case 'run':
 			case 'download':
+			case 'downloadcdr':
 			case 'email':
 			case 'gettrunks':
 				return true;
@@ -86,11 +87,15 @@ class Concurrencycount implements \BMO {
 	 */
 	public function ajaxCustomHandler(): bool {
 		$command = isset($_REQUEST['command']) ? $_REQUEST['command'] : '';
-		if ($command !== 'download') {
-			return false;
+		if ($command === 'download') {
+			$this->streamDownload();
+			return true;
 		}
-		$this->streamDownload();
-		return true;
+		if ($command === 'downloadcdr') {
+			$this->streamDemoCdrDownload();
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -543,9 +548,9 @@ class Concurrencycount implements \BMO {
 		foreach ($out as $line) {
 			if (preg_match('/^\s*Endpoint:\s+(\S+)/', $line, $m)) {
 				$name = $m[1];
-				if ($name === '<Endpoint') continue;
 				$parts = explode('/', $name);
 				$name = trim($parts[0]);
+				if ($name === '<Endpoint' || strpos($name, '<Endpoint') === 0) continue;
 				if ($name === '') continue;
 				if (preg_match('/^[0-9]+$/', $name)) continue;
 				$trunks[$name] = true;
@@ -579,6 +584,7 @@ class Concurrencycount implements \BMO {
 	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 		$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
+		$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
 		if ($seed === 0) {
 			$seed = random_int(1, 0x7fffffff);
@@ -595,7 +601,7 @@ class Concurrencycount implements \BMO {
 			}
 			$demo_trunk = $trunks[0];
 		}
-		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode, $report, $demo_trunk);
+		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode, $report, $demo_trunk, $row_count);
 		$expected = ($report === 'group')
 			? $this->expectedDemoGroup($rows)
 			: $this->expectedDemoPerName($rows, $report);
@@ -653,6 +659,7 @@ class Concurrencycount implements \BMO {
 			'demo_report' => isset($_REQUEST['demo_report']) ? $_REQUEST['demo_report'] : 'extension',
 			'demo_size' => isset($_REQUEST['demo_size']) ? $_REQUEST['demo_size'] : 'light',
 			'demo_seed' => isset($_REQUEST['demo_seed']) ? $_REQUEST['demo_seed'] : 0,
+			'demo_rows' => isset($_REQUEST['demo_rows']) ? $_REQUEST['demo_rows'] : 0,
 		];
 	}
 
@@ -670,6 +677,16 @@ class Concurrencycount implements \BMO {
 			return $size;
 		}
 		return 'light';
+	}
+
+	private function normaliseDemoRows($rows, string $size): int {
+		$defaults = ['light' => 50, 'medium' => 1000, 'heavy' => 10000];
+		$max = ['light' => 250, 'medium' => 3000, 'heavy' => 15000];
+		$rows = (int)$rows;
+		if ($rows <= 0) {
+			return $defaults[$size];
+		}
+		return max(1, min($rows, $max[$size]));
 	}
 
 	private function normaliseDemoRange(string $start, string $end): array {
@@ -692,9 +709,11 @@ class Concurrencycount implements \BMO {
 		return ['start' => $start, 'end' => $end];
 	}
 
-	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode, string $report, string $demo_trunk = ''): array {
+	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode, string $report, string $demo_trunk = '', int $count = 0): array {
 		$counts = ['light' => 50, 'medium' => 1000, 'heavy' => 10000];
-		$count = $counts[$size];
+		if ($count <= 0) {
+			$count = $counts[$size];
+		}
 		$start_ts = strtotime($start);
 		$end_ts = strtotime($end);
 		$span = max(900, $end_ts - $start_ts);
@@ -1324,6 +1343,85 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
+	private function streamDemoCdrDownload(): void {
+		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
+		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
+		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
+		$options = $this->requestDemoOptions();
+
+		if ($mode !== 'demo') {
+			http_response_code(400);
+			echo _('CDR download is available for demo mode only.');
+			return;
+		}
+
+		try {
+			$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
+			$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
+			$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
+			$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
+			if ($seed === 0) {
+				$seed = random_int(1, 0x7fffffff);
+			}
+			$range = $this->normaliseDemoRange($start, $end);
+			$demo_trunk = '';
+			if ($report === 'trunk') {
+				$trunks = $this->getTrunks();
+				if (empty($trunks)) {
+					throw new \Exception(_('Demo trunk mode requires at least one non-numeric PJSIP trunk on the PBX.'));
+				}
+				$demo_trunk = $trunks[0];
+			}
+			$rows = $this->buildDemoRows($range['start'], $range['end'], $size, $seed, 'CCDEMOCSV', $report, $demo_trunk, $row_count);
+			$csv = $this->demoCdrRowsToCsv($rows, $report, $size, $seed, $range['start'], $range['end']);
+			$filename = 'concurrency-count-demo-cdr-' . $report . '-' . date('Ymd-His') . '.csv';
+
+			while (ob_get_level()) ob_end_clean();
+			header('Content-Type: text/csv; charset=utf-8');
+			header('Content-Disposition: attachment; filename="' . $filename . '"');
+			header('Content-Length: ' . strlen($csv));
+			echo $csv;
+		} catch (\Exception $e) {
+			http_response_code(500);
+			echo $e->getMessage();
+		}
+	}
+
+	private function demoCdrRowsToCsv(array $rows, string $report, string $size, int $seed, string $start, string $end): string {
+		$out = [];
+		$out[] = ['Concurrency Count demo CDR data'];
+		$out[] = ['Report', $report];
+		$out[] = ['Size', $size];
+		$out[] = ['Seed', $seed];
+		$out[] = ['From', $start];
+		$out[] = ['To', $end];
+		$out[] = [];
+		$out[] = ['calldate', 'duration', 'channel', 'dstchannel', 'src', 'dst', 'disposition', 'accountcode', 'uniqueid', 'linkedid'];
+		foreach ($rows as $row) {
+			$out[] = [
+				$row['calldate'],
+				$row['duration'],
+				$row['channel'],
+				$row['dstchannel'],
+				$row['src'],
+				$row['dst'],
+				'ANSWERED',
+				$row['accountcode'],
+				$row['uniqueid'],
+				$row['linkedid'],
+			];
+		}
+
+		$fh = fopen('php://temp', 'r+');
+		foreach ($out as $row) {
+			fputcsv($fh, $row);
+		}
+		rewind($fh);
+		$csv = stream_get_contents($fh);
+		fclose($fh);
+		return "\xEF\xBB\xBF" . $csv;
+	}
+
 	private function handleEmail(): array {
 		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
@@ -1438,13 +1536,42 @@ class Concurrencycount implements \BMO {
 		try {
 			$mailer = $this->FreePBX->Mail();
 			if (is_object($mailer)) {
-				$mailer->setTo($to);
-				$mailer->setSubject($subject);
-				$mailer->setBody($body);
-				if (method_exists($mailer, 'AddStringAttachment')) {
+				if (method_exists($mailer, 'clearAddresses')) {
+					$mailer->clearAddresses();
+				}
+				if (method_exists($mailer, 'addAddress')) {
+					$mailer->addAddress($to);
+				} elseif (method_exists($mailer, 'setTo')) {
+					$mailer->setTo($to);
+				} else {
+					$mailer->to = $to;
+				}
+
+				if (method_exists($mailer, 'setSubject')) {
+					$mailer->setSubject($subject);
+				} else {
+					$mailer->Subject = $subject;
+				}
+
+				if (method_exists($mailer, 'setBody')) {
+					$mailer->setBody($body);
+				} else {
+					$mailer->Body = $body;
+					$mailer->AltBody = $body;
+				}
+
+				if (method_exists($mailer, 'addStringAttachment')) {
+					$mailer->addStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
+				} elseif (method_exists($mailer, 'AddStringAttachment')) {
 					$mailer->AddStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
 				}
-				return (bool)$mailer->send();
+
+				if (method_exists($mailer, 'send')) {
+					return (bool)$mailer->send();
+				}
+				if (method_exists($mailer, 'Send')) {
+					return (bool)$mailer->Send();
+				}
 			}
 		} catch (\Exception $e) {
 			// Fall through

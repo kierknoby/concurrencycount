@@ -119,8 +119,8 @@ window._ccLoaded = true;
 		$('#cc-demo').modal('show');
 	}
 
-	function runDemo() {
-		var report = $('input[name="cc-demo-report"]:checked').val() || 'extension';
+	function runDemo(report) {
+		report = report || 'extension';
 		var seedField = parseInt($('#cc-demo-seed').val(), 10);
 		if (!isNaN(seedField)) {
 			demoSeed = seedField >>> 0;
@@ -134,6 +134,7 @@ window._ccLoaded = true;
 		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
 			demo_size: demoPlan.size,
+			demo_rows: String(demoPlan.rows),
 			demo_seed: String(demoSeed >>> 0)
 		});
 	}
@@ -141,7 +142,7 @@ window._ccLoaded = true;
 	function updateDemoSeedStatus(prefix) {
 		$('#cc-demo-seed').val(String(demoSeed >>> 0));
 		$('#cc-demo-entropy-status').text(prefix + ' Seed: ' + (demoSeed >>> 0) + '. Movement samples: ' + demoMoves + '.');
-		demoPlan = buildDemoPlan(demoSeed, $('input[name="cc-demo-report"]:checked').val() || 'trunk');
+		demoPlan = buildDemoPlan(demoSeed, 'trunk');
 		renderDemoPlan();
 	}
 
@@ -160,27 +161,44 @@ window._ccLoaded = true;
 	}
 
 	function buildDemoPlan(seed, report) {
-		var sizes = ['light', 'medium', 'heavy'];
-		var size = sizes[seed % sizes.length];
-		var dayOffset = (Math.floor(seed / 7) % 365);
-		var hour = 8 + (Math.floor(seed / 13) % 8);
-		var minute = Math.floor(seed / 17) % 4 * 15;
-		var durations = {light: 1, medium: 3, heavy: 6};
+		var rng = seededRng(seed);
+		var roll = rng();
+		var size = roll > 0.92 ? 'heavy' : (roll > 0.45 ? 'medium' : 'light');
+		var rows = size === 'heavy'
+			? randRange(rng, 7000, 14000)
+			: (size === 'medium' ? randRange(rng, 650, 2200) : randRange(rng, 25, 140));
+		var dayOffset = randRange(rng, 0, 6200);
+		var hour = randRange(rng, 0, 23);
+		var minute = randRange(rng, 0, 59);
+		var durationMinutes = size === 'heavy'
+			? randRange(rng, 360, 10080)
+			: (size === 'medium' ? randRange(rng, 90, 2160) : randRange(rng, 20, 240));
 		var startDate = new Date(2001, 0, 1 + dayOffset, hour, minute, 0);
-		var endDate = new Date(startDate.getTime() + durations[size] * 60 * 60 * 1000);
+		var endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 		return {
 			report: report,
 			size: size,
-			rows: size === 'heavy' ? 10000 : (size === 'medium' ? 1000 : 50),
+			rows: rows,
 			start: formatDateTime(startDate),
 			end: formatDateTime(endDate)
 		};
 	}
 
+	function seededRng(seed) {
+		var state = (seed || 1) >>> 0;
+		return function () {
+			state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+			return state / 4294967296;
+		};
+	}
+
+	function randRange(rng, min, max) {
+		return min + Math.floor(rng() * (max - min + 1));
+	}
+
 	function renderDemoPlan() {
 		if (!demoPlan) return;
 		$('#cc-demo-plan').html(
-			'<dt>Simulation</dt><dd>' + escapeHtml(demoPlan.report) + '</dd>' +
 			'<dt>Load</dt><dd>' + escapeHtml(demoPlan.size) + ' (' + escapeHtml(demoPlan.rows) + ' calls)</dd>' +
 			'<dt>Range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>'
 		);
@@ -243,6 +261,7 @@ window._ccLoaded = true;
 		);
 
 		var body = $('#cc-results-body');
+		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
 			body.html('<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
 		} else if (r.mode === 'demo') {
@@ -254,6 +273,7 @@ window._ccLoaded = true;
 		}
 
 		$('#cc-results-warning').text(r.warning || '');
+		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
 	}
 
@@ -578,7 +598,7 @@ window._ccLoaded = true;
 		}
 		ajax(params).done(function (resp) {
 			if (resp.overrun_warning) {
-				showOverrunModal(resp, mode, start, end);
+				showOverrunModal(resp, mode, start, end, extraParams);
 				return;
 			}
 			if (!resp.status) {
@@ -592,7 +612,7 @@ window._ccLoaded = true;
 		});
 	}
 
-	function showOverrunModal(resp, mode, start, end) {
+	function showOverrunModal(resp, mode, start, end, extraParams) {
 		var est = formatTime(resp.estimated_remaining);
 		var left = formatTime(resp.runtime_remaining);
 		$('#cc-overrun-message').text(
@@ -606,7 +626,11 @@ window._ccLoaded = true;
 		$('#cc-overrun-yes').off('click').on('click', function () {
 			modal.modal('hide');
 			setStatus('Continuing despite estimated overrun...', 'running');
-			ajax({command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'}).done(function (resp2) {
+			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
+			if (extraParams) {
+				$.extend(params, extraParams);
+			}
+			ajax(params).done(function (resp2) {
 				if (!resp2.status) {
 					setStatus(resp2.message || 'Failed to run.', 'error');
 					return;
@@ -643,9 +667,23 @@ window._ccLoaded = true;
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
+			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
 		}
 		var qs = $.param(params);
+		window.location.href = 'ajax.php?' + qs;
+	}
+
+	function onDownloadCdr() {
+		if (finalMode !== 'demo') return;
+		var qs = $.param({
+			module: 'concurrencycount', command: 'downloadcdr',
+			mode: 'demo', start_date: finalStart, end_date: finalEnd,
+			demo_report: finalDemoReport || 'extension',
+			demo_size: finalDemoSize || 'light',
+			demo_rows: $('#cc-results-body').data('demoRows') || '',
+			demo_seed: finalDemoSeed || '0'
+		});
 		window.location.href = 'ajax.php?' + qs;
 	}
 
@@ -667,6 +705,7 @@ window._ccLoaded = true;
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
+			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
 		}
 		ajax(params).done(function (resp) {
@@ -689,11 +728,9 @@ window._ccLoaded = true;
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
-		$('input[name="cc-demo-report"]').off('change').on('change', function () {
-			demoPlan = buildDemoPlan(demoSeed, $(this).val());
-			renderDemoPlan();
+		$('.cc-demo-run-mode').off('click').on('click', function () {
+			runDemo($(this).data('report'));
 		});
-		$('#cc-demo-run').off('click').on('click', runDemo);
 		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
 			var off = $(this).offset();
 			stirDemoSeed(Math.floor(e.pageX - off.left), Math.floor(e.pageY - off.top));
@@ -715,6 +752,7 @@ window._ccLoaded = true;
 		});
 
 		$('#cc-download').off('click').on('click', onDownload);
+		$('#cc-download-cdr').off('click').on('click', onDownloadCdr);
 		$('#cc-email-toggle').off('click').on('click', onEmailToggle);
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 	});

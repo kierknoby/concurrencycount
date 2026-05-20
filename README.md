@@ -63,7 +63,7 @@ Same mode abbreviations and shorthand dates as the wizard.
 
 ## Demo mode
 
-For a test PBX with no useful sample CDRs, click **Run Demo** on the module page. Choose the report to simulate (trunks, extensions, or group), then move in the randomise box to vary the synthetic call pattern. A fresh seed is created each time the demo window opens, and the randomiser chooses the date range and load size automatically. Light creates about 50 calls, Medium about 1,000 calls, and Heavy about 10,000 calls; Heavy may take several minutes.
+For a test PBX with no useful sample CDRs, click **Run Demo** on the module page. Move in the randomise box to vary the synthetic call pattern, then run a trunks, extensions, or group simulation. A fresh seed is created each time the demo window opens, and the randomiser chooses the date range and load automatically. Light creates a small smoke-test dataset, Medium creates a busy realistic dataset, and Heavy creates thousands of calls and may take several minutes.
 
 ```
 fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345

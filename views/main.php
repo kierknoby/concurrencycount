@@ -81,6 +81,9 @@ $_ccAssetVer = max(
 						<button type="button" id="cc-download" class="btn btn-default">
 							<i class="fa fa-download"></i> <?php echo _('Download CSV'); ?>
 						</button>
+						<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;">
+							<i class="fa fa-table"></i> <?php echo _('Download CDR'); ?>
+						</button>
 						<button type="button" id="cc-email-toggle" class="btn btn-default">
 							<i class="fa fa-envelope"></i> <?php echo _('Email report'); ?>
 						</button>
@@ -113,20 +116,6 @@ $_ccAssetVer = max(
 			<div class="modal-body">
 				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
 				<div class="form-group">
-					<label class="control-label"><?php echo _('Report to simulate'); ?></label>
-					<div class="btn-group btn-group-justified" data-toggle="buttons">
-						<label class="btn btn-default active">
-							<input type="radio" name="cc-demo-report" value="trunk" checked> <?php echo _('Trunks'); ?>
-						</label>
-						<label class="btn btn-default">
-							<input type="radio" name="cc-demo-report" value="extension"> <?php echo _('Extensions'); ?>
-						</label>
-						<label class="btn btn-default">
-							<input type="radio" name="cc-demo-report" value="group"> <?php echo _('Group'); ?>
-						</label>
-					</div>
-				</div>
-				<div class="form-group">
 					<label class="control-label"><?php echo _('Randomise'); ?></label>
 					<input type="text" id="cc-demo-seed" class="form-control" readonly style="margin-bottom:8px;">
 					<div id="cc-demo-entropy" class="cc-demo-entropy">
@@ -139,8 +128,14 @@ $_ccAssetVer = max(
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
-				<button type="button" class="btn btn-primary" id="cc-demo-run">
-					<i class="fa fa-play"></i> <?php echo _('Run Demo'); ?>
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk">
+					<i class="fa fa-play"></i> <?php echo _('Run Trunks'); ?>
+				</button>
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="extension">
+					<i class="fa fa-play"></i> <?php echo _('Run Extensions'); ?>
+				</button>
+				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group">
+					<i class="fa fa-play"></i> <?php echo _('Run Group'); ?>
 				</button>
 			</div>
 		</div>
