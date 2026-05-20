@@ -175,9 +175,8 @@ $_ccAssetVer = max(
 						<option value="trunk"><?php echo _('Trunks'); ?></option>
 						<option value="extension"><?php echo _('Extensions'); ?></option>
 						<option value="group"><?php echo _('Group'); ?></option>
-						<option value="demo"><?php echo _('Demo'); ?></option>
 					</select>
-					<span class="help-block fpbx-help-block"><?php echo _('Choose what the report should count.'); ?></span>
+					<span class="help-block fpbx-help-block"><?php echo _('Choose what the report should count. Use Run Demo for synthetic accuracy tests.'); ?></span>
 				</div>
 				<div class="form-group" id="cc-engine-group" style="display:none;">
 					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>

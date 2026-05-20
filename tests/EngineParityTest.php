@@ -1,8 +1,18 @@
 <?php
 
-namespace PHPUnit\Framework {
-	if (!class_exists('PHPUnit\Framework\TestCase')) {
-		abstract class TestCase {
+namespace {
+	use FreePBX\modules\Concurrencycount\Engines\Registry;
+
+	if (!interface_exists('BMO')) {
+		interface BMO {}
+	}
+
+	require_once __DIR__ . '/../Concurrencycount.class.php';
+
+	if (class_exists('PHPUnit\Framework\TestCase')) {
+		abstract class EngineParityBase extends \PHPUnit\Framework\TestCase {}
+	} else {
+		abstract class EngineParityBase {
 			protected function setUp(): void {}
 
 			protected function assertSame($expected, $actual, string $message = ''): void {
@@ -12,17 +22,6 @@ namespace PHPUnit\Framework {
 			}
 		}
 	}
-}
-
-namespace {
-	use PHPUnit\Framework\TestCase;
-	use FreePBX\modules\Concurrencycount\Engines\Registry;
-
-	if (!interface_exists('BMO')) {
-		interface BMO {}
-	}
-
-	require_once __DIR__ . '/../Concurrencycount.class.php';
 
 	if (!class_exists('TestableConcurrencycount')) {
 		class TestableConcurrencycount extends \FreePBX\modules\Concurrencycount {
@@ -32,7 +31,7 @@ namespace {
 		}
 	}
 
-	class EngineParityTest extends TestCase {
+	class EngineParityTest extends EngineParityBase {
 		private TestableConcurrencycount $cc;
 
 		protected function setUp(): void {

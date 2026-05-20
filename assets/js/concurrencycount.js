@@ -2,7 +2,7 @@
  * Concurrency Count wizard.
  *
  * Mirrors the bash CLI flow:
- *   1. Mode (trunks/extensions/group/demo, abbreviations accepted)
+ *   1. Mode (trunks/extensions/group, abbreviations accepted)
  *   2. Month/shortcut (today, yesterday, month name, or blank for custom range)
  *   3a. If month: year (Y, YY, YYYY)
  *   3b. If blank: start date, then end date
@@ -353,7 +353,7 @@ window._ccLoaded = true;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
 		var text = 'The highest total number of simultaneous extension calls in this date range was ' + max + '.';
 		if (average > 0) {
-			text += ' Average concurrency across the selected period was ' + formatDecimal(average) + ', so the peak was ' + formatDecimal(ratio) + 'x the average.';
+			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (peakPercent > 0) {
 			if (peakPercent < 1) {
@@ -376,7 +376,7 @@ window._ccLoaded = true;
 		var namesSeen = parseInt(overview.names_seen, 10) || 0;
 		var text = 'The highest simultaneous call count seen on any ' + label + ' in this date range was ' + max + '.';
 		if (average > 0) {
-			text += ' Across the selected period, average concurrent calls for this report were ' + formatDecimal(average) + ', so the peak was ' + formatDecimal(ratio) + 'x the average.';
+			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (namesWithPeak === 1 && namesSeen > 1) {
 			text += ' The peak was concentrated on one ' + label + '.';
@@ -639,11 +639,6 @@ window._ccLoaded = true;
 		switch (wizardState.step) {
 			case 'mode':
 				wizardState.mode = resp.value;
-				if (wizardState.mode === 'demo') {
-					hideWizard();
-					executeRun('demo', '2001-01-01 09:00:00', '2001-01-01 10:00:00');
-					break;
-				}
 				$('#cc-engine-group').show();
 				askMonth();
 				break;

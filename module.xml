@@ -7,7 +7,7 @@
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
-	*2.1.0* Engine selector (experimental). Adds 'sweep' engine implementing the sweep-line algorithm for concurrency calculation, alongside the original per-second occupancy algorithm. Default behaviour unchanged. Demo mode can compare engines against the same synthetic fixture and report per-engine accuracy + wall time + peak memory. UI exposes "Engine (experimental)" selector; CLI adds --engine and --compare flags. Original engine code is untouched, moved verbatim into Engines/Original.php.
+	*2.1.0* Engine selector (experimental). Adds 'sweep' engine implementing the sweep-line algorithm for concurrency calculation, alongside the original per-second occupancy algorithm. Default behaviour unchanged. Demo mode can compare engines against the same synthetic fixture and report per-engine accuracy + wall time + peak memory. UI exposes "Engine (experimental)" selector; CLI adds --engine and --compare flags. Original remains the default reference engine.
 	*2.0.0* Initial release. UI module port of the Concurrency Count CLI tool. Calculates maximum concurrent calls per PJSIP trunk, extension, or group within a date range. Email and download output, no database persistence.
 	</changelog>
 	<category>Reports</category>
