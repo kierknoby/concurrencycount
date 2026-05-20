@@ -579,12 +579,17 @@ class Concurrencycount implements \BMO {
 	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
+		if ($seed === 0) {
+			$seed = random_int(1, 0x7fffffff);
+		}
 		$range = $this->normaliseDemoRange($start, $end);
 		$start = $range['start'];
 		$end = $range['end'];
 		$accountcode = 'CCDEMO' . substr(hash('sha1', microtime(true) . random_int(0, PHP_INT_MAX)), 0, 8);
 		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode);
 		$inserted = 0;
+		$result = null;
+		$cleanup = ['rows_removed' => 0, 'cleanup_remaining' => 0];
 
 		try {
 			foreach ($rows as $row) {
@@ -595,7 +600,7 @@ class Concurrencycount implements \BMO {
 			$extension = $this->calculatePerName('extension', $start, $end, $started_at, true, $accountcode);
 			$group = $this->calculateGroup($start, $end, $started_at, true, $accountcode);
 
-			return [
+			$result = [
 				'mode' => 'demo', 'start' => $start, 'end' => $end,
 				'per_name' => isset($extension['per_name']) ? $extension['per_name'] : [],
 				'global_max' => isset($extension['global_max']) ? $extension['global_max'] : 0,
@@ -605,11 +610,19 @@ class Concurrencycount implements \BMO {
 				'rows_inserted' => $inserted,
 				'demo_size' => $size,
 				'demo_seed' => (string)$seed,
+				'demo_run_id' => $accountcode,
 				'warning' => _('Demo mode temporarily inserted synthetic CDR rows and removed them automatically after the run.'),
 			];
 		} finally {
-			$this->cleanupDemoCdrRows($accountcode);
+			$cleanup = $this->cleanupDemoCdrRows($accountcode);
 		}
+		if ($result === null) {
+			throw new \Exception(_('Demo run failed before results were produced.'));
+		}
+		$result['rows_removed'] = $cleanup['rows_removed'];
+		$result['cleanup_remaining'] = $cleanup['cleanup_remaining'];
+		$result['cleanup_status'] = ($cleanup['cleanup_remaining'] === 0) ? 'clean' : 'check';
+		return $result;
 	}
 
 	private function requestDemoOptions(): array {
@@ -648,14 +661,14 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode): array {
-		$counts = ['light' => 8, 'medium' => 32, 'heavy' => 120];
+		$counts = ['light' => 12, 'medium' => 160, 'heavy' => 900];
 		$count = $counts[$size];
 		$start_ts = strtotime($start);
 		$end_ts = strtotime($end);
 		$span = max(900, $end_ts - $start_ts);
-		$min_duration = ($size === 'heavy') ? 120 : 180;
-		$max_duration = ($size === 'heavy') ? 1200 : (($size === 'medium') ? 900 : 600);
-		$state = $seed ?: 246813579;
+		$min_duration = ($size === 'heavy') ? 240 : 180;
+		$max_duration = ($size === 'heavy') ? 1800 : (($size === 'medium') ? 900 : 600);
+		$state = $seed;
 		$extensions = ['101', '102', '103', '104', '105', '106', '107', '108'];
 		$rows = [];
 
@@ -764,9 +777,16 @@ class Concurrencycount implements \BMO {
 		return '';
 	}
 
-	private function cleanupDemoCdrRows(string $accountcode): void {
+	private function cleanupDemoCdrRows(string $accountcode): array {
 		$stmt = $this->cdrdb->prepare('DELETE FROM cdr WHERE accountcode = :accountcode');
 		$stmt->execute([':accountcode' => $accountcode]);
+		$removed = $stmt->rowCount();
+		$stmt = $this->cdrdb->prepare('SELECT COUNT(*) FROM cdr WHERE accountcode = :accountcode');
+		$stmt->execute([':accountcode' => $accountcode]);
+		return [
+			'rows_removed' => $removed,
+			'cleanup_remaining' => (int)$stmt->fetchColumn(),
+		];
 	}
 
 	/**
@@ -1105,6 +1125,13 @@ class Concurrencycount implements \BMO {
 		$rows[] = [];
 
 		if ($r['mode'] === 'demo') {
+			$rows[] = ['Demo run id', isset($r['demo_run_id']) ? $r['demo_run_id'] : ''];
+			$rows[] = ['Demo size', isset($r['demo_size']) ? $r['demo_size'] : ''];
+			$rows[] = ['Demo seed', isset($r['demo_seed']) ? $r['demo_seed'] : ''];
+			$rows[] = ['Rows inserted', isset($r['rows_inserted']) ? $r['rows_inserted'] : 0];
+			$rows[] = ['Rows removed', isset($r['rows_removed']) ? $r['rows_removed'] : 0];
+			$rows[] = ['Cleanup remaining', isset($r['cleanup_remaining']) ? $r['cleanup_remaining'] : 0];
+			$rows[] = [];
 			$rows[] = ['Extension demo'];
 			$rows[] = ['Extension', 'Max concurrent'];
 			if (!empty($r['per_name'])) {
@@ -1246,6 +1273,13 @@ class Concurrencycount implements \BMO {
 		$lines[] = '';
 
 		if ($r['mode'] === 'demo') {
+			$lines[] = 'Demo run id:      ' . (isset($r['demo_run_id']) ? $r['demo_run_id'] : '');
+			$lines[] = 'Demo size:        ' . (isset($r['demo_size']) ? $r['demo_size'] : '');
+			$lines[] = 'Demo seed:        ' . (isset($r['demo_seed']) ? $r['demo_seed'] : '');
+			$lines[] = 'Rows inserted:    ' . (isset($r['rows_inserted']) ? $r['rows_inserted'] : 0);
+			$lines[] = 'Rows removed:     ' . (isset($r['rows_removed']) ? $r['rows_removed'] : 0);
+			$lines[] = 'Cleanup remaining:' . (isset($r['cleanup_remaining']) ? ' ' . $r['cleanup_remaining'] : ' 0');
+			$lines[] = '';
 			$lines[] = 'Extension demo:';
 			$lines[] = sprintf('%-24s  %s', 'Extension', 'Max concurrent');
 			if (!empty($r['per_name'])) {

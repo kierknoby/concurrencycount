@@ -113,10 +113,7 @@ window._ccLoaded = true;
 	function showDemoPrompt() {
 		$('#cc-results').hide();
 		setStatus('', null);
-		demoSeed = (Date.now() & 0xffffffff) >>> 0;
-		demoMoves = 0;
-		$('#cc-demo-entropy').removeClass('cc-demo-entropy-active');
-		$('#cc-demo-entropy-status').text('No movement captured yet.');
+		randomiseDemoSeed('New random seed ready.');
 		$('#cc-demo').modal('show');
 	}
 
@@ -124,6 +121,10 @@ window._ccLoaded = true;
 		var size = $('input[name="cc-demo-size"]:checked').val() || 'light';
 		var start = $('#cc-demo-start').val();
 		var end = $('#cc-demo-end').val();
+		var seedField = parseInt($('#cc-demo-seed').val(), 10);
+		if (!isNaN(seedField)) {
+			demoSeed = seedField >>> 0;
+		}
 		$('#cc-demo').modal('hide');
 		executeRun('demo', start, end, {
 			demo_size: size,
@@ -131,11 +132,23 @@ window._ccLoaded = true;
 		});
 	}
 
+	function updateDemoSeedStatus(prefix) {
+		$('#cc-demo-seed').val(String(demoSeed >>> 0));
+		$('#cc-demo-entropy-status').text(prefix + ' Seed: ' + (demoSeed >>> 0) + '. Movement samples: ' + demoMoves + '.');
+	}
+
+	function randomiseDemoSeed(prefix) {
+		demoSeed = ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) & 0x7fffffff) >>> 0;
+		demoMoves = 0;
+		$('#cc-demo-entropy').removeClass('cc-demo-entropy-active');
+		updateDemoSeedStatus(prefix || 'Randomised again.');
+	}
+
 	function stirDemoSeed(x, y) {
 		demoMoves++;
 		demoSeed = (((demoSeed * 33) >>> 0) ^ (x << 16) ^ y ^ Date.now()) >>> 0;
 		$('#cc-demo-entropy').addClass('cc-demo-entropy-active');
-		$('#cc-demo-entropy-status').text('Movement captured: ' + demoMoves + ' samples.');
+		updateDemoSeedStatus('Movement captured.');
 	}
 
 	/**
@@ -248,10 +261,18 @@ window._ccLoaded = true;
 	function renderDemo(el, r) {
 		var html = '<h4>Demo profile</h4>';
 		html += '<dl class="dl-horizontal">' +
+			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
 			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
 			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
 			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
+			'<dt>Rows removed</dt><dd>' + escapeHtml(r.rows_removed || 0) + '</dd>' +
+			'<dt>Cleanup remaining</dt><dd>' + escapeHtml(r.cleanup_remaining || 0) + '</dd>' +
 			'</dl>';
+		if (r.cleanup_status === 'clean') {
+			html += '<div class="alert alert-success">Demo CDR cleanup verified. No rows remain for this run.</div>';
+		} else {
+			html += '<div class="alert alert-danger">Demo cleanup needs checking. Rows remain for this run.</div>';
+		}
 		html += '<h4>Extension demo</h4>';
 		html += '<table class="table table-striped"><thead><tr>' +
 			'<th>Extension</th><th>Max concurrent</th>' +
@@ -618,6 +639,9 @@ window._ccLoaded = true;
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-demo-randomise').off('click').on('click', function () {
+			randomiseDemoSeed('Randomised again.');
+		});
 		$('#cc-demo-run').off('click').on('click', runDemo);
 		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
 			var off = $(this).offset();

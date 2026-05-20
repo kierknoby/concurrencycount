@@ -111,7 +111,7 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-demo-title"><?php echo _('Concurrency Count Demo'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<p><?php echo _('The demo temporarily writes synthetic PJSIP CDR rows, runs the report, then removes the demo rows automatically.'); ?></p>
+				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Demo size'); ?></label>
 					<div class="btn-group btn-group-justified" data-toggle="buttons">
@@ -124,6 +124,11 @@ $_ccAssetVer = max(
 						<label class="btn btn-default">
 							<input type="radio" name="cc-demo-size" value="heavy"> <?php echo _('Heavy'); ?>
 						</label>
+					</div>
+					<div class="row cc-demo-size-notes">
+						<div class="col-sm-4"><strong><?php echo _('Light'); ?></strong><br><span class="text-muted"><?php echo _('Quick sanity check.'); ?></span></div>
+						<div class="col-sm-4"><strong><?php echo _('Medium'); ?></strong><br><span class="text-muted"><?php echo _('Busier overlap simulation.'); ?></span></div>
+						<div class="col-sm-4"><strong><?php echo _('Heavy'); ?></strong><br><span class="text-muted"><?php echo _('Larger run; expect to wait.'); ?></span></div>
 					</div>
 				</div>
 				<div class="row">
@@ -142,12 +147,20 @@ $_ccAssetVer = max(
 				</div>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Randomise'); ?></label>
-					<div id="cc-demo-entropy" class="cc-demo-entropy">
-						<span><?php echo _('Move inside this box to vary the synthetic call pattern.'); ?></span>
+					<div class="input-group" style="margin-bottom:8px;">
+						<input type="text" id="cc-demo-seed" class="form-control" readonly>
+						<span class="input-group-btn">
+							<button type="button" id="cc-demo-randomise" class="btn btn-default">
+								<i class="fa fa-random"></i> <?php echo _('Randomise Again'); ?>
+							</button>
+						</span>
 					</div>
-					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('No movement captured yet.'); ?></span>
+					<div id="cc-demo-entropy" class="cc-demo-entropy">
+						<span><?php echo _('Move inside this box to stir the seed. A new seed is created every time this window opens.'); ?></span>
+					</div>
+					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('New random seed ready.'); ?></span>
 				</div>
-				<p class="text-muted"><?php echo _('Use Light for a quick sanity check, Medium for a busier overlap pattern, or Heavy to exercise a larger report range.'); ?></p>
+				<p class="text-muted"><?php echo _('You can choose any safe date range. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
