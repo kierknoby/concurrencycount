@@ -49,3 +49,21 @@
 	background-color: #dff0d8;
 	font-weight: 600;
 }
+
+.cc-demo-entropy {
+	height: 96px;
+	border: 2px dashed #8aa7bd;
+	background: #f7fbfd;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	color: #4a6575;
+	cursor: crosshair;
+	user-select: none;
+}
+
+.cc-demo-entropy.cc-demo-entropy-active {
+	border-color: #337ab7;
+	background: #eef7ff;
+}

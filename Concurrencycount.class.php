@@ -502,13 +502,14 @@ class Concurrencycount implements \BMO {
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
 		$confirm_overrun = !empty($_REQUEST['confirm_overrun']);
+		$options = $this->requestDemoOptions();
 
 		if ($mode === null) {
 			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
 		}
 
 		try {
-			$results = $this->calculate($mode, $start, $end, $confirm_overrun);
+			$results = $this->calculate($mode, $start, $end, $confirm_overrun, $options);
 			return ['status' => true, 'results' => $results];
 		} catch (RuntimeOverrunPending $rop) {
 			return [
@@ -558,12 +559,12 @@ class Concurrencycount implements \BMO {
 	/**
 	 * Dispatch by mode.
 	 */
-	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false): array {
+	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
 		set_time_limit(self::MAX_RUNTIME + 60);
 		$started_at = time();
 
 		if ($mode === 'demo') {
-			return $this->calculateDemo();
+			return $this->calculateDemo($start, $end, $started_at, $options);
 		}
 		if ($mode === 'group') {
 			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun);
@@ -572,91 +573,215 @@ class Concurrencycount implements \BMO {
 	}
 
 	/**
-	 * In-memory demo fixture. This deliberately does not write to CDR; it
-	 * exercises the same inclusive per-second counting style with predictable
-	 * synthetic PJSIP extension legs.
+	 * Temporary demo fixture. Rows are inserted with a unique accountcode,
+	 * counted via the normal CDR queries, then removed in a finally block.
 	 */
-	private function calculateDemo(): array {
-		$start = '2001-01-01 09:00:00';
-		$end = '2001-01-01 10:00:00';
-		$rows = [
-			['calldate' => '2001-01-01 09:00:00', 'duration' => 600, 'chan' => 'PJSIP/101-aaa101', 'channel' => 'PJSIP/101-aaa101', 'dstchannel' => ''],
-			['calldate' => '2001-01-01 09:05:00', 'duration' => 600, 'chan' => 'PJSIP/101-bbb101', 'channel' => 'PJSIP/101-bbb101', 'dstchannel' => ''],
-			['calldate' => '2001-01-01 09:03:00', 'duration' => 600, 'chan' => 'PJSIP/102-aaa102', 'channel' => 'PJSIP/102-aaa102', 'dstchannel' => ''],
-			['calldate' => '2001-01-01 09:07:00', 'duration' => 600, 'chan' => 'PJSIP/102-bbb102', 'channel' => 'PJSIP/102-bbb102', 'dstchannel' => ''],
-			['calldate' => '2001-01-01 09:20:00', 'duration' => 300, 'chan' => 'PJSIP/103-aaa103', 'channel' => 'PJSIP/103-aaa103', 'dstchannel' => ''],
-		];
+	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
+		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
+		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
+		$range = $this->normaliseDemoRange($start, $end);
+		$start = $range['start'];
+		$end = $range['end'];
+		$accountcode = 'CCDEMO' . substr(hash('sha1', microtime(true) . random_int(0, PHP_INT_MAX)), 0, 8);
+		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode);
+		$inserted = 0;
 
-		$max_concurrent = [];
-		$ongoing_calls = [];
-		$per_second_count = [];
-
-		foreach ($rows as $row) {
-			$start_ts = strtotime($row['calldate']);
-			$end_ts = $start_ts + (int)$row['duration'];
-
-			if (preg_match('|PJSIP/([0-9]+)-|', $row['chan'], $m)) {
-				$name = $m[1];
-				for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-					$key = $name . ',' . $ts;
-					$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
-					if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) {
-						$max_concurrent[$name] = $ongoing_calls[$key];
-					}
-				}
+		try {
+			foreach ($rows as $row) {
+				$this->insertDemoCdrRow($row);
+				$inserted++;
 			}
 
-			$ext1 = '';
-			if (preg_match('|^PJSIP/([0-9]+)-|', $row['channel'], $m)) {
-				$ext1 = $m[1];
-			}
-			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				if ($ext1 !== '') {
-					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
-				}
-			}
+			$extension = $this->calculatePerName('extension', $start, $end, $started_at, true, $accountcode);
+			$group = $this->calculateGroup($start, $end, $started_at, true, $accountcode);
+
+			return [
+				'mode' => 'demo', 'start' => $start, 'end' => $end,
+				'per_name' => isset($extension['per_name']) ? $extension['per_name'] : [],
+				'global_max' => isset($extension['global_max']) ? $extension['global_max'] : 0,
+				'max_concurrency' => isset($group['max_concurrency']) ? $group['max_concurrency'] : 0,
+				'peak_ranges' => isset($group['peak_ranges']) ? $group['peak_ranges'] : [],
+				'rows_processed' => $inserted,
+				'rows_inserted' => $inserted,
+				'demo_size' => $size,
+				'demo_seed' => (string)$seed,
+				'warning' => _('Demo mode temporarily inserted synthetic CDR rows and removed them automatically after the run.'),
+			];
+		} finally {
+			$this->cleanupDemoCdrRows($accountcode);
 		}
+	}
 
-		ksort($max_concurrent);
-		$global_max = 0;
-		foreach ($max_concurrent as $v) {
-			if ($v > $global_max) $global_max = $v;
-		}
-
-		$group_max = 0;
-		$peak_times = [];
-		foreach ($per_second_count as $ts => $count) {
-			if ($count > $group_max) {
-				$group_max = $count;
-				$peak_times = [$ts];
-			} elseif ($count === $group_max) {
-				$peak_times[] = $ts;
-			}
-		}
-		sort($peak_times);
-
+	private function requestDemoOptions(): array {
 		return [
-			'mode' => 'demo', 'start' => $start, 'end' => $end,
-			'per_name' => $max_concurrent, 'global_max' => $global_max,
-			'max_concurrency' => $group_max, 'peak_ranges' => $this->coalesceRanges($peak_times),
-			'rows_processed' => count($rows),
-			'warning' => _('Demo mode uses synthetic in-memory CDR rows and does not read or write asteriskcdrdb.'),
+			'demo_size' => isset($_REQUEST['demo_size']) ? $_REQUEST['demo_size'] : 'light',
+			'demo_seed' => isset($_REQUEST['demo_seed']) ? $_REQUEST['demo_seed'] : 0,
 		];
+	}
+
+	private function normaliseDemoSize($size): string {
+		$size = strtolower(trim((string)$size));
+		if (in_array($size, ['light', 'medium', 'heavy'], true)) {
+			return $size;
+		}
+		return 'light';
+	}
+
+	private function normaliseDemoRange(string $start, string $end): array {
+		$start = $this->normaliseStartDate($start);
+		$end = $this->normaliseEndDate($end);
+		if ($start === null || $end === null) {
+			throw new \Exception(_('Invalid demo date range.'));
+		}
+		$st = strtotime($start);
+		$et = strtotime($end);
+		if ($et <= $st) {
+			throw new \Exception(_('Demo end date must be after start date.'));
+		}
+		if (($et - $st) < 900) {
+			throw new \Exception(_('Demo range must be at least 15 minutes.'));
+		}
+		if (($et - $st) > 604800) {
+			throw new \Exception(_('Demo range must be no more than 7 days.'));
+		}
+		return ['start' => $start, 'end' => $end];
+	}
+
+	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode): array {
+		$counts = ['light' => 8, 'medium' => 32, 'heavy' => 120];
+		$count = $counts[$size];
+		$start_ts = strtotime($start);
+		$end_ts = strtotime($end);
+		$span = max(900, $end_ts - $start_ts);
+		$min_duration = ($size === 'heavy') ? 120 : 180;
+		$max_duration = ($size === 'heavy') ? 1200 : (($size === 'medium') ? 900 : 600);
+		$state = $seed ?: 246813579;
+		$extensions = ['101', '102', '103', '104', '105', '106', '107', '108'];
+		$rows = [];
+
+		for ($i = 0; $i < $count; $i++) {
+			$state = $this->demoRand($state);
+			$offset_limit = max(1, $span - $min_duration);
+			$offset = $state % $offset_limit;
+			$state = $this->demoRand($state);
+			$duration = $min_duration + ($state % max(1, ($max_duration - $min_duration)));
+			if (($start_ts + $offset + $duration) > $end_ts) {
+				$duration = max(60, $end_ts - ($start_ts + $offset));
+			}
+			$state = $this->demoRand($state);
+			$ext = $extensions[$state % count($extensions)];
+			$calldate = date('Y-m-d H:i:s', $start_ts + $offset);
+			$token = substr(hash('sha1', $accountcode . ':' . $i . ':' . $state), 0, 10);
+
+			$rows[] = [
+				'calldate' => $calldate,
+				'duration' => $duration,
+				'channel' => 'PJSIP/' . $ext . '-' . $token,
+				'dstchannel' => '',
+				'src' => $ext,
+				'dst' => '555' . sprintf('%04d', $i),
+				'accountcode' => $accountcode,
+				'uniqueid' => $accountcode . '-' . $i,
+				'linkedid' => $accountcode . '-' . $i,
+			];
+		}
+
+		return $rows;
+	}
+
+	private function demoRand(int $state): int {
+		return (int)(($state * 1103515245 + 12345) & 0x7fffffff);
+	}
+
+	private function insertDemoCdrRow(array $row): void {
+		$columns = $this->cdrdb->query('SHOW COLUMNS FROM cdr')->fetchAll(\PDO::FETCH_ASSOC);
+		$insert_columns = [];
+		$placeholders = [];
+		$params = [];
+
+		foreach ($columns as $col) {
+			$field = $col['Field'];
+			$extra = isset($col['Extra']) ? strtolower($col['Extra']) : '';
+			if (strpos($extra, 'auto_increment') !== false) {
+				continue;
+			}
+			$value = $this->demoColumnValue($field, $col, $row);
+			if ($value === '__CC_SKIP__') {
+				continue;
+			}
+			$key = ':p' . count($params);
+			$insert_columns[] = '`' . str_replace('`', '``', $field) . '`';
+			$placeholders[] = $key;
+			$params[$key] = $value;
+		}
+
+		$sql = 'INSERT INTO cdr (' . implode(',', $insert_columns) . ') VALUES (' . implode(',', $placeholders) . ')';
+		$stmt = $this->cdrdb->prepare($sql);
+		$stmt->execute($params);
+	}
+
+	private function demoColumnValue(string $field, array $col, array $row) {
+		$values = [
+			'calldate' => $row['calldate'],
+			'clid' => '"Demo" <' . $row['src'] . '>',
+			'src' => $row['src'],
+			'dst' => $row['dst'],
+			'dcontext' => 'from-internal',
+			'channel' => $row['channel'],
+			'dstchannel' => $row['dstchannel'],
+			'lastapp' => 'Dial',
+			'lastdata' => $row['dstchannel'],
+			'duration' => (int)$row['duration'],
+			'billsec' => (int)$row['duration'],
+			'disposition' => 'ANSWERED',
+			'amaflags' => 3,
+			'accountcode' => $row['accountcode'],
+			'uniqueid' => $row['uniqueid'],
+			'linkedid' => $row['linkedid'],
+			'userfield' => 'Concurrency Count demo',
+			'cnum' => $row['src'],
+			'cnam' => 'Demo',
+			'outbound_cnum' => $row['src'],
+			'outbound_cnam' => 'Demo',
+			'sequence' => 0,
+		];
+		if (array_key_exists($field, $values)) {
+			return $values[$field];
+		}
+		if (isset($col['Null']) && strtoupper($col['Null']) === 'YES') {
+			return null;
+		}
+		if (isset($col['Default']) && $col['Default'] !== null) {
+			return $col['Default'];
+		}
+		$type = isset($col['Type']) ? strtolower($col['Type']) : '';
+		if (preg_match('/int|decimal|float|double|bit|bool/', $type)) {
+			return 0;
+		}
+		if (preg_match('/date|time|year/', $type)) {
+			return $row['calldate'];
+		}
+		return '';
+	}
+
+	private function cleanupDemoCdrRows(string $accountcode): void {
+		$stmt = $this->cdrdb->prepare('DELETE FROM cdr WHERE accountcode = :accountcode');
+		$stmt->execute([':accountcode' => $accountcode]);
 	}
 
 	/**
 	 * Per-name (trunk or extension) concurrency.
 	 * Mirrors bash calculate_concurrency().
 	 */
-	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun): array {
+	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = ''): array {
 		if ($mode === 'trunk') {
 			$trunks = $this->getTrunks();
 			if (empty($trunks)) {
 				return $this->emptyResult($mode, $start, $end, _('No PJSIP trunks detected.'));
 			}
-			$rows = $this->fetchTrunkRows($trunks, $start, $end);
+			$rows = $this->fetchTrunkRows($trunks, $start, $end, $accountcode);
 		} else {
-			$rows = $this->fetchExtensionRows($start, $end);
+			$rows = $this->fetchExtensionRows($start, $end, $accountcode);
 		}
 
 		if (empty($rows)) {
@@ -751,14 +876,20 @@ class Concurrencycount implements \BMO {
 	/**
 	 * Group mode. Mirrors bash calculate_group_concurrency().
 	 */
-	private function calculateGroup(string $start, string $end, int $started_at, bool $confirm_overrun): array {
+	private function calculateGroup(string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = ''): array {
 		$sql = "SELECT calldate, duration, channel, dstchannel
 				FROM cdr
 				WHERE disposition = 'ANSWERED'
 				  AND calldate BETWEEN :start AND :end
 				  AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
 		$stmt = $this->cdrdb->prepare($sql);
-		$stmt->execute([':start' => $start, ':end' => $end]);
+		$params = [':start' => $start, ':end' => $end];
+		if ($accountcode !== '') {
+			$sql .= " AND accountcode = :accountcode";
+			$params[':accountcode'] = $accountcode;
+			$stmt = $this->cdrdb->prepare($sql);
+		}
+		$stmt->execute($params);
 		$rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
 		if (empty($rows)) {
@@ -881,7 +1012,7 @@ class Concurrencycount implements \BMO {
 		return $ranges;
 	}
 
-	private function fetchTrunkRows(array $trunks, string $start, string $end): array {
+	private function fetchTrunkRows(array $trunks, string $start, string $end, string $accountcode = ''): array {
 		$placeholders = [];
 		$params = [':start' => $start, ':end' => $end];
 		$i = 0;
@@ -893,21 +1024,35 @@ class Concurrencycount implements \BMO {
 		}
 		$trunk_condition = '(' . implode(' OR ', $placeholders) . ')';
 
+		$account_filter = '';
+		if ($accountcode !== '') {
+			$account_filter = ' AND accountcode = :accountcode';
+			$params[':accountcode'] = $accountcode;
+		}
+
 		$sql = "SELECT calldate, duration, channel AS chan FROM cdr
 				WHERE disposition='ANSWERED'
 				  AND calldate BETWEEN :start AND :end
+				  $account_filter
 				  AND ($trunk_condition OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))
 				UNION ALL
 				SELECT calldate, duration, dstchannel AS chan FROM cdr
 				WHERE disposition='ANSWERED'
 				  AND calldate BETWEEN :start AND :end
+				  $account_filter
 				  AND ($trunk_condition OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))";
 		$stmt = $this->cdrdb->prepare($sql);
 		$stmt->execute($params);
 		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 	}
 
-	private function fetchExtensionRows(string $start, string $end): array {
+	private function fetchExtensionRows(string $start, string $end, string $accountcode = ''): array {
+		$params = [':start' => $start, ':end' => $end];
+		$account_filter = '';
+		if ($accountcode !== '') {
+			$account_filter = ' AND accountcode = :accountcode';
+			$params[':accountcode'] = $accountcode;
+		}
 		$sql = "SELECT calldate, duration,
 					CASE
 						WHEN dstchannel REGEXP '^PJSIP/[0-9]+-' THEN dstchannel
@@ -917,10 +1062,11 @@ class Concurrencycount implements \BMO {
 				FROM cdr
 				WHERE disposition='ANSWERED'
 				  AND calldate BETWEEN :start AND :end
+				  $account_filter
 				  AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')
 				  AND dst NOT REGEXP '^[19]'";
 		$stmt = $this->cdrdb->prepare($sql);
-		$stmt->execute([':start' => $start, ':end' => $end]);
+		$stmt->execute($params);
 		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 	}
 
@@ -1027,6 +1173,7 @@ class Concurrencycount implements \BMO {
 		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
+		$options = $this->requestDemoOptions();
 
 		if ($mode === null) {
 			http_response_code(400);
@@ -1034,7 +1181,7 @@ class Concurrencycount implements \BMO {
 			return;
 		}
 		try {
-			$results = $this->calculate($mode, $start, $end, true);
+			$results = $this->calculate($mode, $start, $end, true, $options);
 			$csv = $this->resultsToCsv($results);
 			$filename = 'concurrency-count-' . $mode . '-' . date('Ymd-His') . '.csv';
 
@@ -1053,6 +1200,7 @@ class Concurrencycount implements \BMO {
 		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
+		$options = $this->requestDemoOptions();
 		$to = isset($_REQUEST['email']) ? trim($_REQUEST['email']) : '';
 
 		// Defence in depth against header injection. filter_var with
@@ -1070,7 +1218,7 @@ class Concurrencycount implements \BMO {
 		}
 
 		try {
-			$results = $this->calculate($mode, $start, $end, true);
+			$results = $this->calculate($mode, $start, $end, true, $options);
 			$csv = $this->resultsToCsv($results);
 			$filename = 'concurrency-count-' . $mode . '-' . date('Ymd-His') . '.csv';
 

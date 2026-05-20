@@ -111,15 +111,43 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-demo-title"><?php echo _('Concurrency Count Demo'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<p><?php echo _('The demo uses synthetic in-memory PJSIP CDR rows. It does not read or write your CDR database.'); ?></p>
-				<dl class="dl-horizontal">
-					<dt><?php echo _('Date range'); ?></dt>
-					<dd>2001-01-01 09:00:00 &ndash; 2001-01-01 10:00:00</dd>
-					<dt><?php echo _('Expected extensions'); ?></dt>
-					<dd>101 = 2, 102 = 2, 103 = 1</dd>
-					<dt><?php echo _('Expected group peak'); ?></dt>
-					<dd>4, from 2001-01-01 09:07:00 to 2001-01-01 09:10:00</dd>
-				</dl>
+				<p><?php echo _('The demo temporarily writes synthetic PJSIP CDR rows, runs the report, then removes the demo rows automatically.'); ?></p>
+				<div class="form-group">
+					<label class="control-label"><?php echo _('Demo size'); ?></label>
+					<div class="btn-group btn-group-justified" data-toggle="buttons">
+						<label class="btn btn-default active">
+							<input type="radio" name="cc-demo-size" value="light" checked> <?php echo _('Light'); ?>
+						</label>
+						<label class="btn btn-default">
+							<input type="radio" name="cc-demo-size" value="medium"> <?php echo _('Medium'); ?>
+						</label>
+						<label class="btn btn-default">
+							<input type="radio" name="cc-demo-size" value="heavy"> <?php echo _('Heavy'); ?>
+						</label>
+					</div>
+				</div>
+				<div class="row">
+					<div class="col-sm-6">
+						<div class="form-group">
+							<label class="control-label" for="cc-demo-start"><?php echo _('Start'); ?></label>
+							<input type="text" id="cc-demo-start" class="form-control" value="2001-01-01 09:00:00">
+						</div>
+					</div>
+					<div class="col-sm-6">
+						<div class="form-group">
+							<label class="control-label" for="cc-demo-end"><?php echo _('End'); ?></label>
+							<input type="text" id="cc-demo-end" class="form-control" value="2001-01-01 10:00:00">
+						</div>
+					</div>
+				</div>
+				<div class="form-group">
+					<label class="control-label"><?php echo _('Randomise'); ?></label>
+					<div id="cc-demo-entropy" class="cc-demo-entropy">
+						<span><?php echo _('Move inside this box to vary the synthetic call pattern.'); ?></span>
+					</div>
+					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('No movement captured yet.'); ?></span>
+				</div>
+				<p class="text-muted"><?php echo _('Use Light for a quick sanity check, Medium for a busier overlap pattern, or Heavy to exercise a larger report range.'); ?></p>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>

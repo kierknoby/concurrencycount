@@ -27,6 +27,8 @@ class Concurrencycount extends Command {
 			->addOption('mode', 'm', InputOption::VALUE_REQUIRED, 'Mode: trunk, extension, group, or demo (abbreviations accepted)', 'trunk')
 			->addOption('start', 's', InputOption::VALUE_REQUIRED, 'Start date YYYY-MM-DD HH:MM:SS (or shorthand)')
 			->addOption('end', 'e', InputOption::VALUE_REQUIRED, 'End date YYYY-MM-DD HH:MM:SS (or shorthand)')
+			->addOption('demo-size', null, InputOption::VALUE_REQUIRED, 'Demo size: light, medium, or heavy', 'light')
+			->addOption('demo-seed', null, InputOption::VALUE_REQUIRED, 'Demo random seed', '0')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text');
 	}
 
@@ -34,6 +36,8 @@ class Concurrencycount extends Command {
 		$mode_raw = $input->getOption('mode');
 		$start_raw = $input->getOption('start');
 		$end_raw = $input->getOption('end');
+		$demo_size = $input->getOption('demo-size');
+		$demo_seed = $input->getOption('demo-seed');
 		$csv = $input->getOption('csv');
 
 		$cc = \FreePBX::Concurrencycount();
@@ -50,8 +54,8 @@ class Concurrencycount extends Command {
 		}
 
 		if ($mode === 'demo') {
-			$start = '2001-01-01 09:00:00';
-			$end = '2001-01-01 10:00:00';
+			$start = $start_raw ?: '2001-01-01 09:00:00';
+			$end = $end_raw ?: '2001-01-01 10:00:00';
 		} else {
 			$start = $cc->normaliseStartDate($start_raw);
 			$end = $cc->normaliseEndDate($end_raw);
@@ -60,7 +64,10 @@ class Concurrencycount extends Command {
 		}
 
 		try {
-			$results = $cc->calculate($mode, $start, $end, true);
+			$results = $cc->calculate($mode, $start, $end, true, [
+				'demo_size' => $demo_size,
+				'demo_seed' => $demo_seed,
+			]);
 		} catch (\Exception $e) {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');
 			return 1;

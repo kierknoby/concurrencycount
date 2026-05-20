@@ -63,17 +63,13 @@ Same mode abbreviations and shorthand dates as the wizard.
 
 ## Demo mode
 
-For a test PBX with no useful sample CDRs, click **Run Demo** on the module page or run:
+For a test PBX with no useful sample CDRs, click **Run Demo** on the module page. Choose Light, Medium, or Heavy, optionally move in the randomise box to vary the synthetic call pattern, then run the demo.
 
 ```
-fwconsole concurrencycount --mode=demo
+fwconsole concurrencycount --mode=demo --demo-size=medium --demo-seed=12345
 ```
 
-Demo mode uses a small in-memory fixture for `2001-01-01 09:00:00` to `2001-01-01 10:00:00`. It does not read or write `asteriskcdrdb`.
-
-Expected extension results: `101 => 2`, `102 => 2`, `103 => 1`, global maximum `2`.
-
-Expected group result: maximum concurrent calls overall `4`, peaking from `2001-01-01 09:07:00` to `2001-01-01 09:10:00`.
+Demo mode temporarily inserts tagged synthetic CDR rows, runs the normal CDR-backed extension and group report paths against those rows only, then removes the demo rows automatically.
 
 ## Notes
 

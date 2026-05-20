@@ -37,6 +37,10 @@ window._ccLoaded = true;
 	var finalMode = null;
 	var finalStart = null;
 	var finalEnd = null;
+	var finalDemoSize = null;
+	var finalDemoSeed = null;
+	var demoSeed = 0;
+	var demoMoves = 0;
 
 	/**
 	 * Use jQuery's DOM round-trip for HTML escaping. Cheaper than chained
@@ -109,12 +113,29 @@ window._ccLoaded = true;
 	function showDemoPrompt() {
 		$('#cc-results').hide();
 		setStatus('', null);
+		demoSeed = (Date.now() & 0xffffffff) >>> 0;
+		demoMoves = 0;
+		$('#cc-demo-entropy').removeClass('cc-demo-entropy-active');
+		$('#cc-demo-entropy-status').text('No movement captured yet.');
 		$('#cc-demo').modal('show');
 	}
 
 	function runDemo() {
+		var size = $('input[name="cc-demo-size"]:checked').val() || 'light';
+		var start = $('#cc-demo-start').val();
+		var end = $('#cc-demo-end').val();
 		$('#cc-demo').modal('hide');
-		executeRun('demo', '2001-01-01 09:00:00', '2001-01-01 10:00:00');
+		executeRun('demo', start, end, {
+			demo_size: size,
+			demo_seed: String(demoSeed >>> 0)
+		});
+	}
+
+	function stirDemoSeed(x, y) {
+		demoMoves++;
+		demoSeed = (((demoSeed * 33) >>> 0) ^ (x << 16) ^ y ^ Date.now()) >>> 0;
+		$('#cc-demo-entropy').addClass('cc-demo-entropy-active');
+		$('#cc-demo-entropy-status').text('Movement captured: ' + demoMoves + ' samples.');
 	}
 
 	/**
@@ -155,6 +176,8 @@ window._ccLoaded = true;
 		finalMode = r.mode;
 		finalStart = r.start;
 		finalEnd = r.end;
+		finalDemoSize = r.demo_size || null;
+		finalDemoSeed = r.demo_seed || null;
 
 		var modeLabel = r.mode.charAt(0).toUpperCase() + r.mode.slice(1);
 		$('#cc-results-title').text('Results: ' + modeLabel + ' mode');
@@ -223,7 +246,13 @@ window._ccLoaded = true;
 	}
 
 	function renderDemo(el, r) {
-		var html = '<h4>Extension demo</h4>';
+		var html = '<h4>Demo profile</h4>';
+		html += '<dl class="dl-horizontal">' +
+			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
+			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
+			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
+			'</dl>';
+		html += '<h4>Extension demo</h4>';
 		html += '<table class="table table-striped"><thead><tr>' +
 			'<th>Extension</th><th>Max concurrent</th>' +
 			'</tr></thead><tbody>';
@@ -466,11 +495,19 @@ window._ccLoaded = true;
 		return year + '-' + pad(m) + '-' + pad(d.getDate());
 	}
 
-	function executeRun(mode, start, end) {
-		setStatus('Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...', 'running');
+	function executeRun(mode, start, end, extraParams) {
+		if (mode === 'demo') {
+			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
+		} else {
+			setStatus('Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...', 'running');
+		}
 		$('#cc-results').hide();
 
-		ajax({command: 'run', mode: mode, start_date: start, end_date: end}).done(function (resp) {
+		var params = {command: 'run', mode: mode, start_date: start, end_date: end};
+		if (extraParams) {
+			$.extend(params, extraParams);
+		}
+		ajax(params).done(function (resp) {
 			if (resp.overrun_warning) {
 				showOverrunModal(resp, mode, start, end);
 				return;
@@ -530,10 +567,15 @@ window._ccLoaded = true;
 
 	function onDownload() {
 		if (!finalMode) return;
-		var qs = $.param({
+		var params = {
 			module: 'concurrencycount', command: 'download',
 			mode: finalMode, start_date: finalStart, end_date: finalEnd
-		});
+		};
+		if (finalMode === 'demo') {
+			params.demo_size = finalDemoSize || 'light';
+			params.demo_seed = finalDemoSeed || '0';
+		}
+		var qs = $.param(params);
 		window.location.href = 'ajax.php?' + qs;
 	}
 
@@ -548,10 +590,15 @@ window._ccLoaded = true;
 			return;
 		}
 		setStatus('Generating report and sending email...', 'running');
-		ajax({
+		var params = {
 			command: 'email', mode: finalMode,
 			start_date: finalStart, end_date: finalEnd, email: to
-		}).done(function (resp) {
+		};
+		if (finalMode === 'demo') {
+			params.demo_size = finalDemoSize || 'light';
+			params.demo_seed = finalDemoSeed || '0';
+		}
+		ajax(params).done(function (resp) {
 			if (resp.status) {
 				setStatus(resp.message, 'success');
 				$('#cc-email-row').hide();
@@ -572,6 +619,15 @@ window._ccLoaded = true;
 		$('#cc-launch').off('click').on('click', newWizard);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
 		$('#cc-demo-run').off('click').on('click', runDemo);
+		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
+			var off = $(this).offset();
+			stirDemoSeed(Math.floor(e.pageX - off.left), Math.floor(e.pageY - off.top));
+		}).on('touchmove', function (e) {
+			var touch = e.originalEvent.touches && e.originalEvent.touches[0];
+			if (!touch) return;
+			var off = $(this).offset();
+			stirDemoSeed(Math.floor(touch.pageX - off.left), Math.floor(touch.pageY - off.top));
+		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-wizard-cancel').off('click').on('click', function () {
 			setStatus('Session aborted.', 'warning');
