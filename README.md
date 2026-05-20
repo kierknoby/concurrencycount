@@ -46,7 +46,7 @@ Use `installlocal` when installing from an unpacked local module directory.
 For a clean first install from this GitHub repo on a PBX:
 
 ```
-cd /var/www/html/admin/modules && git clone https://github.com/kierknoby/concurrencycount.git && fwconsole ma install concurrencycount && fwconsole chown && fwconsole reload
+cd /root && rm -rf /var/www/html/admin/modules/concurrencycount && git clone https://github.com/kierknoby/concurrencycount.git /var/www/html/admin/modules/concurrencycount && fwconsole ma install concurrencycount; fwconsole ma list | grep -q "concurrencycount.*Not Installed" && rm -rf /var/www/html/admin/modules/concurrencycount; fwconsole chown && fwconsole reload
 ```
 
 ### Option 4: Clean reinstall from GitHub
