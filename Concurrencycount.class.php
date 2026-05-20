@@ -1628,13 +1628,13 @@ class Concurrencycount implements \BMO {
 
 			$subject = sprintf(_('Concurrency Count: %s from %s to %s'), ucfirst($mode), $start, $end);
 			$body = $this->buildEmailBody($results);
-			$ok = $this->sendMail($to, $subject, $body, $filename, $csv);
+			$mail_result = $this->sendMail($to, $subject, $body, $filename, $csv);
 
-			if ($ok) {
+			if ($mail_result['ok']) {
 				return ['status' => true, 'message' => sprintf(_('Report emailed to %s'), $to)];
 			}
-			return ['status' => false, 'message' => _('Failed to send email. Check the FreePBX system mail configuration.')];
-		} catch (\Exception $e) {
+			return ['status' => false, 'message' => $mail_result['message']];
+		} catch (\Throwable $e) {
 			return ['status' => false, 'message' => $e->getMessage()];
 		}
 	}
@@ -1725,12 +1725,19 @@ class Concurrencycount implements \BMO {
 		return implode("\n", $lines);
 	}
 
-	private function sendMail(string $to, string $subject, string $body, string $attachFilename, string $attachContent): bool {
+	private function sendMail(string $to, string $subject, string $body, string $attachFilename, string $attachContent): array {
+		$errors = [];
 		try {
 			$mailer = $this->FreePBX->Mail();
 			if (is_object($mailer)) {
+				if (method_exists($mailer, 'clearAllRecipients')) {
+					$mailer->clearAllRecipients();
+				}
 				if (method_exists($mailer, 'clearAddresses')) {
 					$mailer->clearAddresses();
+				}
+				if (method_exists($mailer, 'clearAttachments')) {
+					$mailer->clearAttachments();
 				}
 				if (method_exists($mailer, 'addAddress')) {
 					$mailer->addAddress($to);
@@ -1746,6 +1753,12 @@ class Concurrencycount implements \BMO {
 					$mailer->Subject = $subject;
 				}
 
+				if (method_exists($mailer, 'isHTML')) {
+					$mailer->isHTML(false);
+				}
+				if (property_exists($mailer, 'CharSet')) {
+					$mailer->CharSet = 'UTF-8';
+				}
 				if (method_exists($mailer, 'setBody')) {
 					$mailer->setBody($body);
 				} else {
@@ -1753,38 +1766,84 @@ class Concurrencycount implements \BMO {
 					$mailer->AltBody = $body;
 				}
 
+				$attached = false;
 				if (method_exists($mailer, 'addStringAttachment')) {
 					$mailer->addStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
+					$attached = true;
 				} elseif (method_exists($mailer, 'AddStringAttachment')) {
 					$mailer->AddStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
+					$attached = true;
 				}
-
-				if (method_exists($mailer, 'send')) {
-					return (bool)$mailer->send();
-				}
-				if (method_exists($mailer, 'Send')) {
-					return (bool)$mailer->Send();
+				if (!$attached) {
+					$errors[] = _('FreePBX mailer does not support in-memory CSV attachments.');
+				} elseif (method_exists($mailer, 'send')) {
+					$ok = (bool)$mailer->send();
+					if ($ok) return ['ok' => true, 'message' => ''];
+					$errors[] = $this->mailerError($mailer);
+				} elseif (method_exists($mailer, 'Send')) {
+					$ok = (bool)$mailer->Send();
+					if ($ok) return ['ok' => true, 'message' => ''];
+					$errors[] = $this->mailerError($mailer);
+				} else {
+					$errors[] = _('FreePBX mailer object did not expose a supported send method.');
 				}
 			}
-		} catch (\Exception $e) {
-			// Fall through
+		} catch (\Throwable $e) {
+			$errors[] = $e->getMessage();
 		}
 
 		$boundary = md5(uniqid('cc', true));
+		$from = $this->defaultMailFrom();
 		$headers = "MIME-Version: 1.0\r\n";
+		$headers .= "From: " . $from . "\r\n";
+		$headers .= "X-Mailer: Concurrency Count\r\n";
 		$headers .= "Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n";
 
 		$msg = "--$boundary\r\n";
 		$msg .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
 		$msg .= $body . "\r\n\r\n";
 		$msg .= "--$boundary\r\n";
-		$msg .= "Content-Type: text/csv; name=\"$attachFilename\"\r\n";
+		$msg .= "Content-Type: text/csv; name=\"" . addcslashes($attachFilename, "\\\"") . "\"\r\n";
 		$msg .= "Content-Transfer-Encoding: base64\r\n";
-		$msg .= "Content-Disposition: attachment; filename=\"$attachFilename\"\r\n\r\n";
+		$msg .= "Content-Disposition: attachment; filename=\"" . addcslashes($attachFilename, "\\\"") . "\"\r\n\r\n";
 		$msg .= chunk_split(base64_encode($attachContent)) . "\r\n";
 		$msg .= "--$boundary--";
 
-		return @mail($to, $subject, $msg, $headers);
+		$ok = @mail($to, $subject, $msg, $headers, '-f' . $from);
+		if ($ok) {
+			return ['ok' => true, 'message' => ''];
+		}
+		$error_text = empty($errors) ? '' : ' Details: ' . implode(' / ', array_filter($errors));
+		return [
+			'ok' => false,
+			'message' => _('Failed to send email. Check the FreePBX system mail configuration.') . $error_text,
+		];
+	}
+
+	private function mailerError($mailer): string {
+		if (is_object($mailer) && property_exists($mailer, 'ErrorInfo') && $mailer->ErrorInfo !== '') {
+			return (string)$mailer->ErrorInfo;
+		}
+		if (is_object($mailer) && method_exists($mailer, 'getError')) {
+			return (string)$mailer->getError();
+		}
+		return _('FreePBX mailer returned failure without an error message.');
+	}
+
+	private function defaultMailFrom(): string {
+		$host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
+		if ($host === '' && isset($_SERVER['HTTP_HOST'])) {
+			$host = $_SERVER['HTTP_HOST'];
+		}
+		if ($host === '') {
+			$host = php_uname('n');
+		}
+		$host = preg_replace('/:\d+$/', '', (string)$host);
+		$host = strtolower(preg_replace('/[^a-z0-9.-]/i', '', (string)$host));
+		if ($host === '' || strpos($host, '.') === false) {
+			$host = 'localhost.localdomain';
+		}
+		return 'concurrencycount@' . $host;
 	}
 }
 
