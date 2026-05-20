@@ -63,7 +63,7 @@ Same mode abbreviations and shorthand dates as the wizard.
 
 ## Demo mode
 
-For a test PBX with no useful sample CDRs, choose `demo` in the wizard or run:
+For a test PBX with no useful sample CDRs, click **Run Demo** on the module page or run:
 
 ```
 fwconsole concurrencycount --mode=demo

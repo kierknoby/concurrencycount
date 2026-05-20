@@ -106,6 +106,17 @@ window._ccLoaded = true;
 		$('#cc-wizard').modal('hide');
 	}
 
+	function showDemoPrompt() {
+		$('#cc-results').hide();
+		setStatus('', null);
+		$('#cc-demo').modal('show');
+	}
+
+	function runDemo() {
+		$('#cc-demo').modal('hide');
+		executeRun('demo', '2001-01-01 09:00:00', '2001-01-01 10:00:00');
+	}
+
 	/**
 	 * promptHtml is the only place where we accept HTML rather than text.
 	 * It's called only with constant strings from this file (the prompts
@@ -559,6 +570,8 @@ window._ccLoaded = true;
 		// re-runs DOM-ready handlers) doesn't double-bind clicks. Lifted from
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
+		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-demo-run').off('click').on('click', runDemo);
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-wizard-cancel').off('click').on('click', function () {
 			setStatus('Session aborted.', 'warning');
