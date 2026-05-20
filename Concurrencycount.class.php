@@ -692,6 +692,7 @@ class Concurrencycount implements \BMO {
 					'global_max' => isset($actual['global_max']) ? $actual['global_max'] : 0,
 					'max_concurrency' => isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0,
 					'peak_ranges' => isset($actual['peak_ranges']) ? $actual['peak_ranges'] : [],
+					'overview' => isset($actual['overview']) ? $actual['overview'] : [],
 				];
 			}
 			$actual = $engine_results[$demo_engines[0]];
@@ -703,6 +704,7 @@ class Concurrencycount implements \BMO {
 				'global_max' => isset($actual['global_max']) ? $actual['global_max'] : 0,
 				'max_concurrency' => isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0,
 				'peak_ranges' => isset($actual['peak_ranges']) ? $actual['peak_ranges'] : [],
+				'overview' => isset($actual['overview']) ? $actual['overview'] : [],
 				'expected_per_name' => isset($expected['per_name']) ? $expected['per_name'] : [],
 				'expected_global_max' => isset($expected['global_max']) ? $expected['global_max'] : 0,
 				'expected_max_concurrency' => isset($expected['max_concurrency']) ? $expected['max_concurrency'] : 0,
@@ -1093,6 +1095,7 @@ class Concurrencycount implements \BMO {
 		$result = [
 			'mode' => $mode, 'start' => $start, 'end' => $end,
 			'per_name' => $calculated['per_name'], 'global_max' => $calculated['global_max'],
+			'overview' => $this->buildPerNameOverview($mode, $start, $end, $rows, $calculated),
 			'rows_processed' => $calculated['rows_processed'],
 			'warning' => $this->trunkNamingWarning(),
 		];
@@ -1154,6 +1157,7 @@ class Concurrencycount implements \BMO {
 		$result = [
 			'mode' => 'group', 'start' => $start, 'end' => $end,
 			'max_concurrency' => $calculated['max_concurrency'], 'peak_ranges' => $calculated['peak_ranges'],
+			'overview' => $this->buildGroupOverview($start, $end, $rows, $calculated),
 			'rows_processed' => $calculated['rows_processed'],
 			'warning' => $this->trunkNamingWarning(),
 		];
@@ -1161,6 +1165,105 @@ class Concurrencycount implements \BMO {
 			$result['engine'] = $engine_id;
 		}
 		return $result;
+	}
+
+	private function buildPerNameOverview(string $mode, string $start, string $end, array $rows, array $calculated): array {
+		$start_ts = strtotime($start);
+		$end_ts = strtotime($end);
+		$period_seconds = max(1, ($end_ts - $start_ts) + 1);
+		$total_seconds = 0;
+		$names_seen = [];
+		foreach ($rows as $row) {
+			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
+			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
+			$chan = isset($row['chan']) ? $row['chan'] : '';
+			if ($calldate === '' || $duration <= 0 || $chan === '') {
+				continue;
+			}
+			if ($mode === 'extension') {
+				if (!preg_match('|PJSIP/([0-9]+)-|', $chan, $m)) continue;
+				$name = $m[1];
+			} else {
+				if (!preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $chan, $m)) continue;
+				$name = $m[1];
+				if (preg_match('/^[0-9]+$/', $name)) continue;
+			}
+			$call_start = strtotime($calldate);
+			$call_end = $call_start + $duration;
+			$overlap_start = max($start_ts, $call_start);
+			$overlap_end = min($end_ts, $call_end);
+			if ($overlap_end < $overlap_start) {
+				continue;
+			}
+			$total_seconds += ($overlap_end - $overlap_start) + 1;
+			$names_seen[$name] = true;
+		}
+		$average = $total_seconds / $period_seconds;
+		$global_max = isset($calculated['global_max']) ? (int)$calculated['global_max'] : 0;
+		return [
+			'average_concurrency' => round($average, 2),
+			'peak_to_average_ratio' => $average > 0 ? round($global_max / $average, 2) : 0,
+			'names_with_peak' => $this->countNamesAtPeak(isset($calculated['per_name']) ? $calculated['per_name'] : [], $global_max),
+			'names_seen' => count($names_seen),
+		];
+	}
+
+	private function buildGroupOverview(string $start, string $end, array $rows, array $calculated): array {
+		$start_ts = strtotime($start);
+		$end_ts = strtotime($end);
+		$period_seconds = max(1, ($end_ts - $start_ts) + 1);
+		$total_seconds = 0;
+		foreach ($rows as $row) {
+			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
+			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
+			if ($calldate === '' || $duration <= 0) {
+				continue;
+			}
+			$call_start = strtotime($calldate);
+			$call_end = $call_start + min($duration, 86400);
+			$overlap_start = max($start_ts, $call_start);
+			$overlap_end = min($end_ts, $call_end);
+			if ($overlap_end < $overlap_start) {
+				continue;
+			}
+			$seconds = ($overlap_end - $overlap_start) + 1;
+			if (preg_match('|^PJSIP/([0-9]+)-|', isset($row['channel']) ? $row['channel'] : '')) {
+				$total_seconds += $seconds;
+			}
+			if (preg_match('|^PJSIP/([0-9]+)-|', isset($row['dstchannel']) ? $row['dstchannel'] : '')) {
+				$total_seconds += $seconds;
+			}
+		}
+		$average = $total_seconds / $period_seconds;
+		$max = isset($calculated['max_concurrency']) ? (int)$calculated['max_concurrency'] : 0;
+		$peak_seconds = $this->rangeSeconds(isset($calculated['peak_ranges']) ? $calculated['peak_ranges'] : []);
+		return [
+			'average_concurrency' => round($average, 2),
+			'peak_to_average_ratio' => $average > 0 ? round($max / $average, 2) : 0,
+			'peak_seconds' => $peak_seconds,
+			'peak_period_percent' => round(($peak_seconds / $period_seconds) * 100, 2),
+		];
+	}
+
+	private function countNamesAtPeak(array $per_name, int $peak): int {
+		$count = 0;
+		foreach ($per_name as $value) {
+			if ((int)$value === $peak && $peak > 0) {
+				$count++;
+			}
+		}
+		return $count;
+	}
+
+	private function rangeSeconds(array $ranges): int {
+		$total = 0;
+		foreach ($ranges as $range) {
+			if (!isset($range['from']) || !isset($range['to'])) {
+				continue;
+			}
+			$total += max(0, strtotime($range['to']) - strtotime($range['from']) + 1);
+		}
+		return $total;
 	}
 
 	/**

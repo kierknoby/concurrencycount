@@ -282,7 +282,7 @@ window._ccLoaded = true;
 		var body = $('#cc-results-body');
 		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
-			body.html('<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
+			body.html(renderExplanation(r) + '<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
 		} else if (r.mode === 'demo') {
 			renderDemo(body, r);
 		} else if (r.mode === 'group') {
@@ -296,8 +296,83 @@ window._ccLoaded = true;
 		$('#cc-results').show();
 	}
 
+	function renderExplanation(r) {
+		var html = '<div class="cc-result-explanation">';
+		html += '<h4>What this means</h4>';
+		html += '<p>' + escapeHtml(resultExplanationText(r)) + '</p>';
+		html += '</div>';
+		return html;
+	}
+
+	function resultExplanationText(r) {
+		var engine = r.engine || (r.engines ? 'comparison' : 'original');
+		var overview = r.overview || {};
+		if (r.empty_message) {
+			return 'No matching answered PJSIP calls were found for this report, so there is no concurrency peak to show.';
+		}
+		if (r.mode === 'demo') {
+			if (r.accuracy_status === 'pass' && r.engines) {
+				return 'The selected engines matched the independently calculated expected output for this demo fixture. Original remains the recommended engine; experimental engines are shown here so their speed and accuracy can be compared safely.';
+			}
+			if (r.accuracy_status === 'pass') {
+				return 'The demo output matched the independently calculated expected result, and the temporary CDR rows were checked after the run.';
+			}
+			if (r.accuracy_status === 'mixed') {
+				return 'At least one experimental engine did not match the expected output. Treat Original as the trusted result for this run and use the comparison details when reporting the mismatch.';
+			}
+			return 'The demo output did not match the independently calculated expected result. Treat this run as a failed accuracy check and do not use experimental results for decisions.';
+		}
+		if (r.mode === 'group') {
+			return groupExplanation(r, overview, engine);
+		}
+		var label = (r.mode === 'trunk') ? 'trunk' : 'extension';
+		return perNameExplanation(r, overview, engine, label);
+	}
+
+	function groupExplanation(r, overview, engine) {
+		var max = parseInt(r.max_concurrency, 10) || 0;
+		var average = parseFloat(overview.average_concurrency) || 0;
+		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
+		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
+		var text = 'The highest total number of simultaneous extension calls in this date range was ' + max + '.';
+		if (average > 0) {
+			text += ' Average concurrency across the selected period was ' + formatDecimal(average) + ', so the peak was ' + formatDecimal(ratio) + 'x the average.';
+		}
+		if (peakPercent > 0) {
+			if (peakPercent < 1) {
+				text += ' The peak was brief, covering less than 1% of the selected period.';
+			} else if (peakPercent >= 20) {
+				text += ' The peak was sustained, covering about ' + formatDecimal(peakPercent) + '% of the selected period.';
+			} else {
+				text += ' The peak covered about ' + formatDecimal(peakPercent) + '% of the selected period.';
+			}
+		}
+		text += ' Engine used: ' + engine + '.';
+		return text;
+	}
+
+	function perNameExplanation(r, overview, engine, label) {
+		var max = parseInt(r.global_max, 10) || 0;
+		var average = parseFloat(overview.average_concurrency) || 0;
+		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
+		var namesWithPeak = parseInt(overview.names_with_peak, 10) || 0;
+		var namesSeen = parseInt(overview.names_seen, 10) || 0;
+		var text = 'The highest simultaneous call count seen on any ' + label + ' in this date range was ' + max + '.';
+		if (average > 0) {
+			text += ' Across the selected period, average concurrent calls for this report were ' + formatDecimal(average) + ', so the peak was ' + formatDecimal(ratio) + 'x the average.';
+		}
+		if (namesWithPeak === 1 && namesSeen > 1) {
+			text += ' The peak was concentrated on one ' + label + '.';
+		} else if (namesWithPeak > 1) {
+			text += ' The same peak was reached by ' + namesWithPeak + ' ' + label + 's.';
+		}
+		text += ' Engine used: ' + engine + '.';
+		return text;
+	}
+
 	function renderGroup(el, r) {
-		var html = '<div class="cc-peak-summary">' +
+		var html = renderExplanation(r);
+		html += '<div class="cc-peak-summary">' +
 			'Maximum concurrent calls overall: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
 			'</div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
@@ -318,10 +393,11 @@ window._ccLoaded = true;
 		var label = (r.mode === 'trunk') ? 'Trunk' : 'Extension';
 		var names = Object.keys(r.per_name);
 		if (!names.length) {
-			el.html('<p class="text-muted">No calls found in the selected date range.</p>');
+			el.html(renderExplanation(r) + '<p class="text-muted">No calls found in the selected date range.</p>');
 			return;
 		}
-		var html = '<table class="table table-striped"><thead><tr>' +
+		var html = renderExplanation(r);
+		html += '<table class="table table-striped"><thead><tr>' +
 			'<th>' + escapeHtml(label) + '</th>' +
 			'<th>Max concurrent</th>' +
 			'</tr></thead><tbody>';
@@ -339,7 +415,8 @@ window._ccLoaded = true;
 	}
 
 	function renderDemo(el, r) {
-		var html = '<h4>Demo profile</h4>';
+		var html = renderExplanation(r);
+		html += '<h4>Demo profile</h4>';
 		html += '<dl class="dl-horizontal">' +
 			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
 			'<dt>Report</dt><dd>' + escapeHtml(r.demo_report || '') + '</dd>' +
@@ -726,6 +803,11 @@ window._ccLoaded = true;
 	function formatNumber(n) {
 		n = parseInt(n, 10) || 0;
 		return n.toLocaleString();
+	}
+
+	function formatDecimal(n) {
+		n = parseFloat(n) || 0;
+		return n.toFixed(2).replace(/\.?0+$/, '');
 	}
 
 	/* ---------- Download / email ---------- */

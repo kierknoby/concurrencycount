@@ -38,6 +38,21 @@
 	font-size: 1.4em;
 }
 
+.concurrencycount .cc-result-explanation {
+	margin: 14px 0 18px;
+	padding: 14px 16px;
+	background: #fcfcfc;
+	border: 1px solid #ddd;
+}
+
+.concurrencycount .cc-result-explanation h4 {
+	margin-top: 0;
+}
+
+.concurrencycount .cc-result-explanation p {
+	margin-bottom: 0;
+}
+
 .concurrencycount .cc-peak-ranges {
 	margin: 8px 0 0;
 	padding-left: 20px;
