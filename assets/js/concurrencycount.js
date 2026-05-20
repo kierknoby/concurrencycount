@@ -40,6 +40,8 @@ window._ccLoaded = true;
 	var finalDemoReport = null;
 	var finalDemoSize = null;
 	var finalDemoSeed = null;
+	var finalEngine = 'original';
+	var finalDemoEngines = ['original'];
 	var demoSeed = 0;
 	var demoMoves = 0;
 	var demoPlan = null;
@@ -127,6 +129,7 @@ window._ccLoaded = true;
 		}
 		demoPlan = buildDemoPlan(demoSeed, report);
 		renderDemoPlan();
+		var engines = selectedDemoEngines();
 		if (demoPlan.size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
 			return;
 		}
@@ -135,8 +138,21 @@ window._ccLoaded = true;
 			demo_report: report,
 			demo_size: demoPlan.size,
 			demo_rows: String(demoPlan.rows),
-			demo_seed: String(demoSeed >>> 0)
+			demo_seed: String(demoSeed >>> 0),
+			demo_engines: engines.join(',')
 		});
+	}
+
+	function selectedDemoEngines() {
+		var engines = [];
+		$('.cc-demo-engine:checked').each(function () {
+			engines.push($(this).val());
+		});
+		if (!engines.length) {
+			engines.push('original');
+			$('.cc-demo-engine[value="original"]').prop('checked', true);
+		}
+		return engines;
 	}
 
 	function updateDemoSeedStatus(prefix) {
@@ -250,6 +266,8 @@ window._ccLoaded = true;
 		finalDemoReport = r.demo_report || null;
 		finalDemoSize = r.demo_size || null;
 		finalDemoSeed = r.demo_seed || null;
+		finalEngine = r.engine || 'original';
+		finalDemoEngines = r.engines ? Object.keys(r.engines) : [r.engine || 'original'];
 
 		var modeLabel = r.mode.charAt(0).toUpperCase() + r.mode.slice(1);
 		$('#cc-results-title').text('Results: ' + modeLabel + ' mode');
@@ -257,6 +275,7 @@ window._ccLoaded = true;
 		$('#cc-results-meta').html(
 			'<dt>From</dt><dd>' + escapeHtml(r.start) + '</dd>' +
 			'<dt>To</dt><dd>' + escapeHtml(r.end) + '</dd>' +
+			'<dt>Engine</dt><dd>' + escapeHtml(r.engine || (r.engines ? 'comparison' : 'original')) + '</dd>' +
 			'<dt>Rows processed</dt><dd>' + escapeHtml(r.rows_processed) + '</dd>'
 		);
 
@@ -337,8 +356,13 @@ window._ccLoaded = true;
 		}
 		if (r.accuracy_status === 'pass') {
 			html += '<div class="alert alert-success">Accuracy check passed. Actual output matches the expected output calculated from the demo CDR rows.</div>';
+		} else if (r.accuracy_status === 'mixed') {
+			html += '<div class="alert alert-warning">Accuracy check mixed. One or more engines did not match the expected output.</div>';
 		} else {
 			html += '<div class="alert alert-danger">Accuracy check failed. Actual output did not match the expected output.</div>';
+		}
+		if (r.engines) {
+			html += renderEngineComparison(r.engines);
 		}
 		if (r.demo_report === 'group') {
 			html += '<h4>Group accuracy</h4>';
@@ -364,6 +388,26 @@ window._ccLoaded = true;
 		el.html(html);
 	}
 
+	function renderEngineComparison(engines) {
+		var html = '<h4>Engine performance</h4>';
+		html += '<table class="table table-striped"><thead><tr>' +
+			'<th>Engine</th><th>Accuracy</th><th>Wall time</th><th>Peak memory</th><th>Rows/sec</th>' +
+			'</tr></thead><tbody>';
+		Object.keys(engines).forEach(function (id) {
+			var e = engines[id];
+			var fail = e.accuracy_status !== 'pass';
+			html += '<tr' + (fail ? ' class="danger"' : '') + '>' +
+				'<td>' + escapeHtml(id) + '</td>' +
+				'<td>' + escapeHtml(e.accuracy_status) + '</td>' +
+				'<td>' + escapeHtml(formatMs(e.wall_ms)) + '</td>' +
+				'<td>' + escapeHtml(formatBytes(e.peak_memory_bytes)) + '</td>' +
+				'<td>' + escapeHtml(formatNumber(e.rows_per_second)) + '</td>' +
+				'</tr>';
+		});
+		html += '</tbody></table>';
+		return html;
+	}
+
 	function formatRanges(ranges) {
 		if (!ranges || !ranges.length) return 'None';
 		return ranges.map(function (range) {
@@ -377,8 +421,11 @@ window._ccLoaded = true;
 		wizardState = {
 			step: 'mode', attempts: 0,
 			mode: null, month: null, year: null,
-			start_date: null, end_date: null
+			start_date: null, end_date: null,
+			engine: 'original'
 		};
+		$('#cc-engine').val('original');
+		$('#cc-engine-group').hide();
 		$('#cc-results').hide();
 		setStatus('', null);
 		showWizard();
@@ -486,6 +533,7 @@ window._ccLoaded = true;
 					executeRun('demo', '2001-01-01 09:00:00', '2001-01-01 10:00:00');
 					break;
 				}
+				$('#cc-engine-group').show();
 				askMonth();
 				break;
 			case 'month':
@@ -585,6 +633,7 @@ window._ccLoaded = true;
 	}
 
 	function executeRun(mode, start, end, extraParams) {
+		var selectedEngine = $('#cc-engine').val() || 'original';
 		if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
@@ -593,6 +642,9 @@ window._ccLoaded = true;
 		$('#cc-results').hide();
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end};
+		if (mode !== 'demo') {
+			params.engine = selectedEngine;
+		}
 		if (extraParams) {
 			$.extend(params, extraParams);
 		}
@@ -627,6 +679,9 @@ window._ccLoaded = true;
 			modal.modal('hide');
 			setStatus('Continuing despite estimated overrun...', 'running');
 			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
+			if (mode !== 'demo') {
+				params.engine = $('#cc-engine').val() || 'original';
+			}
 			if (extraParams) {
 				$.extend(params, extraParams);
 			}
@@ -656,6 +711,23 @@ window._ccLoaded = true;
 		return m + ' minutes ' + s + ' seconds';
 	}
 
+	function formatMs(ms) {
+		ms = parseInt(ms, 10) || 0;
+		return (ms / 1000).toFixed(2) + 's';
+	}
+
+	function formatBytes(bytes) {
+		bytes = parseInt(bytes, 10) || 0;
+		if (bytes >= 1048576) return Math.round(bytes / 1048576) + 'MB';
+		if (bytes >= 1024) return Math.round(bytes / 1024) + 'KB';
+		return bytes + 'B';
+	}
+
+	function formatNumber(n) {
+		n = parseInt(n, 10) || 0;
+		return n.toLocaleString();
+	}
+
 	/* ---------- Download / email ---------- */
 
 	function onDownload() {
@@ -669,6 +741,9 @@ window._ccLoaded = true;
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
+			params.demo_engines = finalDemoEngines.join(',');
+		} else {
+			params.engine = finalEngine || 'original';
 		}
 		var qs = $.param(params);
 		window.location.href = 'ajax.php?' + qs;
@@ -677,7 +752,7 @@ window._ccLoaded = true;
 	function onDownloadCdr() {
 		if (finalMode !== 'demo') return;
 		var qs = $.param({
-			module: 'concurrencycount', command: 'downloadcdr',
+			module: 'concurrencycount', command: 'previewfixture',
 			mode: 'demo', start_date: finalStart, end_date: finalEnd,
 			demo_report: finalDemoReport || 'extension',
 			demo_size: finalDemoSize || 'light',
@@ -707,6 +782,9 @@ window._ccLoaded = true;
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
+			params.demo_engines = finalDemoEngines.join(',');
+		} else {
+			params.engine = finalEngine || 'original';
 		}
 		ajax(params).done(function (resp) {
 			if (resp.status) {

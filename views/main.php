@@ -15,10 +15,12 @@
  * inherits FreePBX's bootstrap.
  *
  * @var string $moduleVersion
+ * @var array $availableEngines
  */
 if (!defined('FREEPBX_IS_AUTH')) {
 	die('No direct script access allowed');
 }
+$availableEngines = isset($availableEngines) && is_array($availableEngines) ? $availableEngines : [];
 
 // Cache-bust based on the newest asset file. If either file changes,
 // browsers see a new URL and refetch. Falls back to time() if filemtime
@@ -82,7 +84,7 @@ $_ccAssetVer = max(
 							<i class="fa fa-download"></i> <?php echo _('Download CSV'); ?>
 						</button>
 						<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;">
-							<i class="fa fa-table"></i> <?php echo _('Download CDR'); ?>
+							<i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?>
 						</button>
 						<button type="button" id="cc-email-toggle" class="btn btn-default">
 							<i class="fa fa-envelope"></i> <?php echo _('Email report'); ?>
@@ -125,6 +127,17 @@ $_ccAssetVer = max(
 				</div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
 				<p class="text-muted"><?php echo _('The randomiser selects the date range and load size automatically. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
+				<div class="form-group">
+					<label class="control-label"><?php echo _('Compare engines'); ?></label>
+					<?php foreach ($availableEngines as $id => $engine): ?>
+						<div class="checkbox">
+							<label>
+								<input type="checkbox" class="cc-demo-engine" value="<?php echo htmlspecialchars($id); ?>" <?php echo $id === 'original' ? 'checked' : ''; ?>>
+								<?php echo htmlspecialchars($engine['label']); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
+							</label>
+						</div>
+					<?php endforeach; ?>
+				</div>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
@@ -155,6 +168,16 @@ $_ccAssetVer = max(
 					<label id="cc-wizard-prompt" for="cc-wizard-value" class="control-label"></label>
 					<input type="text" id="cc-wizard-value" class="form-control" autocomplete="off">
 					<span id="cc-wizard-hint" class="help-block fpbx-help-block"></span>
+				</div>
+				<div class="form-group" id="cc-engine-group" style="display:none;">
+					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>
+					<select id="cc-engine" class="form-control">
+						<?php foreach ($availableEngines as $id => $engine): ?>
+							<option value="<?php echo htmlspecialchars($id); ?>" <?php echo $id === 'original' ? 'selected' : ''; ?>>
+								<?php echo htmlspecialchars($engine['label']); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
+							</option>
+						<?php endforeach; ?>
+					</select>
 				</div>
 				<div id="cc-wizard-error" class="alert alert-danger" style="display:none;"></div>
 			</div>

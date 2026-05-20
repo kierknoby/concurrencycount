@@ -19,13 +19,15 @@ use PHPUnit\Framework\TestCase;
  * Light shim so we can instantiate the BMO class without a FreePBX object.
  * The constructor requires one, so we extend and override.
  */
-class TestableConcurrencycount extends \FreePBX\modules\Concurrencycount {
-	public function __construct() {
-		// Skip the parent constructor; we only test pure functions.
+require_once __DIR__ . '/../Concurrencycount.class.php';
+
+if (!class_exists('TestableConcurrencycount')) {
+	class TestableConcurrencycount extends \FreePBX\modules\Concurrencycount {
+		public function __construct() {
+			// Skip the parent constructor; we only test pure functions.
+		}
 	}
 }
-
-require_once __DIR__ . '/../Concurrencycount.class.php';
 
 class InputValidationTest extends TestCase {
 

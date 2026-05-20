@@ -2,7 +2,7 @@
 /**
  * Concurrency Count for FreePBX 17
  *
- * Web module port of the Concurrency Count CLI tool- NOT CURRENTLY SUITABLE FOR PRODUCTION.
+ * Web module port of the Concurrency Count CLI tool - NOT CURRENTLY SUITABLE FOR PRODUCTION.
  * Behaviour mirrors the bash script: same modes, same date handling,
  * same validation, same algorithm, same warnings.
  *
@@ -12,15 +12,21 @@
 
 namespace FreePBX\modules;
 
+require_once __DIR__ . '/Engines/EngineInterface.php';
+require_once __DIR__ . '/Engines/Original.php';
+require_once __DIR__ . '/Engines/Sweep.php';
+require_once __DIR__ . '/Engines/Registry.php';
+
 class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.0.0';
+	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
 
 	private $FreePBX;
 	private $cdrdb;
+	private $cdrColumnsCache = null;
 
 	public function __construct($freepbx = null) {
 		if ($freepbx === null) {
@@ -62,6 +68,7 @@ class Concurrencycount implements \BMO {
 	public function showPage(): string {
 		return load_view(__DIR__ . '/views/main.php', [
 			'moduleVersion' => $this->getVersion(),
+			'availableEngines' => $this->getAvailableEngines(),
 		]);
 	}
 
@@ -73,7 +80,7 @@ class Concurrencycount implements \BMO {
 			case 'wizardstep':
 			case 'run':
 			case 'download':
-			case 'downloadcdr':
+			case 'previewfixture':
 			case 'email':
 			case 'gettrunks':
 				return true;
@@ -91,8 +98,8 @@ class Concurrencycount implements \BMO {
 			$this->streamDownload();
 			return true;
 		}
-		if ($command === 'downloadcdr') {
-			$this->streamDemoCdrDownload();
+		if ($command === 'previewfixture') {
+			$this->streamDemoFixturePreview();
 			return true;
 		}
 		return false;
@@ -567,14 +574,58 @@ class Concurrencycount implements \BMO {
 	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
 		set_time_limit(self::MAX_RUNTIME + 60);
 		$started_at = time();
+		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
 
 		if ($mode === 'demo') {
 			return $this->calculateDemo($start, $end, $started_at, $options);
 		}
 		if ($mode === 'group') {
-			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun);
+			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id);
 		}
-		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun);
+		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id);
+	}
+
+	public function getAvailableEngines(): array {
+		return \FreePBX\modules\Concurrencycount\Engines\Registry::getAvailableEngines();
+	}
+
+	private function normaliseEngineId($engine_id): string {
+		$engine_id = strtolower(trim((string)$engine_id));
+		$engines = $this->getAvailableEngines();
+		if (isset($engines[$engine_id])) {
+			return $engine_id;
+		}
+		if ($engine_id !== '') {
+			try {
+				if (class_exists('\FreePBX') && method_exists('\FreePBX', 'Logger')) {
+					\FreePBX::Logger()->warning('Concurrency Count unknown engine "' . $engine_id . '", falling back to original.');
+				}
+			} catch (\Exception $e) {
+				// Fall back silently if logging is unavailable.
+			}
+		}
+		return 'original';
+	}
+
+	private function buildEngine(string $engine_id, array $options = []): \FreePBX\modules\Concurrencycount\Engines\EngineInterface {
+		$engine_id = $this->normaliseEngineId($engine_id);
+		$engines = $this->getAvailableEngines();
+		$class = $engines[$engine_id]['class'];
+		return new $class($options);
+	}
+
+	private function engineOptions(array $all_names, int $started_at, bool $confirm_overrun): array {
+		$did_overrun_prompt = $confirm_overrun;
+		return [
+			'all_names' => $all_names,
+			'coalesce_ranges' => function (array $times): array {
+				return $this->coalesceRanges($times);
+			},
+			'check_overrun' => function (int $processed, int $total) use ($started_at, &$did_overrun_prompt): void {
+				$elapsed = time() - $started_at;
+				$this->checkOverrun($elapsed, $processed, $total, $started_at, $did_overrun_prompt);
+			},
+		];
 	}
 
 	/**
@@ -584,6 +635,7 @@ class Concurrencycount implements \BMO {
 	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 		$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
+		$demo_engines = $this->normaliseDemoEngines(isset($options['demo_engines']) ? $options['demo_engines'] : ['original']);
 		$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
 		if ($seed === 0) {
@@ -615,13 +667,35 @@ class Concurrencycount implements \BMO {
 				$inserted++;
 			}
 
-			if ($report === 'group') {
-				$actual = $this->calculateGroup($start, $end, $started_at, true, $accountcode);
-				$accuracy = $this->assessDemoGroupAccuracy($expected, $actual);
-			} else {
-				$actual = $this->calculatePerName($report, $start, $end, $started_at, true, $accountcode);
-				$accuracy = $this->assessDemoPerNameAccuracy($expected, $actual);
+			$engine_results = [];
+			foreach ($demo_engines as $engine_id) {
+				if (function_exists('memory_reset_peak_usage')) {
+					memory_reset_peak_usage();
+				}
+				$before_memory = memory_get_usage(true);
+				$wall_start = microtime(true);
+				if ($report === 'group') {
+					$actual = $this->calculateGroup($start, $end, $started_at, true, $accountcode, $engine_id);
+					$accuracy = $this->assessDemoGroupAccuracy($expected, $actual);
+				} else {
+					$actual = $this->calculatePerName($report, $start, $end, $started_at, true, $accountcode, $engine_id);
+					$accuracy = $this->assessDemoPerNameAccuracy($expected, $actual);
+				}
+				$wall_ms = (int)round((microtime(true) - $wall_start) * 1000);
+				$peak_memory = max(0, memory_get_peak_usage(true) - $before_memory);
+				$engine_results[$engine_id] = [
+					'accuracy_status' => $accuracy ? 'pass' : 'fail',
+					'wall_ms' => $wall_ms,
+					'peak_memory_bytes' => $peak_memory,
+					'rows_per_second' => $wall_ms > 0 ? (int)round($inserted / ($wall_ms / 1000)) : $inserted,
+					'per_name' => isset($actual['per_name']) ? $actual['per_name'] : [],
+					'global_max' => isset($actual['global_max']) ? $actual['global_max'] : 0,
+					'max_concurrency' => isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0,
+					'peak_ranges' => isset($actual['peak_ranges']) ? $actual['peak_ranges'] : [],
+				];
 			}
+			$actual = $engine_results[$demo_engines[0]];
+			$accuracy = $engine_results[$demo_engines[0]]['accuracy_status'] === 'pass';
 
 			$result = [
 				'mode' => 'demo', 'start' => $start, 'end' => $end,
@@ -642,6 +716,21 @@ class Concurrencycount implements \BMO {
 				'demo_run_id' => $accountcode,
 				'warning' => _('Demo mode temporarily inserted synthetic CDR rows and removed them automatically after the run.'),
 			];
+			if ($demo_engines[0] !== 'original') {
+				$result['engine'] = $demo_engines[0];
+			}
+			if (count($demo_engines) > 1) {
+				$mixed = false;
+				foreach ($engine_results as $engine_result) {
+					if ($engine_result['accuracy_status'] !== 'pass') {
+						$mixed = true;
+						break;
+					}
+				}
+				$result['engines'] = $engine_results;
+				$result['accuracy_status'] = $mixed ? 'mixed' : 'pass';
+				$result['engine'] = 'comparison';
+			}
 		} finally {
 			$cleanup = $this->cleanupDemoCdrRows($accountcode);
 		}
@@ -655,12 +744,32 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function requestDemoOptions(): array {
+		$demo_engines = isset($_REQUEST['demo_engines']) ? $_REQUEST['demo_engines'] : null;
+		if (is_string($demo_engines)) {
+			$demo_engines = explode(',', $demo_engines);
+		}
 		return [
 			'demo_report' => isset($_REQUEST['demo_report']) ? $_REQUEST['demo_report'] : 'extension',
 			'demo_size' => isset($_REQUEST['demo_size']) ? $_REQUEST['demo_size'] : 'light',
 			'demo_seed' => isset($_REQUEST['demo_seed']) ? $_REQUEST['demo_seed'] : 0,
 			'demo_rows' => isset($_REQUEST['demo_rows']) ? $_REQUEST['demo_rows'] : 0,
+			'demo_engines' => $demo_engines ?: ['original'],
+			'engine' => isset($_REQUEST['engine']) ? $_REQUEST['engine'] : 'original',
 		];
+	}
+
+	private function normaliseDemoEngines($engines): array {
+		if (!is_array($engines)) {
+			$engines = [(string)$engines];
+		}
+		$out = [];
+		foreach ($engines as $engine_id) {
+			$engine_id = $this->normaliseEngineId($engine_id);
+			if (!in_array($engine_id, $out, true)) {
+				$out[] = $engine_id;
+			}
+		}
+		return empty($out) ? ['original'] : $out;
 	}
 
 	private function normaliseDemoReport($report): string {
@@ -755,10 +864,19 @@ class Concurrencycount implements \BMO {
 		return $rows;
 	}
 
+	// Linear congruential generator. Deterministic and reproducible from a seed,
+	// which is the only property we need here. Do not replace with random_int()
+	// or anything cryptographic; reproducibility from a saved seed is the contract.
 	private function demoRand(int $state): int {
 		return (int)(($state * 1103515245 + 12345) & 0x7fffffff);
 	}
 
+	/**
+	 * Independent re-implementation of the per-name algorithm for accuracy
+	 * checking. MUST NOT share code with any engine. If an engine has a bug,
+	 * this function is what catches it. If you find yourself wanting to DRY
+	 * this out, stop and think about why this exists.
+	 */
 	private function expectedDemoPerName(array $rows, string $report): array {
 		$max_concurrent = [];
 		$ongoing_calls = [];
@@ -792,6 +910,12 @@ class Concurrencycount implements \BMO {
 		return ['per_name' => $max_concurrent, 'global_max' => $global_max];
 	}
 
+	/**
+	 * Independent re-implementation of the group algorithm for accuracy
+	 * checking. MUST NOT share code with any engine. If an engine has a bug,
+	 * this function is what catches it. If you find yourself wanting to DRY
+	 * this out, stop and think about why this exists.
+	 */
 	private function expectedDemoGroup(array $rows): array {
 		$per_second_count = [];
 		foreach ($rows as $row) {
@@ -800,6 +924,9 @@ class Concurrencycount implements \BMO {
 			}
 			$start_ts = strtotime($row['calldate']);
 			$end_ts = $start_ts + (int)$row['duration'];
+			if (($end_ts - $start_ts) > 86400) {
+				$end_ts = $start_ts + 86400;
+			}
 			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
 				$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
 			}
@@ -832,11 +959,28 @@ class Concurrencycount implements \BMO {
 		if ((int)$expected['max_concurrency'] !== (int)(isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0)) {
 			return false;
 		}
-		return json_encode($expected['peak_ranges']) === json_encode(isset($actual['peak_ranges']) ? $actual['peak_ranges'] : []);
+		$exp_ranges = isset($expected['peak_ranges']) ? $expected['peak_ranges'] : [];
+		$act_ranges = isset($actual['peak_ranges']) ? $actual['peak_ranges'] : [];
+		if (count($exp_ranges) !== count($act_ranges)) {
+			return false;
+		}
+		foreach ($exp_ranges as $i => $r) {
+			if (!isset($act_ranges[$i])) return false;
+			if ($r['from'] !== $act_ranges[$i]['from']) return false;
+			if ($r['to'] !== $act_ranges[$i]['to']) return false;
+		}
+		return true;
+	}
+
+	private function getCdrColumns(): array {
+		if ($this->cdrColumnsCache === null) {
+			$this->cdrColumnsCache = $this->cdrdb->query('SHOW COLUMNS FROM cdr')->fetchAll(\PDO::FETCH_ASSOC);
+		}
+		return $this->cdrColumnsCache;
 	}
 
 	private function insertDemoCdrRow(array $row): void {
-		$columns = $this->cdrdb->query('SHOW COLUMNS FROM cdr')->fetchAll(\PDO::FETCH_ASSOC);
+		$columns = $this->getCdrColumns();
 		$insert_columns = [];
 		$placeholders = [];
 		$params = [];
@@ -922,91 +1066,47 @@ class Concurrencycount implements \BMO {
 	 * Per-name (trunk or extension) concurrency.
 	 * Mirrors bash calculate_concurrency().
 	 */
-	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = ''): array {
+	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original'): array {
 		if ($mode === 'trunk') {
 			$trunks = $this->getTrunks();
 			if (empty($trunks)) {
-				return $this->emptyResult($mode, $start, $end, _('No PJSIP trunks detected.'));
+				return $this->emptyResult($mode, $start, $end, _('No PJSIP trunks detected.'), $engine_id);
 			}
 			$rows = $this->fetchTrunkRows($trunks, $start, $end, $accountcode);
 		} else {
+			$trunks = [];
 			$rows = $this->fetchExtensionRows($start, $end, $accountcode);
 		}
 
 		if (empty($rows)) {
-			return $this->emptyResult($mode, $start, $end, _('No calls found in the selected date range.'));
+			return $this->emptyResult($mode, $start, $end, _('No calls found in the selected date range.'), $engine_id);
 		}
 
-		$max_concurrent = [];
-		$ongoing_calls = [];
-		$total_rows = count($rows);
-		$processed = 0;
-		$did_overrun_prompt = $confirm_overrun;
+		$all_names = $this->buildAllNames($mode, $rows, isset($trunks) ? $trunks : []);
+		$engine = $this->buildEngine($engine_id, $this->engineOptions($all_names, $started_at, $confirm_overrun));
+		$calculated = $engine->calculatePerName($mode, $rows);
 
-		foreach ($rows as $row) {
-			$processed++;
-			$elapsed = time() - $started_at;
-
-			$this->checkOverrun($elapsed, $processed, $total_rows, $started_at, $did_overrun_prompt);
-
-			$calldate = $row['calldate'];
-			$duration = (int)$row['duration'];
-			$chan = $row['chan'];
-
-			if ($calldate === '' || $duration <= 0 || $chan === '') {
-				continue;
-			}
-
-			$start_ts = strtotime($calldate);
-			$end_ts = $start_ts + $duration;
-
-			if ($mode === 'extension') {
-				if (!preg_match('|PJSIP/([0-9]+)-|', $chan, $m)) continue;
-				$name = $m[1];
-			} else {
-				if (!preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $chan, $m)) continue;
-				$name = $m[1];
-				if (preg_match('/^[0-9]+$/', $name)) continue;
-			}
-
-			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				$key = $name . ',' . $ts;
-				$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
-				if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) {
-					$max_concurrent[$name] = $ongoing_calls[$key];
-				}
-			}
+		if (empty($calculated['per_name'])) {
+			return $this->emptyResult($mode, $start, $end, _('No calls found in the selected date range.'), $engine_id);
 		}
 
-		if (empty($max_concurrent)) {
-			return $this->emptyResult($mode, $start, $end, _('No calls found in the selected date range.'));
-		}
-
-		$global_max = 0;
-		foreach ($max_concurrent as $v) {
-			if ($v > $global_max) $global_max = $v;
-		}
-
-		$all_names = $this->buildAllNames($mode, $rows);
-		ksort($all_names);
-		$ordered = [];
-		foreach ($all_names as $name => $_unused) {
-			$ordered[$name] = isset($max_concurrent[$name]) ? $max_concurrent[$name] : 0;
-		}
-
-		return [
+		$result = [
 			'mode' => $mode, 'start' => $start, 'end' => $end,
-			'per_name' => $ordered, 'global_max' => $global_max,
-			'rows_processed' => $processed,
+			'per_name' => $calculated['per_name'], 'global_max' => $calculated['global_max'],
+			'rows_processed' => $calculated['rows_processed'],
 			'warning' => $this->trunkNamingWarning(),
 		];
+		if ($engine_id !== 'original') {
+			$result['engine'] = $engine_id;
+		}
+		return $result;
 	}
 
 	/**
 	 * Build the full set of names to display, matching the bash logic
 	 * (extension list from CDR; trunk list from get_trunks()).
 	 */
-	private function buildAllNames(string $mode, array $rows): array {
+	private function buildAllNames(string $mode, array $rows, array $trunks = []): array {
 		$names = [];
 		if ($mode === 'extension') {
 			foreach ($rows as $r) {
@@ -1015,7 +1115,7 @@ class Concurrencycount implements \BMO {
 				}
 			}
 		} else {
-			foreach ($this->getTrunks() as $t) {
+			foreach ($trunks as $t) {
 				$names[$t] = true;
 			}
 		}
@@ -1025,93 +1125,42 @@ class Concurrencycount implements \BMO {
 	/**
 	 * Group mode. Mirrors bash calculate_group_concurrency().
 	 */
-	private function calculateGroup(string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = ''): array {
+	private function calculateGroup(string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original'): array {
 		$sql = "SELECT calldate, duration, channel, dstchannel
 				FROM cdr
 				WHERE disposition = 'ANSWERED'
 				  AND calldate BETWEEN :start AND :end
 				  AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
-		$stmt = $this->cdrdb->prepare($sql);
 		$params = [':start' => $start, ':end' => $end];
 		if ($accountcode !== '') {
 			$sql .= " AND accountcode = :accountcode";
 			$params[':accountcode'] = $accountcode;
-			$stmt = $this->cdrdb->prepare($sql);
 		}
+		$stmt = $this->cdrdb->prepare($sql);
 		$stmt->execute($params);
 		$rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
 		if (empty($rows)) {
-			return $this->emptyResult('group', $start, $end, _('No calls found in the selected date range.'));
+			return $this->emptyResult('group', $start, $end, _('No calls found in the selected date range.'), $engine_id);
 		}
 
-		$per_second_count = [];
-		$total_rows = count($rows);
-		$processed = 0;
-		$did_overrun_prompt = $confirm_overrun;
+		$engine = $this->buildEngine($engine_id, $this->engineOptions([], $started_at, $confirm_overrun));
+		$calculated = $engine->calculateGroup($rows);
 
-		foreach ($rows as $row) {
-			$processed++;
-			$elapsed = time() - $started_at;
-
-			$this->checkOverrun($elapsed, $processed, $total_rows, $started_at, $did_overrun_prompt);
-
-			$calldate = $row['calldate'];
-			$duration = (int)$row['duration'];
-			$chan = $row['channel'];
-			$dstchan = $row['dstchannel'];
-
-			if ($calldate === '' || $duration <= 0) continue;
-
-			$start_ts = strtotime($calldate);
-			$end_ts = $start_ts + $duration;
-			if (($end_ts - $start_ts) > 86400) {
-				$end_ts = $start_ts + 86400;
-			}
-
-			$ext1 = '';
-			$ext2 = '';
-			if (preg_match('|^PJSIP/([0-9]+)-|', $chan, $m)) {
-				$ext1 = $m[1];
-			}
-			if (preg_match('|^PJSIP/([0-9]+)-|', $dstchan, $m)) {
-				$ext2 = $m[1];
-			}
-
-			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				if ($ext1 !== '') {
-					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
-				}
-				if ($ext2 !== '') {
-					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
-				}
-			}
+		if ((int)$calculated['max_concurrency'] === 0) {
+			return $this->emptyResult('group', $start, $end, _('No calls found in the selected date range.'), $engine_id);
 		}
 
-		$max = 0;
-		$peak_times = [];
-		foreach ($per_second_count as $ts => $count) {
-			if ($count > $max) {
-				$max = $count;
-				$peak_times = [$ts];
-			} elseif ($count === $max) {
-				$peak_times[] = $ts;
-			}
-		}
-		sort($peak_times);
-
-		$ranges = $this->coalesceRanges($peak_times);
-
-		if ($max === 0) {
-			return $this->emptyResult('group', $start, $end, _('No calls found in the selected date range.'));
-		}
-
-		return [
+		$result = [
 			'mode' => 'group', 'start' => $start, 'end' => $end,
-			'max_concurrency' => $max, 'peak_ranges' => $ranges,
-			'rows_processed' => $processed,
+			'max_concurrency' => $calculated['max_concurrency'], 'peak_ranges' => $calculated['peak_ranges'],
+			'rows_processed' => $calculated['rows_processed'],
 			'warning' => $this->trunkNamingWarning(),
 		];
+		if ($engine_id !== 'original') {
+			$result['engine'] = $engine_id;
+		}
+		return $result;
 	}
 
 	/**
@@ -1219,13 +1268,16 @@ class Concurrencycount implements \BMO {
 		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 	}
 
-	private function emptyResult(string $mode, string $start, string $end, string $msg): array {
+	private function emptyResult(string $mode, string $start, string $end, string $msg, string $engine_id = 'original'): array {
 		$base = [
 			'mode' => $mode, 'start' => $start, 'end' => $end,
 			'rows_processed' => 0,
 			'empty_message' => $msg,
 			'warning' => $this->trunkNamingWarning(),
 		];
+		if ($engine_id !== 'original') {
+			$base['engine'] = $engine_id;
+		}
 		if ($mode === 'group') {
 			$base['max_concurrency'] = 0;
 			$base['peak_ranges'] = [];
@@ -1246,7 +1298,7 @@ class Concurrencycount implements \BMO {
 
 	public function resultsToCsv(array $r): string {
 		$rows = [];
-		$rows[] = ['Concurrency Count ' . $this->getVersion() . '- NOT CURRENTLY SUITABLE FOR PRODUCTION'];
+		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' - NOT CURRENTLY SUITABLE FOR PRODUCTION'];
 		$rows[] = ['Mode', ucfirst($r['mode'])];
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
@@ -1263,6 +1315,19 @@ class Concurrencycount implements \BMO {
 			$rows[] = ['Rows removed', isset($r['rows_removed']) ? $r['rows_removed'] : 0];
 			$rows[] = ['Cleanup remaining', isset($r['cleanup_remaining']) ? $r['cleanup_remaining'] : 0];
 			$rows[] = [];
+			if (!empty($r['engines'])) {
+				$rows[] = ['Engine', 'Accuracy', 'Wall time', 'Peak memory', 'Rows/sec'];
+				foreach ($r['engines'] as $id => $engine_result) {
+					$rows[] = [
+						$id,
+						$engine_result['accuracy_status'],
+						number_format(((int)$engine_result['wall_ms']) / 1000, 2) . 's',
+						$this->formatBytes((int)$engine_result['peak_memory_bytes']),
+						(int)$engine_result['rows_per_second'],
+					];
+				}
+				$rows[] = [];
+			}
 			if (isset($r['demo_report']) && $r['demo_report'] === 'group') {
 				$rows[] = ['Metric', 'Expected', 'Actual'];
 				$rows[] = ['Maximum concurrent calls overall', isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0, isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
@@ -1343,7 +1408,7 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
-	private function streamDemoCdrDownload(): void {
+	private function streamDemoFixturePreview(): void {
 		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
@@ -1422,6 +1487,16 @@ class Concurrencycount implements \BMO {
 		return "\xEF\xBB\xBF" . $csv;
 	}
 
+	private function formatBytes(int $bytes): string {
+		if ($bytes >= 1048576) {
+			return (string)round($bytes / 1048576) . 'MB';
+		}
+		if ($bytes >= 1024) {
+			return (string)round($bytes / 1024) . 'KB';
+		}
+		return $bytes . 'B';
+	}
+
 	private function handleEmail(): array {
 		$mode = $this->normaliseMode(isset($_REQUEST['mode']) ? $_REQUEST['mode'] : '');
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
@@ -1463,7 +1538,7 @@ class Concurrencycount implements \BMO {
 
 	private function buildEmailBody(array $r): string {
 		$lines = [];
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . '- NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' - NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
 		$lines[] = 'From:           ' . $r['start'];
@@ -1481,6 +1556,21 @@ class Concurrencycount implements \BMO {
 			$lines[] = 'Rows removed:     ' . (isset($r['rows_removed']) ? $r['rows_removed'] : 0);
 			$lines[] = 'Cleanup remaining:' . (isset($r['cleanup_remaining']) ? ' ' . $r['cleanup_remaining'] : ' 0');
 			$lines[] = '';
+			if (!empty($r['engines'])) {
+				$lines[] = 'Engine comparison:';
+				$lines[] = sprintf('%-12s  %-8s  %-10s  %-12s  %s', 'Engine', 'Accuracy', 'Wall time', 'Peak memory', 'Rows/sec');
+				foreach ($r['engines'] as $id => $engine_result) {
+					$lines[] = sprintf(
+						'%-12s  %-8s  %-10s  %-12s  %s',
+						$id,
+						$engine_result['accuracy_status'],
+						number_format(((int)$engine_result['wall_ms']) / 1000, 2) . 's',
+						$this->formatBytes((int)$engine_result['peak_memory_bytes']),
+						number_format((int)$engine_result['rows_per_second'])
+					);
+				}
+				$lines[] = '';
+			}
 			if (isset($r['demo_report']) && $r['demo_report'] === 'group') {
 				$lines[] = 'Group accuracy:';
 				$lines[] = 'Expected max: ' . (isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0);
@@ -1528,7 +1618,7 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count for FreePBX 17- NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count for FreePBX 17 - NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		return implode("\n", $lines);
 	}
 

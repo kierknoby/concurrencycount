@@ -30,6 +30,8 @@ class Concurrencycount extends Command {
 			->addOption('demo-report', null, InputOption::VALUE_REQUIRED, 'Demo report: trunk, extension, or group', 'extension')
 			->addOption('demo-size', null, InputOption::VALUE_REQUIRED, 'Demo size: light, medium, or heavy', 'light')
 			->addOption('demo-seed', null, InputOption::VALUE_REQUIRED, 'Demo random seed', '0')
+			->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Engine: original (default), sweep, ...', 'original')
+			->addOption('compare', null, InputOption::VALUE_REQUIRED, 'Demo mode only: comma-separated engine list to compare')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text');
 	}
 
@@ -40,6 +42,8 @@ class Concurrencycount extends Command {
 		$demo_report = $input->getOption('demo-report');
 		$demo_size = $input->getOption('demo-size');
 		$demo_seed = $input->getOption('demo-seed');
+		$engine = $input->getOption('engine');
+		$compare = $input->getOption('compare');
 		$csv = $input->getOption('csv');
 
 		$cc = \FreePBX::Concurrencycount();
@@ -71,6 +75,8 @@ class Concurrencycount extends Command {
 				'demo_report' => $demo_report,
 				'demo_size' => $demo_size,
 				'demo_seed' => $demo_seed,
+				'engine' => $engine,
+				'demo_engines' => ($mode === 'demo' && $compare) ? explode(',', $compare) : ['original'],
 			]);
 		} catch (\Exception $e) {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');
@@ -83,10 +89,13 @@ class Concurrencycount extends Command {
 		}
 
 		$output->writeln('');
-		$output->writeln('<info>Concurrency Count- NOT CURRENTLY SUITABLE FOR PRODUCTION</info>');
+		$output->writeln('<info>Concurrency Count - NOT CURRENTLY SUITABLE FOR PRODUCTION</info>');
 		$output->writeln('Mode:           ' . ucfirst($results['mode']));
 		$output->writeln('From:           ' . $results['start']);
 		$output->writeln('To:             ' . $results['end']);
+		if (isset($results['engine'])) {
+			$output->writeln('Engine:         ' . $results['engine']);
+		}
 		$output->writeln('Rows processed: ' . $results['rows_processed']);
 		$output->writeln('');
 
@@ -103,6 +112,21 @@ class Concurrencycount extends Command {
 			$output->writeln('Rows removed:   ' . $results['rows_removed']);
 			$output->writeln('Rows remaining: ' . $results['cleanup_remaining']);
 			$output->writeln('');
+			if (!empty($results['engines'])) {
+				$output->writeln('Engine comparison:');
+				$output->writeln(sprintf('%-12s  %-8s  %-10s  %-12s  %s', 'Engine', 'Accuracy', 'Wall time', 'Peak memory', 'Rows/sec'));
+				foreach ($results['engines'] as $id => $engine_result) {
+					$output->writeln(sprintf(
+						'%-12s  %-8s  %-10s  %-12s  %s',
+						$id,
+						$engine_result['accuracy_status'],
+						number_format(((int)$engine_result['wall_ms']) / 1000, 2) . 's',
+						$this->formatBytes((int)$engine_result['peak_memory_bytes']),
+						number_format((int)$engine_result['rows_per_second'])
+					));
+				}
+				$output->writeln('');
+			}
 			if ($results['demo_report'] === 'group') {
 				$output->writeln('Group accuracy:');
 				$output->writeln('Expected max: ' . $results['expected_max_concurrency']);
@@ -158,5 +182,15 @@ class Concurrencycount extends Command {
 			'start' => date('Y-m-d H:i:s', $start),
 			'end' => date('Y-m-d H:i:s', $start + ($hours[$size] * 3600)),
 		];
+	}
+
+	private function formatBytes(int $bytes): string {
+		if ($bytes >= 1048576) {
+			return (string)round($bytes / 1048576) . 'MB';
+		}
+		if ($bytes >= 1024) {
+			return (string)round($bytes / 1024) . 'KB';
+		}
+		return $bytes . 'B';
 	}
 }
