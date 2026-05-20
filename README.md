@@ -83,4 +83,4 @@ GPLv3+. See LICENSE.
 
 ## Author
 
-20 Telecom Ltd, trading as 20tele.com. Wales, UK.
+@kierknoby, Kieran Byrne // FreePBX UK
