@@ -39,7 +39,15 @@ fwconsole reload
 
 Use `installlocal` when installing from an unpacked local module directory.
 
-### Option 3: Clean reinstall from GitHub
+### Option 3: Clean install from GitHub
+
+For a clean first install from this GitHub repo on a PBX:
+
+```
+cd /var/www/html/admin/modules && git clone https://github.com/kierknoby/concurrencycount.git && fwconsole ma install concurrencycount && fwconsole chown && fwconsole reload
+```
+
+### Option 4: Clean reinstall from GitHub
 
 For a clean reinstall from GitHub on a PBX:
 
