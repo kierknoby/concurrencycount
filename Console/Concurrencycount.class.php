@@ -27,6 +27,7 @@ class Concurrencycount extends Command {
 			->addOption('mode', 'm', InputOption::VALUE_REQUIRED, 'Mode: trunk, extension, group, or demo (abbreviations accepted)', 'trunk')
 			->addOption('start', 's', InputOption::VALUE_REQUIRED, 'Start date YYYY-MM-DD HH:MM:SS (or shorthand)')
 			->addOption('end', 'e', InputOption::VALUE_REQUIRED, 'End date YYYY-MM-DD HH:MM:SS (or shorthand)')
+			->addOption('demo-report', null, InputOption::VALUE_REQUIRED, 'Demo report: trunk, extension, or group', 'extension')
 			->addOption('demo-size', null, InputOption::VALUE_REQUIRED, 'Demo size: light, medium, or heavy', 'light')
 			->addOption('demo-seed', null, InputOption::VALUE_REQUIRED, 'Demo random seed', '0')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text');
@@ -36,6 +37,7 @@ class Concurrencycount extends Command {
 		$mode_raw = $input->getOption('mode');
 		$start_raw = $input->getOption('start');
 		$end_raw = $input->getOption('end');
+		$demo_report = $input->getOption('demo-report');
 		$demo_size = $input->getOption('demo-size');
 		$demo_seed = $input->getOption('demo-seed');
 		$csv = $input->getOption('csv');
@@ -65,6 +67,7 @@ class Concurrencycount extends Command {
 
 		try {
 			$results = $cc->calculate($mode, $start, $end, true, [
+				'demo_report' => $demo_report,
 				'demo_size' => $demo_size,
 				'demo_seed' => $demo_seed,
 			]);
@@ -93,25 +96,23 @@ class Concurrencycount extends Command {
 		}
 
 		if ($results['mode'] === 'demo') {
-			$output->writeln('Extension demo:');
-			$output->writeln(sprintf('%-24s  %s', 'Extension', 'Max concurrent'));
-			foreach ($results['per_name'] as $name => $count) {
-				$marker = ($count === $results['global_max'] && $results['global_max'] > 0) ? '*' : ' ';
-				$output->writeln(sprintf('%s%-23s  %d', $marker, $name, $count));
-			}
+			$output->writeln('Demo report:    ' . ucfirst($results['demo_report']));
+			$output->writeln('Demo seed:      ' . $results['demo_seed']);
+			$output->writeln('Accuracy:       ' . strtoupper($results['accuracy_status']));
+			$output->writeln('Rows removed:   ' . $results['rows_removed']);
+			$output->writeln('Rows remaining: ' . $results['cleanup_remaining']);
 			$output->writeln('');
-			$output->writeln('<info>Extension global maximum: ' . $results['global_max'] . '</info>');
-			$output->writeln('');
-			$output->writeln('<info>Group demo maximum concurrent calls overall: ' . $results['max_concurrency'] . '</info>');
-			$output->writeln('');
-			if (!empty($results['peak_ranges'])) {
-				$output->writeln('Peak time ranges:');
-				foreach ($results['peak_ranges'] as $r) {
-					if ($r['from'] === $r['to']) {
-						$output->writeln('  ' . $r['from']);
-					} else {
-						$output->writeln('  ' . $r['from'] . ' to ' . $r['to']);
-					}
+			if ($results['demo_report'] === 'group') {
+				$output->writeln('Group accuracy:');
+				$output->writeln('Expected max: ' . $results['expected_max_concurrency']);
+				$output->writeln('Actual max:   ' . $results['max_concurrency']);
+			} else {
+				$label = ($results['demo_report'] === 'trunk') ? 'Trunk' : 'Extension';
+				$output->writeln($label . ' accuracy:');
+				$output->writeln(sprintf('%-24s  %-8s  %s', $label, 'Expected', 'Actual'));
+				foreach ($results['expected_per_name'] as $name => $count) {
+					$actual = isset($results['per_name'][$name]) ? $results['per_name'][$name] : 0;
+					$output->writeln(sprintf('%-24s  %-8d  %d', $name, $count, $actual));
 				}
 			}
 		} elseif ($results['mode'] === 'group') {

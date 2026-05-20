@@ -578,6 +578,7 @@ class Concurrencycount implements \BMO {
 	 */
 	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
+		$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
 		if ($seed === 0) {
 			$seed = random_int(1, 0x7fffffff);
@@ -586,7 +587,18 @@ class Concurrencycount implements \BMO {
 		$start = $range['start'];
 		$end = $range['end'];
 		$accountcode = 'CCDEMO' . substr(hash('sha1', microtime(true) . random_int(0, PHP_INT_MAX)), 0, 8);
-		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode);
+		$demo_trunk = '';
+		if ($report === 'trunk') {
+			$trunks = $this->getTrunks();
+			if (empty($trunks)) {
+				throw new \Exception(_('Demo trunk mode requires at least one non-numeric PJSIP trunk on the PBX.'));
+			}
+			$demo_trunk = $trunks[0];
+		}
+		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode, $report, $demo_trunk);
+		$expected = ($report === 'group')
+			? $this->expectedDemoGroup($rows)
+			: $this->expectedDemoPerName($rows, $report);
 		$inserted = 0;
 		$result = null;
 		$cleanup = ['rows_removed' => 0, 'cleanup_remaining' => 0];
@@ -597,17 +609,28 @@ class Concurrencycount implements \BMO {
 				$inserted++;
 			}
 
-			$extension = $this->calculatePerName('extension', $start, $end, $started_at, true, $accountcode);
-			$group = $this->calculateGroup($start, $end, $started_at, true, $accountcode);
+			if ($report === 'group') {
+				$actual = $this->calculateGroup($start, $end, $started_at, true, $accountcode);
+				$accuracy = $this->assessDemoGroupAccuracy($expected, $actual);
+			} else {
+				$actual = $this->calculatePerName($report, $start, $end, $started_at, true, $accountcode);
+				$accuracy = $this->assessDemoPerNameAccuracy($expected, $actual);
+			}
 
 			$result = [
 				'mode' => 'demo', 'start' => $start, 'end' => $end,
-				'per_name' => isset($extension['per_name']) ? $extension['per_name'] : [],
-				'global_max' => isset($extension['global_max']) ? $extension['global_max'] : 0,
-				'max_concurrency' => isset($group['max_concurrency']) ? $group['max_concurrency'] : 0,
-				'peak_ranges' => isset($group['peak_ranges']) ? $group['peak_ranges'] : [],
+				'per_name' => isset($actual['per_name']) ? $actual['per_name'] : [],
+				'global_max' => isset($actual['global_max']) ? $actual['global_max'] : 0,
+				'max_concurrency' => isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0,
+				'peak_ranges' => isset($actual['peak_ranges']) ? $actual['peak_ranges'] : [],
+				'expected_per_name' => isset($expected['per_name']) ? $expected['per_name'] : [],
+				'expected_global_max' => isset($expected['global_max']) ? $expected['global_max'] : 0,
+				'expected_max_concurrency' => isset($expected['max_concurrency']) ? $expected['max_concurrency'] : 0,
+				'expected_peak_ranges' => isset($expected['peak_ranges']) ? $expected['peak_ranges'] : [],
+				'accuracy_status' => $accuracy ? 'pass' : 'fail',
 				'rows_processed' => $inserted,
 				'rows_inserted' => $inserted,
+				'demo_report' => $report,
 				'demo_size' => $size,
 				'demo_seed' => (string)$seed,
 				'demo_run_id' => $accountcode,
@@ -627,9 +650,18 @@ class Concurrencycount implements \BMO {
 
 	private function requestDemoOptions(): array {
 		return [
+			'demo_report' => isset($_REQUEST['demo_report']) ? $_REQUEST['demo_report'] : 'extension',
 			'demo_size' => isset($_REQUEST['demo_size']) ? $_REQUEST['demo_size'] : 'light',
 			'demo_seed' => isset($_REQUEST['demo_seed']) ? $_REQUEST['demo_seed'] : 0,
 		];
+	}
+
+	private function normaliseDemoReport($report): string {
+		$report = strtolower(trim((string)$report));
+		if (in_array($report, ['trunk', 'extension', 'group'], true)) {
+			return $report;
+		}
+		return 'extension';
 	}
 
 	private function normaliseDemoSize($size): string {
@@ -660,14 +692,14 @@ class Concurrencycount implements \BMO {
 		return ['start' => $start, 'end' => $end];
 	}
 
-	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode): array {
-		$counts = ['light' => 12, 'medium' => 160, 'heavy' => 900];
+	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode, string $report, string $demo_trunk = ''): array {
+		$counts = ['light' => 50, 'medium' => 1000, 'heavy' => 10000];
 		$count = $counts[$size];
 		$start_ts = strtotime($start);
 		$end_ts = strtotime($end);
 		$span = max(900, $end_ts - $start_ts);
-		$min_duration = ($size === 'heavy') ? 240 : 180;
-		$max_duration = ($size === 'heavy') ? 1800 : (($size === 'medium') ? 900 : 600);
+		$min_duration = ($size === 'heavy') ? 300 : 180;
+		$max_duration = ($size === 'heavy') ? 1800 : (($size === 'medium') ? 1200 : 600);
 		$state = $seed;
 		$extensions = ['101', '102', '103', '104', '105', '106', '107', '108'];
 		$rows = [];
@@ -685,13 +717,15 @@ class Concurrencycount implements \BMO {
 			$ext = $extensions[$state % count($extensions)];
 			$calldate = date('Y-m-d H:i:s', $start_ts + $offset);
 			$token = substr(hash('sha1', $accountcode . ':' . $i . ':' . $state), 0, 10);
+			$is_trunk = ($report === 'trunk');
+			$channel = $is_trunk ? ('PJSIP/' . $demo_trunk . '-' . $token) : ('PJSIP/' . $ext . '-' . $token);
 
 			$rows[] = [
 				'calldate' => $calldate,
 				'duration' => $duration,
-				'channel' => 'PJSIP/' . $ext . '-' . $token,
+				'channel' => $channel,
 				'dstchannel' => '',
-				'src' => $ext,
+				'src' => $is_trunk ? ('555' . sprintf('%04d', $i)) : $ext,
 				'dst' => '555' . sprintf('%04d', $i),
 				'accountcode' => $accountcode,
 				'uniqueid' => $accountcode . '-' . $i,
@@ -704,6 +738,82 @@ class Concurrencycount implements \BMO {
 
 	private function demoRand(int $state): int {
 		return (int)(($state * 1103515245 + 12345) & 0x7fffffff);
+	}
+
+	private function expectedDemoPerName(array $rows, string $report): array {
+		$max_concurrent = [];
+		$ongoing_calls = [];
+		foreach ($rows as $row) {
+			$name = '';
+			if ($report === 'extension') {
+				if (preg_match('|PJSIP/([0-9]+)-|', $row['channel'], $m)) {
+					$name = $m[1];
+				}
+			} else {
+				if (preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $row['channel'], $m)) {
+					$name = $m[1];
+				}
+			}
+			if ($name === '') continue;
+			$start_ts = strtotime($row['calldate']);
+			$end_ts = $start_ts + (int)$row['duration'];
+			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
+				$key = $name . ',' . $ts;
+				$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
+				if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) {
+					$max_concurrent[$name] = $ongoing_calls[$key];
+				}
+			}
+		}
+		ksort($max_concurrent);
+		$global_max = 0;
+		foreach ($max_concurrent as $v) {
+			if ($v > $global_max) $global_max = $v;
+		}
+		return ['per_name' => $max_concurrent, 'global_max' => $global_max];
+	}
+
+	private function expectedDemoGroup(array $rows): array {
+		$per_second_count = [];
+		foreach ($rows as $row) {
+			if (!preg_match('|^PJSIP/([0-9]+)-|', $row['channel'])) {
+				continue;
+			}
+			$start_ts = strtotime($row['calldate']);
+			$end_ts = $start_ts + (int)$row['duration'];
+			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
+				$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
+			}
+		}
+		$max = 0;
+		$peak_times = [];
+		foreach ($per_second_count as $ts => $count) {
+			if ($count > $max) {
+				$max = $count;
+				$peak_times = [$ts];
+			} elseif ($count === $max) {
+				$peak_times[] = $ts;
+			}
+		}
+		sort($peak_times);
+		return ['max_concurrency' => $max, 'peak_ranges' => $this->coalesceRanges($peak_times)];
+	}
+
+	private function assessDemoPerNameAccuracy(array $expected, array $actual): bool {
+		$actual_per_name = isset($actual['per_name']) ? $actual['per_name'] : [];
+		foreach ($expected['per_name'] as $name => $count) {
+			if (!isset($actual_per_name[$name]) || (int)$actual_per_name[$name] !== (int)$count) {
+				return false;
+			}
+		}
+		return (int)$expected['global_max'] === (int)(isset($actual['global_max']) ? $actual['global_max'] : 0);
+	}
+
+	private function assessDemoGroupAccuracy(array $expected, array $actual): bool {
+		if ((int)$expected['max_concurrency'] !== (int)(isset($actual['max_concurrency']) ? $actual['max_concurrency'] : 0)) {
+			return false;
+		}
+		return json_encode($expected['peak_ranges']) === json_encode(isset($actual['peak_ranges']) ? $actual['peak_ranges'] : []);
 	}
 
 	private function insertDemoCdrRow(array $row): void {
@@ -1126,33 +1236,24 @@ class Concurrencycount implements \BMO {
 
 		if ($r['mode'] === 'demo') {
 			$rows[] = ['Demo run id', isset($r['demo_run_id']) ? $r['demo_run_id'] : ''];
+			$rows[] = ['Demo report', isset($r['demo_report']) ? $r['demo_report'] : ''];
 			$rows[] = ['Demo size', isset($r['demo_size']) ? $r['demo_size'] : ''];
 			$rows[] = ['Demo seed', isset($r['demo_seed']) ? $r['demo_seed'] : ''];
+			$rows[] = ['Accuracy', isset($r['accuracy_status']) ? $r['accuracy_status'] : ''];
 			$rows[] = ['Rows inserted', isset($r['rows_inserted']) ? $r['rows_inserted'] : 0];
 			$rows[] = ['Rows removed', isset($r['rows_removed']) ? $r['rows_removed'] : 0];
 			$rows[] = ['Cleanup remaining', isset($r['cleanup_remaining']) ? $r['cleanup_remaining'] : 0];
 			$rows[] = [];
-			$rows[] = ['Extension demo'];
-			$rows[] = ['Extension', 'Max concurrent'];
-			if (!empty($r['per_name'])) {
-				foreach ($r['per_name'] as $name => $count) {
-					$rows[] = [$name, $count];
-				}
-			}
-			$rows[] = [];
-			$rows[] = ['Extension global maximum', isset($r['global_max']) ? $r['global_max'] : 0];
-			$rows[] = [];
-			$rows[] = ['Group demo'];
-			$rows[] = ['Maximum concurrent calls overall', isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
-			$rows[] = [];
-			$rows[] = ['Peak time ranges'];
-			if (!empty($r['peak_ranges'])) {
-				foreach ($r['peak_ranges'] as $range) {
-					if ($range['from'] === $range['to']) {
-						$rows[] = [$range['from']];
-					} else {
-						$rows[] = [$range['from'], $range['to']];
-					}
+			if (isset($r['demo_report']) && $r['demo_report'] === 'group') {
+				$rows[] = ['Metric', 'Expected', 'Actual'];
+				$rows[] = ['Maximum concurrent calls overall', isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0, isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
+			} else {
+				$label = (isset($r['demo_report']) && $r['demo_report'] === 'trunk') ? 'Trunk' : 'Extension';
+				$rows[] = [$label, 'Expected', 'Actual'];
+				$expected = isset($r['expected_per_name']) ? $r['expected_per_name'] : [];
+				foreach ($expected as $name => $count) {
+					$actual = isset($r['per_name'][$name]) ? $r['per_name'][$name] : 0;
+					$rows[] = [$name, $count, $actual];
 				}
 			}
 		} elseif ($r['mode'] === 'group') {
@@ -1274,33 +1375,26 @@ class Concurrencycount implements \BMO {
 
 		if ($r['mode'] === 'demo') {
 			$lines[] = 'Demo run id:      ' . (isset($r['demo_run_id']) ? $r['demo_run_id'] : '');
+			$lines[] = 'Demo report:      ' . (isset($r['demo_report']) ? ucfirst($r['demo_report']) : '');
 			$lines[] = 'Demo size:        ' . (isset($r['demo_size']) ? $r['demo_size'] : '');
 			$lines[] = 'Demo seed:        ' . (isset($r['demo_seed']) ? $r['demo_seed'] : '');
+			$lines[] = 'Accuracy:         ' . (isset($r['accuracy_status']) ? strtoupper($r['accuracy_status']) : '');
 			$lines[] = 'Rows inserted:    ' . (isset($r['rows_inserted']) ? $r['rows_inserted'] : 0);
 			$lines[] = 'Rows removed:     ' . (isset($r['rows_removed']) ? $r['rows_removed'] : 0);
 			$lines[] = 'Cleanup remaining:' . (isset($r['cleanup_remaining']) ? ' ' . $r['cleanup_remaining'] : ' 0');
 			$lines[] = '';
-			$lines[] = 'Extension demo:';
-			$lines[] = sprintf('%-24s  %s', 'Extension', 'Max concurrent');
-			if (!empty($r['per_name'])) {
-				foreach ($r['per_name'] as $name => $count) {
-					$lines[] = sprintf('%-24s  %d', $name, $count);
-				}
-			}
-			$lines[] = '';
-			$lines[] = 'Extension global maximum: ' . (isset($r['global_max']) ? $r['global_max'] : 0);
-			$lines[] = '';
-			$lines[] = 'Group demo:';
-			$lines[] = 'Maximum concurrent calls overall: ' . (isset($r['max_concurrency']) ? $r['max_concurrency'] : 0);
-			$lines[] = '';
-			if (!empty($r['peak_ranges'])) {
-				$lines[] = 'Peak time ranges:';
-				foreach ($r['peak_ranges'] as $range) {
-					if ($range['from'] === $range['to']) {
-						$lines[] = '  ' . $range['from'];
-					} else {
-						$lines[] = '  ' . $range['from'] . ' to ' . $range['to'];
-					}
+			if (isset($r['demo_report']) && $r['demo_report'] === 'group') {
+				$lines[] = 'Group accuracy:';
+				$lines[] = 'Expected max: ' . (isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0);
+				$lines[] = 'Actual max:   ' . (isset($r['max_concurrency']) ? $r['max_concurrency'] : 0);
+			} else {
+				$label = (isset($r['demo_report']) && $r['demo_report'] === 'trunk') ? 'Trunk' : 'Extension';
+				$lines[] = $label . ' accuracy:';
+				$lines[] = sprintf('%-24s  %-8s  %s', $label, 'Expected', 'Actual');
+				$expected = isset($r['expected_per_name']) ? $r['expected_per_name'] : [];
+				foreach ($expected as $name => $count) {
+					$actual = isset($r['per_name'][$name]) ? $r['per_name'][$name] : 0;
+					$lines[] = sprintf('%-24s  %-8d  %d', $name, $count, $actual);
 				}
 			}
 		} elseif ($r['mode'] === 'group') {

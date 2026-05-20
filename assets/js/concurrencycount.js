@@ -37,6 +37,7 @@ window._ccLoaded = true;
 	var finalMode = null;
 	var finalStart = null;
 	var finalEnd = null;
+	var finalDemoReport = null;
 	var finalDemoSize = null;
 	var finalDemoSeed = null;
 	var demoSeed = 0;
@@ -118,6 +119,7 @@ window._ccLoaded = true;
 	}
 
 	function runDemo() {
+		var report = $('input[name="cc-demo-report"]:checked').val() || 'extension';
 		var size = $('input[name="cc-demo-size"]:checked').val() || 'light';
 		var start = $('#cc-demo-start').val();
 		var end = $('#cc-demo-end').val();
@@ -125,8 +127,12 @@ window._ccLoaded = true;
 		if (!isNaN(seedField)) {
 			demoSeed = seedField >>> 0;
 		}
+		if (size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
+			return;
+		}
 		$('#cc-demo').modal('hide');
 		executeRun('demo', start, end, {
+			demo_report: report,
 			demo_size: size,
 			demo_seed: String(demoSeed >>> 0)
 		});
@@ -189,6 +195,7 @@ window._ccLoaded = true;
 		finalMode = r.mode;
 		finalStart = r.start;
 		finalEnd = r.end;
+		finalDemoReport = r.demo_report || null;
 		finalDemoSize = r.demo_size || null;
 		finalDemoSeed = r.demo_seed || null;
 
@@ -262,6 +269,7 @@ window._ccLoaded = true;
 		var html = '<h4>Demo profile</h4>';
 		html += '<dl class="dl-horizontal">' +
 			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
+			'<dt>Report</dt><dd>' + escapeHtml(r.demo_report || '') + '</dd>' +
 			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
 			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
 			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
@@ -273,34 +281,40 @@ window._ccLoaded = true;
 		} else {
 			html += '<div class="alert alert-danger">Demo cleanup needs checking. Rows remain for this run.</div>';
 		}
-		html += '<h4>Extension demo</h4>';
-		html += '<table class="table table-striped"><thead><tr>' +
-			'<th>Extension</th><th>Max concurrent</th>' +
-			'</tr></thead><tbody>';
-		Object.keys(r.per_name).forEach(function (n) {
-			var count = r.per_name[n];
-			var isPeak = (count === r.global_max && r.global_max > 0);
-			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + escapeHtml(n) + '</td>' +
-				'<td>' + escapeHtml(count) + '</td>' +
-				'</tr>';
-		});
-		html += '</tbody></table>';
-		html += '<div class="cc-peak-summary">Extension global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
-		html += '<h4>Group demo</h4>';
-		html += '<div class="cc-peak-summary">Maximum concurrent calls overall: <strong>' + escapeHtml(r.max_concurrency) + '</strong></div>';
-		if (r.peak_ranges && r.peak_ranges.length) {
-			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
-			r.peak_ranges.forEach(function (range) {
-				if (range.from === range.to) {
-					html += '<li>' + escapeHtml(range.from) + '</li>';
-				} else {
-					html += '<li>' + escapeHtml(range.from) + ' to ' + escapeHtml(range.to) + '</li>';
-				}
+		if (r.accuracy_status === 'pass') {
+			html += '<div class="alert alert-success">Accuracy check passed. Actual output matches the expected output calculated from the demo CDR rows.</div>';
+		} else {
+			html += '<div class="alert alert-danger">Accuracy check failed. Actual output did not match the expected output.</div>';
+		}
+		if (r.demo_report === 'group') {
+			html += '<h4>Group accuracy</h4>';
+			html += '<table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<tr><td>Maximum concurrent calls overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
+			html += '<tr><td>Peak ranges</td><td>' + escapeHtml(formatRanges(r.expected_peak_ranges)) + '</td><td>' + escapeHtml(formatRanges(r.peak_ranges)) + '</td></tr>';
+			html += '</tbody></table>';
+		} else {
+			var label = (r.demo_report === 'trunk') ? 'Trunk' : 'Extension';
+			var expected = r.expected_per_name || {};
+			html += '<h4>' + escapeHtml(label) + ' accuracy</h4>';
+			html += '<table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			Object.keys(expected).forEach(function (n) {
+				html += '<tr>' +
+					'<td>' + escapeHtml(n) + '</td>' +
+					'<td>' + escapeHtml(expected[n]) + '</td>' +
+					'<td>' + escapeHtml((r.per_name || {})[n] || 0) + '</td>' +
+					'</tr>';
 			});
-			html += '</ul>';
+			html += '</tbody></table>';
+			html += '<div class="cc-peak-summary">Expected global maximum: <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
 		el.html(html);
+	}
+
+	function formatRanges(ranges) {
+		if (!ranges || !ranges.length) return 'None';
+		return ranges.map(function (range) {
+			return (range.from === range.to) ? range.from : (range.from + ' to ' + range.to);
+		}).join('; ');
 	}
 
 	/* ---------- Wizard state machine ---------- */
@@ -593,6 +607,7 @@ window._ccLoaded = true;
 			mode: finalMode, start_date: finalStart, end_date: finalEnd
 		};
 		if (finalMode === 'demo') {
+			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_seed = finalDemoSeed || '0';
 		}
@@ -616,6 +631,7 @@ window._ccLoaded = true;
 			start_date: finalStart, end_date: finalEnd, email: to
 		};
 		if (finalMode === 'demo') {
+			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_seed = finalDemoSeed || '0';
 		}
@@ -639,9 +655,6 @@ window._ccLoaded = true;
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
-		$('#cc-demo-randomise').off('click').on('click', function () {
-			randomiseDemoSeed('Randomised again.');
-		});
 		$('#cc-demo-run').off('click').on('click', runDemo);
 		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
 			var off = $(this).offset();

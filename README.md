@@ -63,13 +63,13 @@ Same mode abbreviations and shorthand dates as the wizard.
 
 ## Demo mode
 
-For a test PBX with no useful sample CDRs, click **Run Demo** on the module page. Choose Light, Medium, or Heavy, optionally move in the randomise box to vary the synthetic call pattern, then run the demo. A fresh seed is created each time the demo window opens.
+For a test PBX with no useful sample CDRs, click **Run Demo** on the module page. Choose the report to simulate (extension, group, or trunk), choose Light, Medium, or Heavy, optionally move in the randomise box to vary the synthetic call pattern, then run the demo. A fresh seed is created each time the demo window opens. Light creates about 50 calls, Medium about 1,000 calls, and Heavy about 10,000 calls; Heavy may take several minutes.
 
 ```
-fwconsole concurrencycount --mode=demo --demo-size=medium --demo-seed=12345
+fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345
 ```
 
-Demo mode temporarily inserts tagged synthetic CDR rows, runs the normal CDR-backed extension and group report paths against those rows only, then removes the demo rows automatically. The result shows the demo run id, seed, rows inserted, rows removed, and cleanup remaining count so cleanup can be verified.
+Demo mode temporarily inserts tagged synthetic CDR rows, calculates the expected output from those generated rows, runs the normal CDR-backed report path against those rows only, compares expected against actual, then removes the demo rows automatically. The result shows the demo run id, seed, accuracy status, rows inserted, rows removed, and cleanup remaining count so cleanup can be verified.
 
 ## Notes
 

@@ -113,6 +113,20 @@ $_ccAssetVer = max(
 			<div class="modal-body">
 				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
 				<div class="form-group">
+					<label class="control-label"><?php echo _('Report to simulate'); ?></label>
+					<div class="btn-group btn-group-justified" data-toggle="buttons">
+						<label class="btn btn-default active">
+							<input type="radio" name="cc-demo-report" value="extension" checked> <?php echo _('Extension'); ?>
+						</label>
+						<label class="btn btn-default">
+							<input type="radio" name="cc-demo-report" value="group"> <?php echo _('Group'); ?>
+						</label>
+						<label class="btn btn-default">
+							<input type="radio" name="cc-demo-report" value="trunk"> <?php echo _('Trunk'); ?>
+						</label>
+					</div>
+				</div>
+				<div class="form-group">
 					<label class="control-label"><?php echo _('Demo size'); ?></label>
 					<div class="btn-group btn-group-justified" data-toggle="buttons">
 						<label class="btn btn-default active">
@@ -126,9 +140,9 @@ $_ccAssetVer = max(
 						</label>
 					</div>
 					<div class="row cc-demo-size-notes">
-						<div class="col-sm-4"><strong><?php echo _('Light'); ?></strong><br><span class="text-muted"><?php echo _('Quick sanity check.'); ?></span></div>
-						<div class="col-sm-4"><strong><?php echo _('Medium'); ?></strong><br><span class="text-muted"><?php echo _('Busier overlap simulation.'); ?></span></div>
-						<div class="col-sm-4"><strong><?php echo _('Heavy'); ?></strong><br><span class="text-muted"><?php echo _('Larger run; expect to wait.'); ?></span></div>
+						<div class="col-sm-4"><strong><?php echo _('Light'); ?></strong><br><span class="text-muted"><?php echo _('50 calls, quick smoke test.'); ?></span></div>
+						<div class="col-sm-4"><strong><?php echo _('Medium'); ?></strong><br><span class="text-muted"><?php echo _('1,000 calls, realistic busy period.'); ?></span></div>
+						<div class="col-sm-4"><strong><?php echo _('Heavy'); ?></strong><br><span class="text-muted"><?php echo _('10,000 calls, may take several minutes.'); ?></span></div>
 					</div>
 				</div>
 				<div class="row">
@@ -147,14 +161,7 @@ $_ccAssetVer = max(
 				</div>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Randomise'); ?></label>
-					<div class="input-group" style="margin-bottom:8px;">
-						<input type="text" id="cc-demo-seed" class="form-control" readonly>
-						<span class="input-group-btn">
-							<button type="button" id="cc-demo-randomise" class="btn btn-default">
-								<i class="fa fa-random"></i> <?php echo _('Randomise Again'); ?>
-							</button>
-						</span>
-					</div>
+					<input type="text" id="cc-demo-seed" class="form-control" readonly style="margin-bottom:8px;">
 					<div id="cc-demo-entropy" class="cc-demo-entropy">
 						<span><?php echo _('Move inside this box to stir the seed. A new seed is created every time this window opens.'); ?></span>
 					</div>
