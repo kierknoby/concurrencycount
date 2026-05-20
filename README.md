@@ -2,7 +2,7 @@
 
 Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Read-only against `asteriskcdrdb`.
 
-This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) shipped via IN1CLICK- NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface uses a wizard modal that mirrors the CLI flow, including the same modes, the same shorthand date entry (today, yesterday, month names, Y/YY/YYYY years), the same three-attempt retry behaviour, and the same runtime-overrun warning.
+This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface uses a wizard modal that mirrors the CLI flow, including the same modes, the same shorthand date entry (today, yesterday, month names, Y/YY/YYYY years), the same three-attempt retry behaviour, and the same runtime-overrun warning.
 
 ## Requirements
 
