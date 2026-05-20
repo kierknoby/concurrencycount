@@ -2,7 +2,7 @@
  * Concurrency Count wizard.
  *
  * Mirrors the bash CLI flow:
- *   1. Mode (trunks/extensions/group, abbreviations accepted)
+ *   1. Mode (trunks/extensions/group/demo, abbreviations accepted)
  *   2. Month/shortcut (today, yesterday, month name, or blank for custom range)
  *   3a. If month: year (Y, YY, YYYY)
  *   3b. If blank: start date, then end date
@@ -157,6 +157,8 @@ window._ccLoaded = true;
 		var body = $('#cc-results-body');
 		if (r.empty_message) {
 			body.html('<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
+		} else if (r.mode === 'demo') {
+			renderDemo(body, r);
 		} else if (r.mode === 'group') {
 			renderGroup(body, r);
 		} else {
@@ -209,6 +211,37 @@ window._ccLoaded = true;
 		el.html(html);
 	}
 
+	function renderDemo(el, r) {
+		var html = '<h4>Extension demo</h4>';
+		html += '<table class="table table-striped"><thead><tr>' +
+			'<th>Extension</th><th>Max concurrent</th>' +
+			'</tr></thead><tbody>';
+		Object.keys(r.per_name).forEach(function (n) {
+			var count = r.per_name[n];
+			var isPeak = (count === r.global_max && r.global_max > 0);
+			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
+				'<td>' + escapeHtml(n) + '</td>' +
+				'<td>' + escapeHtml(count) + '</td>' +
+				'</tr>';
+		});
+		html += '</tbody></table>';
+		html += '<div class="cc-peak-summary">Extension global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
+		html += '<h4>Group demo</h4>';
+		html += '<div class="cc-peak-summary">Maximum concurrent calls overall: <strong>' + escapeHtml(r.max_concurrency) + '</strong></div>';
+		if (r.peak_ranges && r.peak_ranges.length) {
+			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
+			r.peak_ranges.forEach(function (range) {
+				if (range.from === range.to) {
+					html += '<li>' + escapeHtml(range.from) + '</li>';
+				} else {
+					html += '<li>' + escapeHtml(range.from) + ' to ' + escapeHtml(range.to) + '</li>';
+				}
+			});
+			html += '</ul>';
+		}
+		el.html(html);
+	}
+
 	/* ---------- Wizard state machine ---------- */
 
 	function newWizard() {
@@ -227,8 +260,8 @@ window._ccLoaded = true;
 		wizardState.step = 'mode';
 		wizardState.attempts = 0;
 		setStep(
-			'Summarise concurrency by: <code>trunks</code> / <code>extensions</code> / <code>group</code>',
-			'Abbreviations accepted (e.g. t, ext, g).',
+			'Summarise concurrency by: <code>trunks</code> / <code>extensions</code> / <code>group</code> / <code>demo</code>',
+			'Abbreviations accepted (e.g. t, ext, g, d).',
 			'trunks'
 		);
 	}
@@ -319,6 +352,11 @@ window._ccLoaded = true;
 		switch (wizardState.step) {
 			case 'mode':
 				wizardState.mode = resp.value;
+				if (wizardState.mode === 'demo') {
+					hideWizard();
+					executeRun('demo', '2001-01-01 09:00:00', '2001-01-01 10:00:00');
+					break;
+				}
 				askMonth();
 				break;
 			case 'month':

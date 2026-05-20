@@ -41,6 +41,7 @@ class InputValidationTest extends TestCase {
 		$this->assertSame('trunk', $this->cc->normaliseMode('trunks'));
 		$this->assertSame('extension', $this->cc->normaliseMode('extensions'));
 		$this->assertSame('group', $this->cc->normaliseMode('group'));
+		$this->assertSame('demo', $this->cc->normaliseMode('demo'));
 	}
 
 	public function testModeAcceptsAbbreviations(): void {
@@ -50,6 +51,7 @@ class InputValidationTest extends TestCase {
 		$this->assertSame('extension', $this->cc->normaliseMode('e'));
 		$this->assertSame('group', $this->cc->normaliseMode('g'));
 		$this->assertSame('group', $this->cc->normaliseMode('grp'));
+		$this->assertSame('demo', $this->cc->normaliseMode('d'));
 	}
 
 	public function testModeIsCaseInsensitive(): void {

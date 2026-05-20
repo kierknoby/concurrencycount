@@ -122,18 +122,21 @@ class Concurrencycount implements \BMO {
 	 * trunks|trunk|trun|tru|tr|t|trks|trk|trnks|trnk
 	 * extensions|extension|extensio|extensi|extens|exten|exte|ext|exts|ex|e
 	 * groups|group|grou|gro|gr|g|grps|grp
+	 * demo|dem|de|d
 	 *
-	 * @return string|null  'trunk', 'extension', 'group', or null
+	 * @return string|null  'trunk', 'extension', 'group', 'demo', or null
 	 */
 	public function normaliseMode($input): ?string {
 		$s = strtolower(trim((string)$input));
 		$trunk_set = ['trunks','trunk','trun','tru','tr','t','trks','trk','trnks','trnk'];
 		$ext_set   = ['extensions','extension','extensio','extensi','extens','exten','exte','ext','exts','ex','e'];
 		$group_set = ['groups','group','grou','gro','gr','g','grps','grp'];
+		$demo_set  = ['demo','dem','de','d'];
 
 		if (in_array($s, $trunk_set, true)) return 'trunk';
 		if (in_array($s, $ext_set, true))   return 'extension';
 		if (in_array($s, $group_set, true)) return 'group';
+		if (in_array($s, $demo_set, true))  return 'demo';
 		return null;
 	}
 
@@ -452,7 +455,7 @@ class Concurrencycount implements \BMO {
 			if ($step === 'mode') {
 				$mode = $this->normaliseMode(isset($_REQUEST['value']) ? $_REQUEST['value'] : '');
 				if ($mode === null) {
-					throw new \Exception(_('Invalid mode entered. Please enter trunks, extensions, or group.'));
+					throw new \Exception(_('Invalid mode entered. Please enter trunks, extensions, group, or demo.'));
 				}
 				return ['status' => true, 'value' => $mode];
 			}
@@ -501,7 +504,7 @@ class Concurrencycount implements \BMO {
 		$confirm_overrun = !empty($_REQUEST['confirm_overrun']);
 
 		if ($mode === null) {
-			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, or group.')];
+			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
 		}
 
 		try {
@@ -559,10 +562,86 @@ class Concurrencycount implements \BMO {
 		set_time_limit(self::MAX_RUNTIME + 60);
 		$started_at = time();
 
+		if ($mode === 'demo') {
+			return $this->calculateDemo();
+		}
 		if ($mode === 'group') {
 			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun);
 		}
 		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun);
+	}
+
+	/**
+	 * In-memory demo fixture. This deliberately does not write to CDR; it
+	 * exercises the same inclusive per-second counting style with predictable
+	 * synthetic PJSIP extension legs.
+	 */
+	private function calculateDemo(): array {
+		$start = '2001-01-01 09:00:00';
+		$end = '2001-01-01 10:00:00';
+		$rows = [
+			['calldate' => '2001-01-01 09:00:00', 'duration' => 600, 'chan' => 'PJSIP/101-aaa101', 'channel' => 'PJSIP/101-aaa101', 'dstchannel' => ''],
+			['calldate' => '2001-01-01 09:05:00', 'duration' => 600, 'chan' => 'PJSIP/101-bbb101', 'channel' => 'PJSIP/101-bbb101', 'dstchannel' => ''],
+			['calldate' => '2001-01-01 09:03:00', 'duration' => 600, 'chan' => 'PJSIP/102-aaa102', 'channel' => 'PJSIP/102-aaa102', 'dstchannel' => ''],
+			['calldate' => '2001-01-01 09:07:00', 'duration' => 600, 'chan' => 'PJSIP/102-bbb102', 'channel' => 'PJSIP/102-bbb102', 'dstchannel' => ''],
+			['calldate' => '2001-01-01 09:20:00', 'duration' => 300, 'chan' => 'PJSIP/103-aaa103', 'channel' => 'PJSIP/103-aaa103', 'dstchannel' => ''],
+		];
+
+		$max_concurrent = [];
+		$ongoing_calls = [];
+		$per_second_count = [];
+
+		foreach ($rows as $row) {
+			$start_ts = strtotime($row['calldate']);
+			$end_ts = $start_ts + (int)$row['duration'];
+
+			if (preg_match('|PJSIP/([0-9]+)-|', $row['chan'], $m)) {
+				$name = $m[1];
+				for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
+					$key = $name . ',' . $ts;
+					$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
+					if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) {
+						$max_concurrent[$name] = $ongoing_calls[$key];
+					}
+				}
+			}
+
+			$ext1 = '';
+			if (preg_match('|^PJSIP/([0-9]+)-|', $row['channel'], $m)) {
+				$ext1 = $m[1];
+			}
+			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
+				if ($ext1 !== '') {
+					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
+				}
+			}
+		}
+
+		ksort($max_concurrent);
+		$global_max = 0;
+		foreach ($max_concurrent as $v) {
+			if ($v > $global_max) $global_max = $v;
+		}
+
+		$group_max = 0;
+		$peak_times = [];
+		foreach ($per_second_count as $ts => $count) {
+			if ($count > $group_max) {
+				$group_max = $count;
+				$peak_times = [$ts];
+			} elseif ($count === $group_max) {
+				$peak_times[] = $ts;
+			}
+		}
+		sort($peak_times);
+
+		return [
+			'mode' => 'demo', 'start' => $start, 'end' => $end,
+			'per_name' => $max_concurrent, 'global_max' => $global_max,
+			'max_concurrency' => $group_max, 'peak_ranges' => $this->coalesceRanges($peak_times),
+			'rows_processed' => count($rows),
+			'warning' => _('Demo mode uses synthetic in-memory CDR rows and does not read or write asteriskcdrdb.'),
+		];
 	}
 
 	/**
@@ -879,7 +958,31 @@ class Concurrencycount implements \BMO {
 		$rows[] = ['Rows processed', $r['rows_processed']];
 		$rows[] = [];
 
-		if ($r['mode'] === 'group') {
+		if ($r['mode'] === 'demo') {
+			$rows[] = ['Extension demo'];
+			$rows[] = ['Extension', 'Max concurrent'];
+			if (!empty($r['per_name'])) {
+				foreach ($r['per_name'] as $name => $count) {
+					$rows[] = [$name, $count];
+				}
+			}
+			$rows[] = [];
+			$rows[] = ['Extension global maximum', isset($r['global_max']) ? $r['global_max'] : 0];
+			$rows[] = [];
+			$rows[] = ['Group demo'];
+			$rows[] = ['Maximum concurrent calls overall', isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
+			$rows[] = [];
+			$rows[] = ['Peak time ranges'];
+			if (!empty($r['peak_ranges'])) {
+				foreach ($r['peak_ranges'] as $range) {
+					if ($range['from'] === $range['to']) {
+						$rows[] = [$range['from']];
+					} else {
+						$rows[] = [$range['from'], $range['to']];
+					}
+				}
+			}
+		} elseif ($r['mode'] === 'group') {
 			$rows[] = ['Maximum concurrent calls overall', isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
 			$rows[] = [];
 			$rows[] = ['Peak time ranges'];
@@ -994,7 +1097,31 @@ class Concurrencycount implements \BMO {
 		$lines[] = 'Rows processed: ' . $r['rows_processed'];
 		$lines[] = '';
 
-		if ($r['mode'] === 'group') {
+		if ($r['mode'] === 'demo') {
+			$lines[] = 'Extension demo:';
+			$lines[] = sprintf('%-24s  %s', 'Extension', 'Max concurrent');
+			if (!empty($r['per_name'])) {
+				foreach ($r['per_name'] as $name => $count) {
+					$lines[] = sprintf('%-24s  %d', $name, $count);
+				}
+			}
+			$lines[] = '';
+			$lines[] = 'Extension global maximum: ' . (isset($r['global_max']) ? $r['global_max'] : 0);
+			$lines[] = '';
+			$lines[] = 'Group demo:';
+			$lines[] = 'Maximum concurrent calls overall: ' . (isset($r['max_concurrency']) ? $r['max_concurrency'] : 0);
+			$lines[] = '';
+			if (!empty($r['peak_ranges'])) {
+				$lines[] = 'Peak time ranges:';
+				foreach ($r['peak_ranges'] as $range) {
+					if ($range['from'] === $range['to']) {
+						$lines[] = '  ' . $range['from'];
+					} else {
+						$lines[] = '  ' . $range['from'] . ' to ' . $range['to'];
+					}
+				}
+			}
+		} elseif ($r['mode'] === 'group') {
 			$lines[] = 'Maximum concurrent calls overall: ' . (isset($r['max_concurrency']) ? $r['max_concurrency'] : 0);
 			$lines[] = '';
 			if (!empty($r['peak_ranges'])) {

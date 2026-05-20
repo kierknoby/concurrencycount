@@ -30,9 +30,11 @@ The module appears under **Reports > Concurrency Count**.
 
 **Group:** overall maximum concurrent calls across all extensions, counting both legs of each call.
 
+**Demo:** built-in synthetic fixture. Does not read or write CDR data.
+
 ## Wizard flow (mirrors the CLI)
 
-1. **Mode.** Accepts trunks/extensions/group, plus abbreviations (t, ext, g, etc.).
+1. **Mode.** Accepts trunks/extensions/group/demo, plus abbreviations (t, ext, g, d, etc.).
 2. **Date range.** Type a month name, `today`, `yesterday`, or leave blank for a custom range.
 3a. **Year** if a month was given. Accepts YYYY, YY, or Y.
 3b. **Start date** then **end date** if blank was given. Each accepts YYYY-MM-DD HH:MM:SS, YYYY-MM-DD, YYYY-MM, YYYY, YY, Y, or blank.
@@ -54,9 +56,24 @@ No data is persisted to disk or database. Each run is fresh.
 ```
 fwconsole concurrencycount --mode=trunk --start="2026-04-01 00:00:00" --end="2026-04-30 23:59:59"
 fwconsole concurrencycount --mode=group --start="2026-04-01 00:00:00" --end="2026-04-30 23:59:59" --csv
+fwconsole concurrencycount --mode=demo
 ```
 
 Same mode abbreviations and shorthand dates as the wizard.
+
+## Demo mode
+
+For a test PBX with no useful sample CDRs, choose `demo` in the wizard or run:
+
+```
+fwconsole concurrencycount --mode=demo
+```
+
+Demo mode uses a small in-memory fixture for `2001-01-01 09:00:00` to `2001-01-01 10:00:00`. It does not read or write `asteriskcdrdb`.
+
+Expected extension results: `101 => 2`, `102 => 2`, `103 => 1`, global maximum `2`.
+
+Expected group result: maximum concurrent calls overall `4`, peaking from `2001-01-01 09:07:00` to `2001-01-01 09:10:00`.
 
 ## Notes
 
