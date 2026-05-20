@@ -13,13 +13,41 @@
  * containerised test command.
  */
 
-use PHPUnit\Framework\TestCase;
-
 /**
  * Light shim so we can instantiate the BMO class without a FreePBX object.
  * The constructor requires one, so we extend and override.
  */
+if (!interface_exists('BMO')) {
+	interface BMO {}
+}
+
 require_once __DIR__ . '/../Concurrencycount.class.php';
+
+if (class_exists('PHPUnit\Framework\TestCase')) {
+	abstract class InputValidationBase extends \PHPUnit\Framework\TestCase {}
+} else {
+	abstract class InputValidationBase {
+		protected function setUp(): void {}
+
+		protected function assertSame($expected, $actual, string $message = ''): void {
+			if ($expected !== $actual) {
+				throw new \Exception(($message !== '' ? $message . "\n" : '') . 'Expected ' . var_export($expected, true) . ' got ' . var_export($actual, true));
+			}
+		}
+
+		protected function assertNull($actual, string $message = ''): void {
+			if ($actual !== null) {
+				throw new \Exception(($message !== '' ? $message . "\n" : '') . 'Expected null got ' . var_export($actual, true));
+			}
+		}
+
+		protected function assertNotNull($actual, string $message = ''): void {
+			if ($actual === null) {
+				throw new \Exception(($message !== '' ? $message . "\n" : '') . 'Expected non-null value');
+			}
+		}
+	}
+}
 
 if (!class_exists('TestableConcurrencycount')) {
 	class TestableConcurrencycount extends \FreePBX\modules\Concurrencycount {
@@ -29,7 +57,7 @@ if (!class_exists('TestableConcurrencycount')) {
 	}
 }
 
-class InputValidationTest extends TestCase {
+class InputValidationTest extends InputValidationBase {
 
 	private TestableConcurrencycount $cc;
 

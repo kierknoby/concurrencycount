@@ -117,6 +117,10 @@ $_ccAssetVer = max(
 			</div>
 			<div class="modal-body">
 				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
+				<div class="alert alert-warning">
+					<strong><?php echo _('Demo writes to CDR.'); ?></strong>
+					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and normally use historical dates around 2001 so they are isolated from live reporting periods. Cleanup is verified after the run, but it is still best-effort if the server or database dies mid-run.'); ?>
+				</div>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Randomise'); ?></label>
 					<input type="text" id="cc-demo-seed" class="form-control" readonly style="margin-bottom:8px;">

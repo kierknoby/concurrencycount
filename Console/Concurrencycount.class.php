@@ -76,7 +76,7 @@ class Concurrencycount extends Command {
 				'demo_size' => $demo_size,
 				'demo_seed' => $demo_seed,
 				'engine' => $engine,
-				'demo_engines' => ($mode === 'demo' && $compare) ? explode(',', $compare) : ['original'],
+				'demo_engines' => ($mode === 'demo' && $compare) ? explode(',', $compare) : [$engine],
 			]);
 		} catch (\Exception $e) {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');

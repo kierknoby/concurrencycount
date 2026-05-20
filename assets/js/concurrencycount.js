@@ -216,7 +216,8 @@ window._ccLoaded = true;
 		if (!demoPlan) return;
 		$('#cc-demo-plan').html(
 			'<dt>Load</dt><dd>' + escapeHtml(demoPlan.size) + ' (' + escapeHtml(demoPlan.rows) + ' calls)</dd>' +
-			'<dt>Range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>'
+			'<dt>CDR write range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>' +
+			'<dt>Accountcode</dt><dd>CCDEMO*</dd>'
 		);
 	}
 

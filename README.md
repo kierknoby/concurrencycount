@@ -30,11 +30,11 @@ The module appears under **Reports > Concurrency Count**.
 
 **Group:** overall maximum concurrent calls across all extensions, counting both legs of each call.
 
-**Demo:** built-in synthetic fixture. Does not read or write CDR data.
+**Demo:** built-in synthetic fixture. It temporarily writes tagged rows to the live CDR table, runs the normal CDR-backed report path against those rows, verifies the result, then removes them.
 
 ## Wizard flow (mirrors the CLI)
 
-1. **Mode.** Accepts trunks/extensions/group/demo, plus abbreviations (t, ext, g, d, etc.).
+1. **Mode.** Accepts trunks/extensions/group, plus abbreviations (t, ext, g, etc.). Demo runs use the separate **Run Demo** button.
 2. **Date range.** Type a month name, `today`, `yesterday`, or leave blank for a custom range.
 3a. **Year** if a month was given. Accepts YYYY, YY, or Y.
 3b. **Start date** then **end date** if blank was given. Each accepts YYYY-MM-DD HH:MM:SS, YYYY-MM-DD, YYYY-MM, YYYY, YY, Y, or blank.
@@ -49,7 +49,7 @@ After a run, three options:
 - Download as CSV.
 - Email the report with CSV attachment.
 
-No data is persisted to disk or database. Each run is fresh.
+Normal report runs do not persist data to disk or database. Demo runs temporarily insert tagged synthetic CDR rows and remove them after the run.
 
 ## Command-line use
 
@@ -57,6 +57,8 @@ No data is persisted to disk or database. Each run is fresh.
 fwconsole concurrencycount --mode=trunk --start="2026-04-01 00:00:00" --end="2026-04-30 23:59:59"
 fwconsole concurrencycount --mode=group --start="2026-04-01 00:00:00" --end="2026-04-30 23:59:59" --csv
 fwconsole concurrencycount --mode=demo
+fwconsole concurrencycount --mode=demo --engine=sweep
+fwconsole concurrencycount --mode=demo --compare=original,sweep
 ```
 
 Same mode abbreviations and shorthand dates as the wizard.
@@ -70,6 +72,8 @@ fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=mediu
 ```
 
 Demo mode temporarily inserts tagged synthetic CDR rows, calculates the expected output from those generated rows, runs the normal CDR-backed report path against those rows only, compares expected against actual, then removes the demo rows automatically. The result shows the demo run id, seed, accuracy status, rows inserted, rows removed, and cleanup remaining count so cleanup can be verified.
+
+Demo rows use an accountcode beginning with `CCDEMO`. Cleanup is performed in a `finally` block and verified at the end of a normal run, but it is still best-effort: a PHP fatal error, web-server kill, database interruption, or host crash could leave tagged demo rows behind. Until a dedicated FreePBX permission/feature gate and orphan-cleanup command are added, demo mode should be treated as an administrator/test-PBX feature rather than a general user workflow.
 
 ## Notes
 
