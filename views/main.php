@@ -116,47 +116,14 @@ $_ccAssetVer = max(
 					<label class="control-label"><?php echo _('Report to simulate'); ?></label>
 					<div class="btn-group btn-group-justified" data-toggle="buttons">
 						<label class="btn btn-default active">
-							<input type="radio" name="cc-demo-report" value="extension" checked> <?php echo _('Extension'); ?>
+							<input type="radio" name="cc-demo-report" value="trunk" checked> <?php echo _('Trunks'); ?>
+						</label>
+						<label class="btn btn-default">
+							<input type="radio" name="cc-demo-report" value="extension"> <?php echo _('Extensions'); ?>
 						</label>
 						<label class="btn btn-default">
 							<input type="radio" name="cc-demo-report" value="group"> <?php echo _('Group'); ?>
 						</label>
-						<label class="btn btn-default">
-							<input type="radio" name="cc-demo-report" value="trunk"> <?php echo _('Trunk'); ?>
-						</label>
-					</div>
-				</div>
-				<div class="form-group">
-					<label class="control-label"><?php echo _('Demo size'); ?></label>
-					<div class="btn-group btn-group-justified" data-toggle="buttons">
-						<label class="btn btn-default active">
-							<input type="radio" name="cc-demo-size" value="light" checked> <?php echo _('Light'); ?>
-						</label>
-						<label class="btn btn-default">
-							<input type="radio" name="cc-demo-size" value="medium"> <?php echo _('Medium'); ?>
-						</label>
-						<label class="btn btn-default">
-							<input type="radio" name="cc-demo-size" value="heavy"> <?php echo _('Heavy'); ?>
-						</label>
-					</div>
-					<div class="row cc-demo-size-notes">
-						<div class="col-sm-4"><strong><?php echo _('Light'); ?></strong><br><span class="text-muted"><?php echo _('50 calls, quick smoke test.'); ?></span></div>
-						<div class="col-sm-4"><strong><?php echo _('Medium'); ?></strong><br><span class="text-muted"><?php echo _('1,000 calls, realistic busy period.'); ?></span></div>
-						<div class="col-sm-4"><strong><?php echo _('Heavy'); ?></strong><br><span class="text-muted"><?php echo _('10,000 calls, may take several minutes.'); ?></span></div>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-sm-6">
-						<div class="form-group">
-							<label class="control-label" for="cc-demo-start"><?php echo _('Start'); ?></label>
-							<input type="text" id="cc-demo-start" class="form-control" value="2001-01-01 09:00:00">
-						</div>
-					</div>
-					<div class="col-sm-6">
-						<div class="form-group">
-							<label class="control-label" for="cc-demo-end"><?php echo _('End'); ?></label>
-							<input type="text" id="cc-demo-end" class="form-control" value="2001-01-01 10:00:00">
-						</div>
 					</div>
 				</div>
 				<div class="form-group">
@@ -167,7 +134,8 @@ $_ccAssetVer = max(
 					</div>
 					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('New random seed ready.'); ?></span>
 				</div>
-				<p class="text-muted"><?php echo _('You can choose any safe date range. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
+				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
+				<p class="text-muted"><?php echo _('The randomiser selects the date range and load size automatically. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>

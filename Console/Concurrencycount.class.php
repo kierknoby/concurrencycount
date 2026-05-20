@@ -56,8 +56,9 @@ class Concurrencycount extends Command {
 		}
 
 		if ($mode === 'demo') {
-			$start = $start_raw ?: '2001-01-01 09:00:00';
-			$end = $end_raw ?: '2001-01-01 10:00:00';
+			$plan = $this->demoPlan((int)$demo_seed, $demo_size);
+			$start = $start_raw ?: $plan['start'];
+			$end = $end_raw ?: $plan['end'];
 		} else {
 			$start = $cc->normaliseStartDate($start_raw);
 			$end = $cc->normaliseEndDate($end_raw);
@@ -143,5 +144,19 @@ class Concurrencycount extends Command {
 		$output->writeln('<comment>' . $results['warning'] . '</comment>');
 		$output->writeln('');
 		return 0;
+	}
+
+	private function demoPlan(int $seed, string $size): array {
+		$seed = $seed ?: time();
+		$size = in_array($size, ['light', 'medium', 'heavy'], true) ? $size : 'light';
+		$hours = ['light' => 1, 'medium' => 3, 'heavy' => 6];
+		$dayOffset = (int)(floor($seed / 7) % 365);
+		$hour = 8 + (int)(floor($seed / 13) % 8);
+		$minute = (int)(floor($seed / 17) % 4) * 15;
+		$start = mktime($hour, $minute, 0, 1, 1 + $dayOffset, 2001);
+		return [
+			'start' => date('Y-m-d H:i:s', $start),
+			'end' => date('Y-m-d H:i:s', $start + ($hours[$size] * 3600)),
+		];
 	}
 }

@@ -42,6 +42,7 @@ window._ccLoaded = true;
 	var finalDemoSeed = null;
 	var demoSeed = 0;
 	var demoMoves = 0;
+	var demoPlan = null;
 
 	/**
 	 * Use jQuery's DOM round-trip for HTML escaping. Cheaper than chained
@@ -120,20 +121,19 @@ window._ccLoaded = true;
 
 	function runDemo() {
 		var report = $('input[name="cc-demo-report"]:checked').val() || 'extension';
-		var size = $('input[name="cc-demo-size"]:checked').val() || 'light';
-		var start = $('#cc-demo-start').val();
-		var end = $('#cc-demo-end').val();
 		var seedField = parseInt($('#cc-demo-seed').val(), 10);
 		if (!isNaN(seedField)) {
 			demoSeed = seedField >>> 0;
 		}
-		if (size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
+		demoPlan = buildDemoPlan(demoSeed, report);
+		renderDemoPlan();
+		if (demoPlan.size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
 			return;
 		}
 		$('#cc-demo').modal('hide');
-		executeRun('demo', start, end, {
+		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
-			demo_size: size,
+			demo_size: demoPlan.size,
 			demo_seed: String(demoSeed >>> 0)
 		});
 	}
@@ -141,6 +141,8 @@ window._ccLoaded = true;
 	function updateDemoSeedStatus(prefix) {
 		$('#cc-demo-seed').val(String(demoSeed >>> 0));
 		$('#cc-demo-entropy-status').text(prefix + ' Seed: ' + (demoSeed >>> 0) + '. Movement samples: ' + demoMoves + '.');
+		demoPlan = buildDemoPlan(demoSeed, $('input[name="cc-demo-report"]:checked').val() || 'trunk');
+		renderDemoPlan();
 	}
 
 	function randomiseDemoSeed(prefix) {
@@ -155,6 +157,38 @@ window._ccLoaded = true;
 		demoSeed = (((demoSeed * 33) >>> 0) ^ (x << 16) ^ y ^ Date.now()) >>> 0;
 		$('#cc-demo-entropy').addClass('cc-demo-entropy-active');
 		updateDemoSeedStatus('Movement captured.');
+	}
+
+	function buildDemoPlan(seed, report) {
+		var sizes = ['light', 'medium', 'heavy'];
+		var size = sizes[seed % sizes.length];
+		var dayOffset = (Math.floor(seed / 7) % 365);
+		var hour = 8 + (Math.floor(seed / 13) % 8);
+		var minute = Math.floor(seed / 17) % 4 * 15;
+		var durations = {light: 1, medium: 3, heavy: 6};
+		var startDate = new Date(2001, 0, 1 + dayOffset, hour, minute, 0);
+		var endDate = new Date(startDate.getTime() + durations[size] * 60 * 60 * 1000);
+		return {
+			report: report,
+			size: size,
+			rows: size === 'heavy' ? 10000 : (size === 'medium' ? 1000 : 50),
+			start: formatDateTime(startDate),
+			end: formatDateTime(endDate)
+		};
+	}
+
+	function renderDemoPlan() {
+		if (!demoPlan) return;
+		$('#cc-demo-plan').html(
+			'<dt>Simulation</dt><dd>' + escapeHtml(demoPlan.report) + '</dd>' +
+			'<dt>Load</dt><dd>' + escapeHtml(demoPlan.size) + ' (' + escapeHtml(demoPlan.rows) + ' calls)</dd>' +
+			'<dt>Range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>'
+		);
+	}
+
+	function formatDateTime(d) {
+		return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+			' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
 	}
 
 	/**
@@ -655,6 +689,10 @@ window._ccLoaded = true;
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('input[name="cc-demo-report"]').off('change').on('change', function () {
+			demoPlan = buildDemoPlan(demoSeed, $(this).val());
+			renderDemoPlan();
+		});
 		$('#cc-demo-run').off('click').on('click', runDemo);
 		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
 			var off = $(this).offset();
