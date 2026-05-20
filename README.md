@@ -1,6 +1,6 @@
 # Concurrency Count for FreePBX 17
 
-FreePBX/PBXact 17 only. DO NOT install on FreePBX/PBXact 16a and below.
+FreePBX/PBXact 17 only. DO NOT install on FreePBX/PBXact 16 and below.
 
 Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
 
