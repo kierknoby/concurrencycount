@@ -232,6 +232,8 @@ window._ccLoaded = true;
 	 * escape the dynamic part first.
 	 */
 	function setStep(promptHtml, hint, placeholder) {
+		$('#cc-wizard-mode-group').hide();
+		$('#cc-wizard-value').closest('.form-group').show();
 		$('#cc-wizard-prompt').html(promptHtml);
 		$('#cc-wizard-hint').text(hint || '');
 		var input = $('#cc-wizard-value');
@@ -300,6 +302,7 @@ window._ccLoaded = true;
 		var html = '<div class="cc-result-explanation">';
 		html += '<h4>What this means</h4>';
 		html += '<p>' + escapeHtml(resultExplanationText(r)) + '</p>';
+		html += '<p class="cc-engine-note">' + escapeHtml(engineExplanationText(r)) + '</p>';
 		html += '</div>';
 		return html;
 	}
@@ -327,6 +330,20 @@ window._ccLoaded = true;
 		}
 		var label = (r.mode === 'trunk') ? 'trunk' : 'extension';
 		return perNameExplanation(r, overview, engine, label);
+	}
+
+	function engineExplanationText(r) {
+		if (r.engines) {
+			return 'Original is the reference engine: it walks every second of each call and is the trusted/default result. Sweep is experimental: it uses call start and end events to reach the same answer faster, and should only be trusted when its accuracy status passes.';
+		}
+		return engineMethodText(r.engine || 'original');
+	}
+
+	function engineMethodText(id) {
+		if (id === 'sweep') {
+			return 'Sweep calculates concurrency from call start/end events rather than walking every second. It is faster and lower-memory, but experimental.';
+		}
+		return 'Original calculates concurrency by walking every second of each call. It is slower on large ranges, but it is the trusted default and reference result.';
 	}
 
 	function groupExplanation(r, overview, engine) {
@@ -482,6 +499,23 @@ window._ccLoaded = true;
 				'</tr>';
 		});
 		html += '</tbody></table>';
+		html += renderEngineComparisonNotes(engines);
+		return html;
+	}
+
+	function renderEngineComparisonNotes(engines) {
+		var html = '<div class="cc-engine-notes">';
+		Object.keys(engines).forEach(function (id) {
+			var e = engines[id];
+			var suffix = '';
+			if (e.accuracy_status === 'pass') {
+				suffix = ' It matched the expected output in this run.';
+			} else {
+				suffix = ' It did not match the expected output in this run; do not use this engine for decisions here.';
+			}
+			html += '<p><strong>' + escapeHtml(id) + ':</strong> ' + escapeHtml(engineMethodText(id) + suffix) + '</p>';
+		});
+		html += '</div>';
 		return html;
 	}
 
@@ -512,11 +546,11 @@ window._ccLoaded = true;
 	function askMode() {
 		wizardState.step = 'mode';
 		wizardState.attempts = 0;
-		setStep(
-			'Summarise concurrency by: <code>trunks</code> / <code>extensions</code> / <code>group</code> / <code>demo</code>',
-			'Abbreviations accepted (e.g. t, ext, g, d).',
-			'trunks'
-		);
+		$('#cc-wizard-value').closest('.form-group').hide();
+		$('#cc-wizard-mode-group').show();
+		$('#cc-wizard-mode').val('trunk');
+		clearError();
+		setTimeout(function () { $('#cc-wizard-mode').focus(); }, 100);
 	}
 
 	function askMonth() {
@@ -560,8 +594,8 @@ window._ccLoaded = true;
 	}
 
 	function submitStep() {
-		var value = $('#cc-wizard-value').val();
 		var step = wizardState.step;
+		var value = (step === 'mode') ? $('#cc-wizard-mode').val() : $('#cc-wizard-value').val();
 
 		// Month prompt shortcuts handled client-side. The server would also
 		// catch these via the wizardstep endpoint, but resolving here avoids

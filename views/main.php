@@ -169,6 +169,16 @@ $_ccAssetVer = max(
 					<input type="text" id="cc-wizard-value" class="form-control" autocomplete="off">
 					<span id="cc-wizard-hint" class="help-block fpbx-help-block"></span>
 				</div>
+				<div class="form-group" id="cc-wizard-mode-group" style="display:none;">
+					<label for="cc-wizard-mode" class="control-label"><?php echo _('Summarise concurrency by'); ?></label>
+					<select id="cc-wizard-mode" class="form-control">
+						<option value="trunk"><?php echo _('Trunks'); ?></option>
+						<option value="extension"><?php echo _('Extensions'); ?></option>
+						<option value="group"><?php echo _('Group'); ?></option>
+						<option value="demo"><?php echo _('Demo'); ?></option>
+					</select>
+					<span class="help-block fpbx-help-block"><?php echo _('Choose what the report should count.'); ?></span>
+				</div>
 				<div class="form-group" id="cc-engine-group" style="display:none;">
 					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>
 					<select id="cc-engine" class="form-control">

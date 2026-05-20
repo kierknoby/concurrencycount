@@ -53,6 +53,26 @@
 	margin-bottom: 0;
 }
 
+.concurrencycount .cc-result-explanation .cc-engine-note {
+	margin-top: 8px;
+	color: #555;
+}
+
+.concurrencycount .cc-engine-notes {
+	margin: 10px 0 16px;
+	padding: 12px 14px;
+	background: #fcfcfc;
+	border: 1px solid #ddd;
+}
+
+.concurrencycount .cc-engine-notes p {
+	margin: 0 0 8px;
+}
+
+.concurrencycount .cc-engine-notes p:last-child {
+	margin-bottom: 0;
+}
+
 .concurrencycount .cc-peak-ranges {
 	margin: 8px 0 0;
 	padding-left: 20px;
