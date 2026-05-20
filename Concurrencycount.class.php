@@ -2,7 +2,7 @@
 /**
  * Concurrency Count for FreePBX 17
  *
- * Web module port of the Concurrency Count CLI tool by 20tele.com.
+ * Web module port of the Concurrency Count CLI tool- NOT CURRENTLY SUITABLE FOR PRODUCTION.
  * Behaviour mirrors the bash script: same modes, same date handling,
  * same validation, same algorithm, same warnings.
  *
@@ -1246,7 +1246,7 @@ class Concurrencycount implements \BMO {
 
 	public function resultsToCsv(array $r): string {
 		$rows = [];
-		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' by 20tele.com'];
+		$rows[] = ['Concurrency Count ' . $this->getVersion() . '- NOT CURRENTLY SUITABLE FOR PRODUCTION'];
 		$rows[] = ['Mode', ucfirst($r['mode'])];
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
@@ -1463,7 +1463,7 @@ class Concurrencycount implements \BMO {
 
 	private function buildEmailBody(array $r): string {
 		$lines = [];
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' by 20tele.com';
+		$lines[] = 'Concurrency Count ' . $this->getVersion() . '- NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
 		$lines[] = 'From:           ' . $r['start'];
@@ -1528,7 +1528,7 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count for FreePBX 17 by 20tele.com';
+		$lines[] = 'Concurrency Count for FreePBX 17- NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		return implode("\n", $lines);
 	}
 

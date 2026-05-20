@@ -66,7 +66,7 @@ class Concurrencycount extends Command {
 		}
 
 		$output->writeln('');
-		$output->writeln('<info>Concurrency Count by 20tele.com</info>');
+		$output->writeln('<info>Concurrency Count- NOT CURRENTLY SUITABLE FOR PRODUCTION</info>');
 		$output->writeln('Mode:           ' . ucfirst($results['mode']));
 		$output->writeln('From:           ' . $results['start']);
 		$output->writeln('To:             ' . $results['end']);
