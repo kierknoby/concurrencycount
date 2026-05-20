@@ -1,5 +1,7 @@
 # Concurrency Count for FreePBX 17
 
+FreePBX/PBXact 17 only. DO NOT install on FreePBX/PBXact 16.
+
 Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
 
 This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface uses a wizard modal for trunk, extension, and group reports, with the same shorthand date entry (today, yesterday, month names, Y/YY/YYYY years), the same three-attempt retry behaviour, and the same runtime-overrun warning. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
