@@ -35,7 +35,7 @@ $_ccAssetVer = max(
 		<div class="col-sm-12">
 			<h1>
 				<?php echo _('Concurrency Count'); ?>
-				<small class="text-muted" style="font-size:0.5em;">v<?php echo htmlspecialchars($moduleVersion); ?> &mdash; <?php echo _('by 20tele.com'); ?></small>
+				<small class="text-muted" style="font-size:0.5em;">v<?php echo htmlspecialchars($moduleVersion); ?> &mdash; <?php echo _('- NOT CURRENTLY SUITABLE FOR PRODUCTION'); ?></small>
 			</h1>
 
 			<div class="row">
