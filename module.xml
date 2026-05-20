@@ -16,10 +16,7 @@
 		<concurrencycount>Concurrency Count</concurrencycount>
 	</menuitems>
 	<depends>
-		<version>17.0</version>
-		<module>framework ge 17.0.1</module>
-		<module>core ge 17.0.1</module>
-		<module>cdr ge 17.0.1</module>
+	<version>17.0</version>
 	</depends>
 	<console>
 		<command>
