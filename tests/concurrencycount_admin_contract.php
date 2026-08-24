@@ -25,6 +25,19 @@ admin_contract_assert(substr_count($class, 'requireValidCsrfToken();') >= 2, 'JS
 admin_contract_assert(strpos($class, 'hash_equals(') !== false, 'hash_equals CSRF validation missing');
 admin_contract_assert(strpos($class, 'FREEPBX_SYSTEM_IDENT') !== false, 'System identifier missing from email implementation');
 admin_contract_assert(strpos($class, 'unknown system') !== false, 'System identifier fallback missing');
+admin_contract_assert(strpos($class, 'new \\CI_Email()') !== false, 'CI_Email transport missing');
+admin_contract_assert(strpos($class, '$this->FreePBX->Mail()') === false, 'Obsolete FreePBX Mail transport remains');
+admin_contract_assert(strpos($class, '@mail(') === false && strpos($class, 'mail($') === false, 'Raw PHP mail transport remains');
+foreach (['getNotificationFromAddress', 'normaliseEmailAddress', 'getNotificationSenderName', 'emailFromSupportsReturnPath'] as $helper) {
+	admin_contract_assert(strpos($class, 'function ' . $helper) !== false, 'Email helper missing: ' . $helper);
+}
+foreach (['->to($to)', '->subject($subject)', "->set_mailtype('text')", '->message($body)', '->attach(', '->send()'] as $call) {
+	admin_contract_assert(strpos($class, $call) !== false, 'Email call missing: ' . $call);
+}
+admin_contract_assert(strpos($class, "'Return-Path'") !== false, 'Return-Path handling missing');
+admin_contract_assert(strpos($class, 'reply_to(') !== false, 'Reply-To handling missing');
+admin_contract_assert(strpos($class, 'print_debugger') !== false, 'CI_Email diagnostics missing');
+admin_contract_assert(strpos($class, 'accepted by the local mailer') !== false, 'Local-mailer acceptance wording missing');
 admin_contract_assert(strpos($view, 'data-csrf-token=') !== false && strpos($view, 'name="token"') !== false, 'View must expose the CSRF token');
 admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download, and fixture preview must send CSRF tokens');
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');

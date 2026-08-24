@@ -1641,10 +1641,7 @@ class Concurrencycount implements \BMO {
 		$options = $this->requestDemoOptions();
 		$to = isset($_REQUEST['email']) ? trim($_REQUEST['email']) : '';
 
-		// Defence in depth against header injection. filter_var with
-		// FILTER_VALIDATE_EMAIL already rejects addresses containing CR/LF
-		// per RFC 5321, but a future PHP change or a fallback path that
-		// skips validation shouldn't allow CR/LF to reach mail() headers.
+		// Defence in depth against header injection before validation.
 		// Strip first, validate after.
 		$to = str_replace(["\r", "\n", "\0"], '', $to);
 
@@ -1665,7 +1662,7 @@ class Concurrencycount implements \BMO {
 			$mail_result = $this->sendMail($to, $subject, $body, $filename, $csv);
 
 			if ($mail_result['ok']) {
-				return ['status' => true, 'message' => sprintf(_('Report emailed to %s'), $to)];
+				return ['status' => true, 'message' => sprintf(_('Report accepted by the local mailer for %s. Delivery is not confirmed.'), $to)];
 			}
 			return ['status' => false, 'message' => $mail_result['message']];
 		} catch (\Throwable $e) {
@@ -1815,124 +1812,100 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function sendMail(string $to, string $subject, string $body, string $attachFilename, string $attachContent): array {
-		$errors = [];
+		$tempPath = '';
 		try {
-			$mailer = $this->FreePBX->Mail();
-			if (is_object($mailer)) {
-				if (method_exists($mailer, 'clearAllRecipients')) {
-					$mailer->clearAllRecipients();
-				}
-				if (method_exists($mailer, 'clearAddresses')) {
-					$mailer->clearAddresses();
-				}
-				if (method_exists($mailer, 'clearAttachments')) {
-					$mailer->clearAttachments();
-				}
-				if (method_exists($mailer, 'addAddress')) {
-					$mailer->addAddress($to);
-				} elseif (method_exists($mailer, 'setTo')) {
-					$mailer->setTo($to);
-				} else {
-					$mailer->to = $to;
-				}
-
-				if (method_exists($mailer, 'setSubject')) {
-					$mailer->setSubject($subject);
-				} else {
-					$mailer->Subject = $subject;
-				}
-
-				if (method_exists($mailer, 'isHTML')) {
-					$mailer->isHTML(false);
-				}
-				if (property_exists($mailer, 'CharSet')) {
-					$mailer->CharSet = 'UTF-8';
-				}
-				if (method_exists($mailer, 'setBody')) {
-					$mailer->setBody($body);
-				} else {
-					$mailer->Body = $body;
-					$mailer->AltBody = $body;
-				}
-
-				$attached = false;
-				if (method_exists($mailer, 'addStringAttachment')) {
-					$mailer->addStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
-					$attached = true;
-				} elseif (method_exists($mailer, 'AddStringAttachment')) {
-					$mailer->AddStringAttachment($attachContent, $attachFilename, 'base64', 'text/csv');
-					$attached = true;
-				}
-				if (!$attached) {
-					$errors[] = _('FreePBX mailer does not support in-memory CSV attachments.');
-				} elseif (method_exists($mailer, 'send')) {
-					$ok = (bool)$mailer->send();
-					if ($ok) return ['ok' => true, 'message' => ''];
-					$errors[] = $this->mailerError($mailer);
-				} elseif (method_exists($mailer, 'Send')) {
-					$ok = (bool)$mailer->Send();
-					if ($ok) return ['ok' => true, 'message' => ''];
-					$errors[] = $this->mailerError($mailer);
-				} else {
-					$errors[] = _('FreePBX mailer object did not expose a supported send method.');
+			if (!class_exists('\\CI_Email')) {
+				return ['ok' => false, 'message' => _('CI_Email is not available.')];
+			}
+			$from = $this->getNotificationFromAddress();
+			if ($from === '') {
+				return ['ok' => false, 'message' => _('Email "From:" Address is not configured in Advanced Settings.')];
+			}
+			$email = new \CI_Email();
+			$senderName = $this->getNotificationSenderName();
+			if ($this->emailFromSupportsReturnPath($email)) {
+				$email->from($from, $senderName, $from);
+			} else {
+				$email->from($from, $senderName);
+				if (method_exists($email, 'set_header')) {
+					$email->set_header('Return-Path', $from);
 				}
 			}
+			if (method_exists($email, 'reply_to')) {
+				$email->reply_to($from, $senderName);
+			}
+			$email->to($to);
+			$email->subject($subject);
+			$email->set_mailtype('text');
+			$email->message($body);
+
+			$tempPath = tempnam(sys_get_temp_dir(), 'cc-');
+			if ($tempPath === false) {
+				throw new \Exception(_('Unable to create a temporary CSV attachment.'));
+			}
+			$attachmentPath = $tempPath . '-' . basename($attachFilename);
+			if (!rename($tempPath, $attachmentPath) || file_put_contents($attachmentPath, $attachContent) === false) {
+				throw new \Exception(_('Unable to prepare the CSV attachment.'));
+			}
+			$tempPath = $attachmentPath;
+			$email->attach($attachmentPath, 'attachment');
+
+			if ($email->send()) {
+				return ['ok' => true, 'message' => ''];
+			}
+			$error = _('CI_Email send failed.');
+			$debug = method_exists($email, 'print_debugger') ? trim(strip_tags((string)$email->print_debugger(['headers']))) : '';
+			$debug = preg_replace('/\s+/', ' ', $debug);
+			if ($debug !== '') {
+				$debug = substr($debug, 0, 1000);
+				$this->logError('CI_Email send failed: ' . $debug);
+				$error .= ' ' . $debug;
+			} else {
+				$this->logError('CI_Email send failed without diagnostics.');
+			}
+			return ['ok' => false, 'message' => $error];
 		} catch (\Throwable $e) {
-			$errors[] = $e->getMessage();
+			$this->logError('Email send exception: ' . $e->getMessage());
+			return ['ok' => false, 'message' => $e->getMessage()];
+		} finally {
+			if ($tempPath !== '' && is_file($tempPath)) {
+				@unlink($tempPath);
+			}
 		}
-
-		$boundary = md5(uniqid('cc', true));
-		$from = $this->defaultMailFrom();
-		$headers = "MIME-Version: 1.0\r\n";
-		$headers .= "From: " . $from . "\r\n";
-		$headers .= "X-Mailer: Concurrency Count\r\n";
-		$headers .= "Content-Type: multipart/mixed; boundary=\"$boundary\"\r\n";
-
-		$msg = "--$boundary\r\n";
-		$msg .= "Content-Type: text/plain; charset=utf-8\r\n\r\n";
-		$msg .= $body . "\r\n\r\n";
-		$msg .= "--$boundary\r\n";
-		$msg .= "Content-Type: text/csv; name=\"" . addcslashes($attachFilename, "\\\"") . "\"\r\n";
-		$msg .= "Content-Transfer-Encoding: base64\r\n";
-		$msg .= "Content-Disposition: attachment; filename=\"" . addcslashes($attachFilename, "\\\"") . "\"\r\n\r\n";
-		$msg .= chunk_split(base64_encode($attachContent)) . "\r\n";
-		$msg .= "--$boundary--";
-
-		$ok = @mail($to, $subject, $msg, $headers, '-f' . $from);
-		if ($ok) {
-			return ['ok' => true, 'message' => ''];
-		}
-		$error_text = empty($errors) ? '' : ' Details: ' . implode(' / ', array_filter($errors));
-		return [
-			'ok' => false,
-			'message' => _('Failed to send email. Check the FreePBX system mail configuration.') . $error_text,
-		];
 	}
 
-	private function mailerError($mailer): string {
-		if (is_object($mailer) && property_exists($mailer, 'ErrorInfo') && $mailer->ErrorInfo !== '') {
-			return (string)$mailer->ErrorInfo;
+	private function getNotificationFromAddress(): string {
+		try {
+			return $this->normaliseEmailAddress((string)\FreePBX::Config()->get('AMPUSERMANEMAILFROM'));
+		} catch (\Throwable $e) {
+			return '';
 		}
-		if (is_object($mailer) && method_exists($mailer, 'getError')) {
-			return (string)$mailer->getError();
-		}
-		return _('FreePBX mailer returned failure without an error message.');
 	}
 
-	private function defaultMailFrom(): string {
-		$host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
-		if ($host === '' && isset($_SERVER['HTTP_HOST'])) {
-			$host = $_SERVER['HTTP_HOST'];
+	private function normaliseEmailAddress(string $value): string {
+		$value = trim($value);
+		if (preg_match('/<([^>]+)>/', $value, $matches)) {
+			$value = trim($matches[1]);
 		}
-		if ($host === '') {
-			$host = php_uname('n');
+		return filter_var($value, FILTER_VALIDATE_EMAIL) ? $value : '';
+	}
+
+	private function getNotificationSenderName(): string {
+		try {
+			$brand = trim((string)\FreePBX::Config()->get('DASHBOARD_FREEPBX_BRAND'));
+			return $brand !== '' ? $brand : 'Concurrency Count';
+		} catch (\Throwable $e) {
+			return 'Concurrency Count';
 		}
-		$host = preg_replace('/:\d+$/', '', (string)$host);
-		$host = strtolower(preg_replace('/[^a-z0-9.-]/i', '', (string)$host));
-		if ($host === '' || strpos($host, '.') === false) {
-			$host = 'localhost.localdomain';
+	}
+
+	private function emailFromSupportsReturnPath($email): bool {
+		try {
+			$method = new \ReflectionMethod($email, 'from');
+			return $method->getNumberOfParameters() >= 3;
+		} catch (\ReflectionException $e) {
+			return false;
 		}
-		return 'concurrencycount@' . $host;
 	}
 }
 
