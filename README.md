@@ -1,6 +1,6 @@
-# Concurrency Count for FreePBX 17
+# Concurrency Count for FreePBX/PBXact 16 and 17
 
-FreePBX/PBXact 17 only. DO NOT install on FreePBX/PBXact 16 and below.
+Supports FreePBX/PBXact 16 and 17.
 
 Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
 
@@ -8,7 +8,7 @@ This is the FreePBX module companion to the Concurrency Count CLI tool (`concurr
 
 ## Requirements
 
-- FreePBX 17 or later
+- FreePBX 16 or 17
 - PJSIP channel driver (no chan_sip support)
 - Asterisk CDR enabled and writing to `asteriskcdrdb`
 
@@ -145,7 +145,7 @@ These are intentionally not hidden:
 - Add a dedicated FreePBX permission or module setting that must be enabled before demo mode can write CDR rows.
 - Add an orphan cleanup command for old `CCDEMO*` rows, with a dry-run preview.
 - Consider wrapping demo insert/query/cleanup in a transaction if it proves safe with the deployed CDR engine and FreePBX environment.
-- Add integration tests on a real FreePBX 17 system for email delivery, CDR schema variation, and module-page permissions.
+- Add integration tests on real FreePBX 16 and 17 systems for email delivery, CDR schema variation, and module-page permissions.
 
 ## AI disclosure
 

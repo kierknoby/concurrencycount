@@ -1,6 +1,6 @@
 <?php
 /**
- * Concurrency Count for FreePBX 17
+ * Concurrency Count for FreePBX/PBXact 16 and 17
  *
  * Web module port of the Concurrency Count CLI tool - NOT CURRENTLY SUITABLE FOR PRODUCTION.
  * Behaviour mirrors the bash script: same modes, same date handling,
@@ -23,6 +23,8 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'download', 'previewfixture', 'email', 'gettrunks'];
+	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 
 	private $FreePBX;
 	private $cdrdb;
@@ -34,6 +36,7 @@ class Concurrencycount implements \BMO {
 		}
 		$this->FreePBX = $freepbx;
 		$this->cdrdb = $freepbx->Cdr->getCdrDbHandle();
+		$this->ensureCsrfToken();
 	}
 
 	public function install(): void {}
@@ -69,6 +72,7 @@ class Concurrencycount implements \BMO {
 		return load_view(__DIR__ . '/views/main.php', [
 			'moduleVersion' => $this->getVersion(),
 			'availableEngines' => $this->getAvailableEngines(),
+			'csrfToken' => $this->getCsrfToken(),
 		]);
 	}
 
@@ -76,16 +80,9 @@ class Concurrencycount implements \BMO {
 	 * AJAX request allowlist.
 	 */
 	public function ajaxRequest($req, &$setting): bool {
-		switch ($req) {
-			case 'wizardstep':
-			case 'run':
-			case 'download':
-			case 'previewfixture':
-			case 'email':
-			case 'gettrunks':
-				return true;
-		}
-		return false;
+		$setting['authenticate'] = true;
+		$setting['allowremote'] = false;
+		return in_array((string)$req, self::AJAX_COMMANDS, true);
 	}
 
 	/**
@@ -93,6 +90,7 @@ class Concurrencycount implements \BMO {
 	 * framework to skip the JSON wrapper and exit.
 	 */
 	public function ajaxCustomHandler(): bool {
+		$this->requireValidCsrfToken();
 		$command = isset($_REQUEST['command']) ? $_REQUEST['command'] : '';
 		if ($command === 'download') {
 			$this->streamDownload();
@@ -109,6 +107,7 @@ class Concurrencycount implements \BMO {
 	 * AJAX dispatcher for JSON responses.
 	 */
 	public function ajaxHandler(): array {
+		$this->requireValidCsrfToken();
 		$command = isset($_REQUEST['command']) ? $_REQUEST['command'] : '';
 
 		switch ($command) {
@@ -303,9 +302,11 @@ class Concurrencycount implements \BMO {
 			return sprintf('%04d-01-01 00:00:00', $y);
 		}
 		if (preg_match('/^[0-9]{4}-[0-9]{2}$/', $s)) {
+			if (!$this->validatePartialDate($s)) return null;
 			return $s . '-01 00:00:00';
 		}
 		if (preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/', $s)) {
+			if (!$this->validatePartialDate($s)) return null;
 			return $s . ' 00:00:00';
 		}
 		if (preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/', $s)) {
@@ -365,12 +366,14 @@ class Concurrencycount implements \BMO {
 		}
 		if (preg_match('/^([0-9]{4})-([0-9]{2})$/', $s, $m)) {
 			$y = (int)$m[1]; $mo = (int)$m[2];
+			if (!$this->validatePartialDate($s)) return null;
 			if ($mo === $current_month && $y === $current_year) {
 				return date('Y-m-d H:i:s');
 			}
 			return date('Y-m-d 23:59:59', strtotime("$y-$mo-01 +1 month -1 day"));
 		}
 		if (preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/', $s)) {
+			if (!$this->validatePartialDate($s)) return null;
 			$today = date('Y-m-d');
 			if ($s === $today) return date('Y-m-d H:i:s');
 			return $s . ' 23:59:59';
@@ -550,6 +553,7 @@ class Concurrencycount implements \BMO {
 		$rc = 0;
 		exec('asterisk -rx "pjsip show endpoints" 2>/dev/null', $out, $rc);
 		if ($rc !== 0) {
+			$this->logWarning('PJSIP endpoint discovery failed with exit code ' . $rc . '.');
 			return $trunks;
 		}
 		foreach ($out as $line) {
@@ -976,7 +980,12 @@ class Concurrencycount implements \BMO {
 
 	private function getCdrColumns(): array {
 		if ($this->cdrColumnsCache === null) {
-			$this->cdrColumnsCache = $this->cdrdb->query('SHOW COLUMNS FROM cdr')->fetchAll(\PDO::FETCH_ASSOC);
+			try {
+				$this->cdrColumnsCache = $this->cdrdb->query('SHOW COLUMNS FROM cdr')->fetchAll(\PDO::FETCH_ASSOC);
+			} catch (\Throwable $e) {
+				$this->logError('Unable to inspect the CDR schema: ' . $e->getMessage());
+				throw $e;
+			}
 		}
 		return $this->cdrColumnsCache;
 	}
@@ -990,7 +999,7 @@ class Concurrencycount implements \BMO {
 		foreach ($columns as $col) {
 			$field = $col['Field'];
 			$extra = isset($col['Extra']) ? strtolower($col['Extra']) : '';
-			if (strpos($extra, 'auto_increment') !== false) {
+			if (strpos($extra, 'auto_increment') !== false || strpos($extra, 'generated') !== false) {
 				continue;
 			}
 			$value = $this->demoColumnValue($field, $col, $row);
@@ -1042,6 +1051,9 @@ class Concurrencycount implements \BMO {
 		if (isset($col['Default']) && $col['Default'] !== null) {
 			return $col['Default'];
 		}
+		if (isset($col['Null']) && strtoupper($col['Null']) !== 'YES') {
+			throw new \Exception(sprintf(_('CDR column "%s" is required but is not supported by demo mode.'), $field));
+		}
 		$type = isset($col['Type']) ? strtolower($col['Type']) : '';
 		if (preg_match('/int|decimal|float|double|bit|bool/', $type)) {
 			return 0;
@@ -1075,6 +1087,7 @@ class Concurrencycount implements \BMO {
 				return $this->emptyResult($mode, $start, $end, _('No PJSIP trunks detected.'), $engine_id);
 			}
 			$rows = $this->fetchTrunkRows($trunks, $start, $end, $accountcode);
+			$rows = $this->filterTrunkRows($rows, $trunks);
 		} else {
 			$trunks = [];
 			$rows = $this->fetchExtensionRows($start, $end, $accountcode);
@@ -1314,37 +1327,58 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function fetchTrunkRows(array $trunks, string $start, string $end, string $accountcode = ''): array {
-		$placeholders = [];
-		$params = [':start' => $start, ':end' => $end];
+		$placeholders_a = [];
+		$placeholders_b = [];
+		$params = [':start_a' => $start, ':end_a' => $end, ':start_b' => $start, ':end_b' => $end];
 		$i = 0;
 		foreach ($trunks as $t) {
-			$key = ':t' . $i;
-			$placeholders[] = "channel LIKE CONCAT('PJSIP/', $key, '%') OR dstchannel LIKE CONCAT('PJSIP/', $key, '%')";
-			$params[$key] = $t;
+			$key_a = ':ta' . $i;
+			$key_b = ':tb' . $i;
+			$placeholders_a[] = "channel LIKE CONCAT('PJSIP/', $key_a, '-%') OR dstchannel LIKE CONCAT('PJSIP/', $key_a, '-%')";
+			$placeholders_b[] = "channel LIKE CONCAT('PJSIP/', $key_b, '-%') OR dstchannel LIKE CONCAT('PJSIP/', $key_b, '-%')";
+			$params[$key_a] = $t;
+			$params[$key_b] = $t;
 			$i++;
 		}
-		$trunk_condition = '(' . implode(' OR ', $placeholders) . ')';
+		$trunk_condition_a = '(' . implode(' OR ', $placeholders_a) . ')';
+		$trunk_condition_b = '(' . implode(' OR ', $placeholders_b) . ')';
 
-		$account_filter = '';
+		$account_filter_a = '';
+		$account_filter_b = '';
 		if ($accountcode !== '') {
-			$account_filter = ' AND accountcode = :accountcode';
-			$params[':accountcode'] = $accountcode;
+			$account_filter_a = ' AND accountcode = :accountcode_a';
+			$account_filter_b = ' AND accountcode = :accountcode_b';
+			$params[':accountcode_a'] = $accountcode;
+			$params[':accountcode_b'] = $accountcode;
 		}
 
 		$sql = "SELECT calldate, duration, channel AS chan FROM cdr
 				WHERE disposition='ANSWERED'
-				  AND calldate BETWEEN :start AND :end
-				  $account_filter
-				  AND ($trunk_condition OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))
+				  AND calldate BETWEEN :start_a AND :end_a
+				  $account_filter_a
+				  AND ($trunk_condition_a OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))
 				UNION ALL
 				SELECT calldate, duration, dstchannel AS chan FROM cdr
 				WHERE disposition='ANSWERED'
-				  AND calldate BETWEEN :start AND :end
-				  $account_filter
-				  AND ($trunk_condition OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))";
+				  AND calldate BETWEEN :start_b AND :end_b
+				  $account_filter_b
+				  AND ($trunk_condition_b OR (CHAR_LENGTH(dst)>6 AND dst NOT REGEXP '^[19]'))";
 		$stmt = $this->cdrdb->prepare($sql);
 		$stmt->execute($params);
 		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+	}
+
+	private function filterTrunkRows(array $rows, array $trunks): array {
+		$allowed = array_fill_keys($trunks, true);
+		$filtered = [];
+		foreach ($rows as $row) {
+			$chan = isset($row['chan']) ? $row['chan'] : '';
+			if (preg_match('|^PJSIP/([^ ]+)-[0-9a-f]+$|', $chan, $match)
+				&& isset($allowed[$match[1]])) {
+				$filtered[] = $row;
+			}
+		}
+		return $filtered;
 	}
 
 	private function fetchExtensionRows(string $start, string $end, string $accountcode = ''): array {
@@ -1641,6 +1675,7 @@ class Concurrencycount implements \BMO {
 
 	private function buildEmailBody(array $r): string {
 		$lines = [];
+		$lines[] = 'Concurrency Count report from ' . $this->getSystemIdentifier();
 		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' - NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
@@ -1721,8 +1756,62 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count for FreePBX 17 - NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count for FreePBX/PBXact 16 and 17 - NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		return implode("\n", $lines);
+	}
+
+	private function ensureCsrfToken(): void {
+		if (session_status() !== PHP_SESSION_ACTIVE) {
+			@session_start();
+		}
+		if (session_status() === PHP_SESSION_ACTIVE && empty($_SESSION[self::CSRF_SESSION_KEY])) {
+			$_SESSION[self::CSRF_SESSION_KEY] = bin2hex(random_bytes(32));
+		}
+	}
+
+	private function getCsrfToken(): string {
+		$this->ensureCsrfToken();
+		return session_status() === PHP_SESSION_ACTIVE && isset($_SESSION[self::CSRF_SESSION_KEY])
+			? (string)$_SESSION[self::CSRF_SESSION_KEY] : '';
+	}
+
+	private function requireValidCsrfToken(): void {
+		$expected = $this->getCsrfToken();
+		$provided = isset($_REQUEST['token']) ? (string)$_REQUEST['token'] : '';
+		if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+			throw new \Exception(_('Invalid security token. Please reload the page and try again.'));
+		}
+	}
+
+	private function getSystemIdentifier(): string {
+		$identifier = '';
+		try {
+			$identifier = (string)\FreePBX::Config()->get('FREEPBX_SYSTEM_IDENT');
+		} catch (\Throwable $e) {
+			$this->logWarning('Unable to read the FreePBX system identifier: ' . $e->getMessage());
+		}
+		$identifier = preg_replace('/\s+/', ' ', trim($identifier));
+		return $identifier !== '' ? $identifier : 'unknown system';
+	}
+
+	private function logWarning(string $message): void {
+		try {
+			if (class_exists('\\FreePBX') && method_exists('\\FreePBX', 'Logger')) {
+				\FreePBX::Logger()->warning('[concurrencycount] ' . $message);
+			}
+		} catch (\Throwable $e) {
+			// Logging must not change report behaviour.
+		}
+	}
+
+	private function logError(string $message): void {
+		try {
+			if (class_exists('\\FreePBX') && method_exists('\\FreePBX', 'Logger')) {
+				\FreePBX::Logger()->error('[concurrencycount] ' . $message);
+			}
+		} catch (\Throwable $e) {
+			// Logging must not change report behaviour.
+		}
 	}
 
 	private function sendMail(string $to, string $subject, string $body, string $attachFilename, string $attachContent): array {

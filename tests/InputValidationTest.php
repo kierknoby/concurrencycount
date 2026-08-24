@@ -46,6 +46,26 @@ if (class_exists('PHPUnit\Framework\TestCase')) {
 				throw new \Exception(($message !== '' ? $message . "\n" : '') . 'Expected non-null value');
 			}
 		}
+
+		protected function assertTrue($actual, string $message = ''): void {
+			if ($actual !== true) throw new \Exception($message !== '' ? $message : 'Expected true');
+		}
+
+		protected function assertFalse($actual, string $message = ''): void {
+			if ($actual !== false) throw new \Exception($message !== '' ? $message : 'Expected false');
+		}
+
+		protected function assertLessThanOrEqual($expected, $actual, string $message = ''): void {
+			if ($actual > $expected) throw new \Exception($message !== '' ? $message : 'Expected value to be less than or equal');
+		}
+
+		protected function assertCount($expected, $actual, string $message = ''): void {
+			if (count($actual) !== $expected) throw new \Exception($message !== '' ? $message : 'Unexpected count');
+		}
+
+		protected function assertNotSame($expected, $actual, string $message = ''): void {
+			if ($expected === $actual) throw new \Exception($message !== '' ? $message : 'Expected values to differ');
+		}
 	}
 }
 
@@ -263,6 +283,31 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertNull($this->cc->normaliseStartDate('123'));
 	}
 
+	public function testExplicitDatesRejectInvalidCalendarValues(): void {
+		$this->assertNull($this->cc->normaliseStartDate('2025-02-30'));
+		$this->assertNull($this->cc->normaliseStartDate('2025-13'));
+		$this->assertNull($this->cc->normaliseEndDate('2025-04-31'));
+		$this->assertNull($this->cc->normaliseEndDate('2025-00'));
+	}
+
+	public function testAjaxRequestsRequireAuthenticationAndDisallowRemoteAccess(): void {
+		$setting = [];
+		$this->assertTrue($this->cc->ajaxRequest('run', $setting));
+		$this->assertSame(true, $setting['authenticate']);
+		$this->assertSame(false, $setting['allowremote']);
+	}
+
+	public function testTrunkRowsOnlyContainDiscoveredTrunks(): void {
+		$rows = [
+			['chan' => 'PJSIP/voipfone-aaaaaa'],
+			['chan' => 'PJSIP/voipfonebackup-bbbbbb'],
+			['chan' => 'PJSIP/endpoint-cccccc'],
+		];
+		$result = $this->invokePrivate('filterTrunkRows', [$rows, ['voipfone']]);
+		$this->assertCount(1, $result);
+		$this->assertSame('PJSIP/voipfone-aaaaaa', $result[0]['chan']);
+	}
+
 	/* ---------- normaliseEndDate ---------- */
 
 	public function testEndDateBlankReturnsNow(): void {
@@ -342,4 +387,21 @@ class InputValidationTest extends InputValidationBase {
 		$ref->setAccessible(true);
 		return $ref->invokeArgs($this->cc, $args);
 	}
+}
+
+if (PHP_SAPI === 'cli' && realpath(isset($_SERVER['SCRIPT_FILENAME']) ? $_SERVER['SCRIPT_FILENAME'] : '') === __FILE__
+	&& !class_exists('PHPUnit\\Framework\\TestCase')) {
+	$test = new InputValidationTest();
+	$ref = new ReflectionClass($test);
+	$setUp = $ref->getMethod('setUp');
+	$setUp->setAccessible(true);
+	$ran = 0;
+	foreach ($ref->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+		if (strpos($method->getName(), 'test') !== 0) continue;
+		$setUp->invoke($test);
+		$method->invoke($test);
+		$ran++;
+		echo $method->getName() . " ok\n";
+	}
+	echo 'Input validation tests passed: ' . $ran . "\n";
 }

@@ -27,6 +27,75 @@
 	margin-bottom: 16px;
 }
 
+body:has(.concurrencycount) #page_body {
+	display: block !important;
+	width: 100% !important;
+	max-width: 100% !important;
+}
+
+.concurrencycount #cc-results-body,
+.concurrencycount .modal-body {
+	max-width: 100%;
+}
+
+.concurrencycount .table {
+	min-width: 520px;
+}
+
+.concurrencycount .cc-table-scroll {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.concurrencycount button,
+.concurrencycount input,
+.concurrencycount select {
+	min-height: 44px;
+}
+
+@media (max-width: 767px) {
+	.concurrencycount {
+		padding-left: 8px;
+		padding-right: 8px;
+	}
+
+	.concurrencycount h1 {
+		font-size: 26px;
+	}
+
+	.concurrencycount .btn {
+		margin: 4px 0;
+		white-space: normal;
+	}
+
+	.concurrencycount .input-group {
+		display: block;
+	}
+
+	.concurrencycount .input-group .form-control,
+	.concurrencycount .input-group .input-group-btn {
+		display: block;
+		width: 100%;
+	}
+
+	.concurrencycount .input-group .input-group-btn .btn {
+		width: 100%;
+		margin-top: 8px;
+	}
+
+	.concurrencycount .modal-dialog {
+		margin: 10px;
+	}
+
+	.concurrencycount .dl-horizontal dt,
+	.concurrencycount .dl-horizontal dd {
+		float: none;
+		width: auto;
+		margin-left: 0;
+		text-align: left;
+	}
+}
+
 .concurrencycount .cc-peak-summary {
 	margin: 16px 0;
 	padding: 14px 16px;

@@ -57,6 +57,7 @@ window._ccLoaded = true;
 	}
 
 	function ajax(params) {
+		params = $.extend({}, params, {token: $('.concurrencycount').attr('data-csrf-token') || ''});
 		return $.ajax({
 			url: 'ajax.php?module=concurrencycount',
 			method: 'POST',
@@ -415,7 +416,7 @@ window._ccLoaded = true;
 			return;
 		}
 		var html = renderExplanation(r);
-		html += '<table class="table table-striped"><thead><tr>' +
+		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>' + escapeHtml(label) + '</th>' +
 			'<th>Max concurrent</th>' +
 			'</tr></thead><tbody>';
@@ -427,7 +428,7 @@ window._ccLoaded = true;
 				'<td>' + escapeHtml(count) + '</td>' +
 				'</tr>';
 		});
-		html += '</tbody></table>';
+		html += '</tbody></table></div>';
 		html += '<div class="cc-peak-summary">Global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		el.html(html);
 	}
@@ -461,15 +462,15 @@ window._ccLoaded = true;
 		}
 		if (r.demo_report === 'group') {
 			html += '<h4>Group accuracy</h4>';
-			html += '<table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
 			html += '<tr><td>Maximum concurrent calls overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
 			html += '<tr><td>Peak ranges</td><td>' + escapeHtml(formatRanges(r.expected_peak_ranges)) + '</td><td>' + escapeHtml(formatRanges(r.peak_ranges)) + '</td></tr>';
-			html += '</tbody></table>';
+			html += '</tbody></table></div>';
 		} else {
 			var label = (r.demo_report === 'trunk') ? 'Trunk' : 'Extension';
 			var expected = r.expected_per_name || {};
 			html += '<h4>' + escapeHtml(label) + ' accuracy</h4>';
-			html += '<table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
 			Object.keys(expected).forEach(function (n) {
 				html += '<tr>' +
 					'<td>' + escapeHtml(n) + '</td>' +
@@ -477,7 +478,7 @@ window._ccLoaded = true;
 					'<td>' + escapeHtml((r.per_name || {})[n] || 0) + '</td>' +
 					'</tr>';
 			});
-			html += '</tbody></table>';
+			html += '</tbody></table></div>';
 			html += '<div class="cc-peak-summary">Expected global maximum: <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
 		el.html(html);
@@ -485,7 +486,7 @@ window._ccLoaded = true;
 
 	function renderEngineComparison(engines) {
 		var html = '<h4>Engine performance</h4>';
-		html += '<table class="table table-striped"><thead><tr>' +
+		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>Engine</th><th>Accuracy</th><th>Wall time</th><th>Peak memory</th><th>Rows/sec</th>' +
 			'</tr></thead><tbody>';
 		Object.keys(engines).forEach(function (id) {
@@ -499,7 +500,7 @@ window._ccLoaded = true;
 				'<td>' + escapeHtml(formatNumber(e.rows_per_second)) + '</td>' +
 				'</tr>';
 		});
-		html += '</tbody></table>';
+		html += '</tbody></table></div>';
 		html += renderEngineComparisonNotes(engines);
 		return html;
 	}
@@ -846,7 +847,8 @@ window._ccLoaded = true;
 		if (!finalMode) return;
 		var params = {
 			module: 'concurrencycount', command: 'download',
-			mode: finalMode, start_date: finalStart, end_date: finalEnd
+			mode: finalMode, start_date: finalStart, end_date: finalEnd,
+			token: $('.concurrencycount').attr('data-csrf-token') || ''
 		};
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
@@ -866,6 +868,7 @@ window._ccLoaded = true;
 		var qs = $.param({
 			module: 'concurrencycount', command: 'previewfixture',
 			mode: 'demo', start_date: finalStart, end_date: finalEnd,
+			token: $('.concurrencycount').attr('data-csrf-token') || '',
 			demo_report: finalDemoReport || 'extension',
 			demo_size: finalDemoSize || 'light',
 			demo_rows: $('#cc-results-body').data('demoRows') || '',

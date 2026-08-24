@@ -16,11 +16,13 @@
  *
  * @var string $moduleVersion
  * @var array $availableEngines
+ * @var string $csrfToken
  */
 if (!defined('FREEPBX_IS_AUTH')) {
 	die('No direct script access allowed');
 }
 $availableEngines = isset($availableEngines) && is_array($availableEngines) ? $availableEngines : [];
+$csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
 
 // Cache-bust based on the newest asset file. If either file changes,
 // browsers see a new URL and refetch. Falls back to time() if filemtime
@@ -32,12 +34,13 @@ $_ccAssetVer = max(
 ?>
 <link rel="stylesheet" href="modules/concurrencycount/assets/css/concurrencycount.css?v=<?php echo $_ccAssetVer; ?>">
 
-<div class="concurrencycount">
+<div class="concurrencycount" data-csrf-token="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+	<input type="hidden" name="token" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
 	<div class="row">
 		<div class="col-sm-12">
 			<h1>
 				<?php echo _('Concurrency Count'); ?>
-				<small class="text-muted" style="font-size:0.5em;">v<?php echo htmlspecialchars($moduleVersion); ?> &mdash; <?php echo _('- NOT CURRENTLY SUITABLE FOR PRODUCTION'); ?></small>
+				<small class="text-muted" style="font-size:0.5em;">v<?php echo htmlspecialchars($moduleVersion, ENT_QUOTES, 'UTF-8'); ?> &mdash; <?php echo _('- NOT CURRENTLY SUITABLE FOR PRODUCTION'); ?></small>
 			</h1>
 
 			<div class="row">
@@ -136,8 +139,8 @@ $_ccAssetVer = max(
 					<?php foreach ($availableEngines as $id => $engine): ?>
 						<div class="checkbox">
 							<label>
-								<input type="checkbox" class="cc-demo-engine" value="<?php echo htmlspecialchars($id); ?>" <?php echo $id === 'original' ? 'checked' : ''; ?>>
-								<?php echo htmlspecialchars($engine['label']); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
+								<input type="checkbox" class="cc-demo-engine" value="<?php echo htmlspecialchars($id, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $id === 'original' ? 'checked' : ''; ?>>
+								<?php echo htmlspecialchars($engine['label'], ENT_QUOTES, 'UTF-8'); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
 							</label>
 						</div>
 					<?php endforeach; ?>
@@ -186,8 +189,8 @@ $_ccAssetVer = max(
 					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>
 					<select id="cc-engine" class="form-control">
 						<?php foreach ($availableEngines as $id => $engine): ?>
-							<option value="<?php echo htmlspecialchars($id); ?>" <?php echo $id === 'original' ? 'selected' : ''; ?>>
-								<?php echo htmlspecialchars($engine['label']); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
+							<option value="<?php echo htmlspecialchars($id, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $id === 'original' ? 'selected' : ''; ?>>
+								<?php echo htmlspecialchars($engine['label'], ENT_QUOTES, 'UTF-8'); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>
 							</option>
 						<?php endforeach; ?>
 					</select>
