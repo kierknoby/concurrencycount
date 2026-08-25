@@ -29,6 +29,7 @@ $runtimeFiles = [
 	'Concurrencycount.class.php', 'Console/Concurrencycount.class.php',
 	'Engines/EngineInterface.php', 'Engines/Original.php', 'Engines/Sweep.php',
 	'Engines/Registry.php', 'page.concurrencycount.php', 'views/main.php',
+	'Analyzers/PeakDetailAnalyser.php', 'Resolvers/FreepbxEntityResolver.php',
 	'install.php', 'uninstall.php',
 ];
 foreach ($runtimeFiles as $file) {

@@ -29,6 +29,7 @@ $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
 // fails (shouldn't, but better than a blank query string).
 $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
 ?>
@@ -162,7 +163,7 @@ $_ccAssetVer = max(
 	</div>
 </div>
 
-<!-- Wizard modal: mirrors the CLI flow -->
+<!-- GUI report controls. CLI parsing remains independent. -->
 <div class="modal fade" id="cc-wizard" tabindex="-1" role="dialog" aria-labelledby="cc-wizard-title">
 	<div class="modal-dialog" role="document">
 		<div class="modal-content">
@@ -171,12 +172,7 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-wizard-title"><?php echo _('Concurrency Count'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<div class="form-group">
-					<label id="cc-wizard-prompt" for="cc-wizard-value" class="control-label"></label>
-					<input type="text" id="cc-wizard-value" class="form-control" autocomplete="off">
-					<span id="cc-wizard-hint" class="help-block fpbx-help-block"></span>
-				</div>
-				<div class="form-group" id="cc-wizard-mode-group" style="display:none;">
+				<div class="form-group" id="cc-wizard-mode-group">
 					<label for="cc-wizard-mode" class="control-label"><?php echo _('Summarise concurrency by'); ?></label>
 					<select id="cc-wizard-mode" class="form-control">
 						<option value="trunk"><?php echo _('Trunks'); ?></option>
@@ -185,7 +181,7 @@ $_ccAssetVer = max(
 					</select>
 					<span class="help-block fpbx-help-block"><?php echo _('Choose what the report should count. Use Run Demo for synthetic accuracy tests.'); ?></span>
 				</div>
-				<div class="form-group" id="cc-engine-group" style="display:none;">
+				<div class="form-group" id="cc-engine-group">
 					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>
 					<select id="cc-engine" class="form-control">
 						<?php foreach ($availableEngines as $id => $engine): ?>
@@ -195,11 +191,44 @@ $_ccAssetVer = max(
 						<?php endforeach; ?>
 					</select>
 				</div>
+				<div class="form-group cc-date-range">
+					<label class="control-label"><?php echo _('Date range'); ?></label>
+					<div class="btn-group cc-date-presets" role="group" aria-label="<?php echo _('Date range presets'); ?>">
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="today"><?php echo _('Today'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="yesterday"><?php echo _('Yesterday'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="last7"><?php echo _('Last 7 days'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="last30"><?php echo _('Last 30 days'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="month"><?php echo _('This month'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="custom"><?php echo _('Custom'); ?></button>
+					</div>
+					<div class="cc-range-nav">
+						<button type="button" class="btn btn-default cc-range-shift" data-direction="-1" aria-label="<?php echo _('Previous range'); ?>" title="<?php echo _('Previous range'); ?>"><i class="fa fa-chevron-left"></i></button>
+						<strong id="cc-range-label"></strong>
+						<button type="button" class="btn btn-default cc-range-shift" data-direction="1" aria-label="<?php echo _('Next range'); ?>" title="<?php echo _('Next range'); ?>"><i class="fa fa-chevron-right"></i></button>
+					</div>
+					<div id="cc-custom-dates" class="row" style="display:none;">
+						<div class="col-sm-6 form-group">
+							<label for="cc-date-from"><?php echo _('From'); ?></label>
+							<input type="date" id="cc-date-from" class="form-control">
+						</div>
+						<div class="col-sm-6 form-group">
+							<label for="cc-date-to"><?php echo _('To'); ?></label>
+							<input type="date" id="cc-date-to" class="form-control">
+						</div>
+					</div>
+					<div class="checkbox cc-time-toggle">
+						<label><input type="checkbox" id="cc-include-time"> <?php echo _('Include time'); ?></label>
+					</div>
+					<div id="cc-time-controls" class="row" style="display:none;">
+						<div class="col-sm-6 form-group"><label for="cc-time-from"><?php echo _('From time'); ?></label><input type="time" id="cc-time-from" class="form-control" value="00:00"></div>
+						<div class="col-sm-6 form-group"><label for="cc-time-to"><?php echo _('To time'); ?></label><input type="time" id="cc-time-to" class="form-control" value="23:59"></div>
+					</div>
+				</div>
 				<div id="cc-wizard-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-wizard-cancel"><?php echo _('Cancel'); ?></button>
-				<button type="button" class="btn btn-primary" id="cc-wizard-next"><?php echo _('Next'); ?></button>
+				<button type="button" class="btn btn-primary" id="cc-wizard-next"><i class="fa fa-play"></i> <?php echo _('Run report'); ?></button>
 			</div>
 		</div>
 	</div>
@@ -227,4 +256,5 @@ $_ccAssetVer = max(
 	</div>
 </div>
 
+<script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>

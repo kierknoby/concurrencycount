@@ -4,7 +4,7 @@ Supports FreePBX/PBXact 16 and 17.
 
 Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
 
-This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface uses a wizard modal for trunk, extension, and group reports, with the same shorthand date entry (today, yesterday, month names, Y/YY/YYYY years), the same three-attempt retry behaviour, and the same runtime-overrun warning. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
+This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface provides presets, native custom date controls, optional time selection, and previous/next range navigation. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
 
 ## Requirements
 
@@ -59,11 +59,12 @@ cd /var/www/html/admin/modules && fwconsole ma uninstall concurrencycount && rm 
 
 ## Architecture
 
-Concurrency Count has three main paths:
+Concurrency Count has four main paths:
 
 1. **Normal report path** fetches answered PJSIP CDR rows from `asteriskcdrdb`, then passes the already-fetched rows to the selected calculation engine.
 2. **Engine path** calculates the same result shape for every engine. `Original` is the reference implementation and default. `Sweep` is experimental and exists to compare a faster event-based strategy against the reference behaviour.
 3. **Demo path** generates deterministic synthetic rows, inserts them with a unique `CCDEMO*` accountcode, runs the normal CDR-backed report query against those rows, compares the actual result against an independent expected calculation, and removes the rows.
+4. **Trunk detail path** runs after the engine. `PeakDetailAnalyser` receives only the same compact `calldate`, `duration`, and selected trunk-channel rows as the engines and groups the trunk's maximum into continuous occurrences. Full CDR fields are fetched by authenticated AJAX only when an occurrence is expanded.
 
 The expected demo calculation deliberately does not share engine code. That keeps the accuracy check useful: if an engine is wrong, the demo harness can catch it instead of repeating the same mistake.
 
@@ -71,6 +72,7 @@ The expected demo calculation deliberately does not share engine code. That keep
 
 - Normal trunk, extension, and group reports are read-only against CDR.
 - AJAX commands use a fixed command allowlist rather than arbitrary method dispatch.
+- Every AJAX command requires the module CSRF token, an authenticated FreePBX session, and `allowremote = false`.
 - User-entered modes, dates, engines, demo sizes, seeds, row counts, and email addresses are validated before use.
 - SQL uses prepared statements for user-supplied values.
 - The default engine is always `original`; experimental engines must be selected explicitly.
@@ -94,14 +96,27 @@ Current limitation: demo mode is not yet protected by a dedicated FreePBX permis
 
 **Sweep** is experimental. It calculates concurrency from call start/end events rather than walking every occupied second. It is intended to be faster on large demo fixtures, but should be treated as experimental unless its demo accuracy check passes.
 
-## Wizard flow (mirrors the CLI)
+## GUI report flow
 
-1. **Mode.** Accepts trunks/extensions/group, plus abbreviations (t, ext, g, etc.). Demo runs use the separate **Run Demo** button.
-2. **Date range.** Type a month name, `today`, `yesterday`, or leave blank for a custom range.
-3a. **Year** if a month was given. Accepts YYYY, YY, or Y.
-3b. **Start date** then **end date** if blank was given. Each accepts YYYY-MM-DD HH:MM:SS, YYYY-MM-DD, YYYY-MM, YYYY, YY, Y, or blank.
+1. Choose Trunks, Extensions, or Group and an engine. Demo runs use the separate **Run Demo** button.
+2. Choose Today, Yesterday, Last 7 days, Last 30 days, This month, or Custom.
+3. Custom exposes native From/To date inputs. **Include time** optionally exposes From/To time inputs.
+4. Previous/next moves by the displayed inclusive day span. Month ranges move by calendar month.
+5. The browser resolves these controls to canonical `YYYY-MM-DD HH:MM:SS` start/end values before calling the existing report path. Date-only ranges start at `00:00:00`; past dates end at `23:59:59`; today ends at the current time.
 
-Three attempts per step before the session aborts. If estimated runtime exceeds 3600 seconds, a warning modal asks whether to continue.
+If estimated runtime exceeds 3600 seconds, a warning modal asks whether to continue.
+
+## Trunk peak drill-down
+
+For each trunk, the initial result contains only peak occurrence metadata. An occurrence is one continuous period where concurrency equals that trunk's maximum. Calls occupy the inclusive interval from `calldate` through `calldate + duration`, matching both existing engines; removal occurs at the following second. A call ending exactly when another begins therefore overlaps at that timestamp.
+
+Expanding an occurrence reruns a bounded, prepared CDR query for the selected trunk and report range, reconstructs the occurrence server-side, and rejects the request if its boundaries are no longer present. Direction comes from the actual selected trunk leg: trunk in `channel` is inbound, trunk in `dstchannel` is outbound, and ambiguous placement is shown as unknown. A continuous peak can include more distinct CDRs than the instantaneous peak when one call replaces another without the count dropping.
+
+The call path is deliberately conservative. CDR alone proves the selected trunk leg, DID, source/destination, and directly recorded opposite PJSIP extension. Concurrency Count asks FreePBX's installed `*_getdestinfo` providers for labels and native `edit_url` values and accepts only local `config.php` links. This generic provider layer supports installed destination families including extensions/users, trunks, inbound routes, outbound routes, ring groups, queues, IVRs, announcements, time conditions/groups, conferences, Follow Me, call flow control, miscellaneous/custom applications and destinations, voicemail, and termination destinations when a proven destination string is available. Unresolved or malformed values remain plain text.
+
+This version does not use CEL and does not infer a historic IVR/queue/announcement chain from the PBX's current configuration. CDR does not reliably prove those intermediate stages. Optional CEL enrichment remains a future enhancement and Concurrency Count continues to work from CDR alone.
+
+**View in CDR Reports** uses the native report form shared by FreePBX CDR releases 16 and 17. There is no supported common single-CDR route: `action=cel_show&uid=...` is CEL-specific and only available when CEL is enabled. The module therefore POSTs `need_html=true`, the exact call minute, and exact standard caller-number/destination/DID filters to `config.php?display=cdr`. It does not invent a `uniqueid` query parameter.
 
 ## Output
 
@@ -124,7 +139,7 @@ fwconsole concurrencycount --mode=demo --engine=sweep
 fwconsole concurrencycount --mode=demo --compare=original,sweep
 ```
 
-Same mode abbreviations and shorthand dates as the wizard.
+The CLI keeps its existing option names, accepted date syntax, textual output, engine behavior, and exit behavior. GUI date controls do not change CLI parsing, and drill-down output is not added to fwconsole.
 
 ## Demo mode
 
@@ -157,6 +172,10 @@ The engine parity harness can be run without a FreePBX install:
 
 ```
 php -d xdebug.mode=off tests/EngineParityTest.php
+php tests/PeakDetailAnalyserTest.php
+php tests/FreepbxEntityResolverTest.php
+php tests/concurrencycount_console_contract.php
+node tests/DateRangeTest.js
 ```
 
 If PHPUnit is available, run the full test directory:

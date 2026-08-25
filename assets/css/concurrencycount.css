@@ -53,6 +53,80 @@ body:has(.concurrencycount) #page_body {
 	min-height: 44px;
 }
 
+.concurrencycount .cc-date-presets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 6px 0 12px;
+}
+
+.concurrencycount .cc-date-presets > .btn {
+	float: none;
+	margin-left: 0;
+	border-radius: 3px;
+}
+
+.concurrencycount .cc-range-nav {
+	display: grid;
+	grid-template-columns: 44px minmax(0, 1fr) 44px;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 12px;
+	text-align: center;
+}
+
+.concurrencycount .cc-range-nav .btn {
+	width: 44px;
+	padding-left: 0;
+	padding-right: 0;
+}
+
+.concurrencycount .cc-time-toggle {
+	margin-top: 0;
+}
+
+.concurrencycount .cc-show-occurrences {
+	min-height: 0;
+	padding: 3px 0 0;
+}
+
+.concurrencycount .cc-occurrence-section {
+	margin: 18px 0;
+}
+
+.concurrencycount .cc-occurrence-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	width: 100%;
+	min-height: 44px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	text-align: left;
+}
+
+.concurrencycount .cc-occurrence-toggle .fa {
+	flex: 0 0 auto;
+}
+
+.concurrencycount .cc-call-table {
+	min-width: 980px;
+}
+
+.concurrencycount .cc-call-path {
+	min-width: 210px;
+}
+
+.concurrencycount .cc-direction-summary {
+	font-weight: 600;
+}
+
+.concurrencycount .cc-entity-link {
+	font-weight: 600;
+}
+
 @media (max-width: 767px) {
 	.concurrencycount {
 		padding-left: 8px;
@@ -85,6 +159,23 @@ body:has(.concurrencycount) #page_body {
 
 	.concurrencycount .modal-dialog {
 		margin: 10px;
+	}
+
+	.concurrencycount .cc-range-nav {
+		gap: 4px;
+	}
+
+	.concurrencycount .cc-range-nav strong {
+		font-size: 13px;
+		line-height: 1.35;
+	}
+
+	.concurrencycount .cc-date-presets > .btn {
+		flex: 1 1 calc(50% - 4px);
+	}
+
+	.concurrencycount .cc-occurrence-toggle {
+		align-items: flex-start;
 	}
 
 	.concurrencycount .dl-horizontal dt,

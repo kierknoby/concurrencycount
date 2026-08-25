@@ -16,6 +16,8 @@ require_once __DIR__ . '/Engines/EngineInterface.php';
 require_once __DIR__ . '/Engines/Original.php';
 require_once __DIR__ . '/Engines/Sweep.php';
 require_once __DIR__ . '/Engines/Registry.php';
+require_once __DIR__ . '/Analyzers/PeakDetailAnalyser.php';
+require_once __DIR__ . '/Resolvers/FreepbxEntityResolver.php';
 
 class Concurrencycount implements \BMO {
 
@@ -23,7 +25,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'download', 'previewfixture', 'email', 'gettrunks'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'download', 'previewfixture', 'email', 'gettrunks'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 
 	private $FreePBX;
@@ -115,6 +117,8 @@ class Concurrencycount implements \BMO {
 				return $this->handleWizardStep();
 			case 'run':
 				return $this->handleRun();
+			case 'peakdetails':
+				return $this->handlePeakDetails();
 			case 'email':
 				return $this->handleEmail();
 			case 'gettrunks':
@@ -524,6 +528,11 @@ class Concurrencycount implements \BMO {
 		}
 
 		try {
+			if ($mode !== 'demo') {
+				$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
+				$start = $range['start'];
+				$end = $range['end'];
+			}
 			$results = $this->calculate($mode, $start, $end, $confirm_overrun, $options);
 			return ['status' => true, 'results' => $results];
 		} catch (RuntimeOverrunPending $rop) {
@@ -537,6 +546,218 @@ class Concurrencycount implements \BMO {
 		} catch (\Exception $e) {
 			return ['status' => false, 'message' => $e->getMessage()];
 		}
+	}
+
+	private function handlePeakDetails(): array {
+		try {
+			$trunk = trim((string)(isset($_REQUEST['trunk']) ? $_REQUEST['trunk'] : ''));
+			$start = (string)(isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '');
+			$end = (string)(isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '');
+			$occurrence_from = (string)(isset($_REQUEST['occurrence_from']) ? $_REQUEST['occurrence_from'] : '');
+			$occurrence_to = (string)(isset($_REQUEST['occurrence_to']) ? $_REQUEST['occurrence_to'] : '');
+
+			if (!preg_match('/^[A-Za-z0-9_.:@+\-]{1,128}$/', $trunk) || !in_array($trunk, $this->getTrunks(), true)) {
+				throw new \InvalidArgumentException(_('Invalid or unavailable trunk.'));
+			}
+			if (!$this->isCanonicalTimestamp($start) || !$this->isCanonicalTimestamp($end)
+				|| !$this->isCanonicalTimestamp($occurrence_from) || !$this->isCanonicalTimestamp($occurrence_to)) {
+				throw new \InvalidArgumentException(_('Invalid detail date range.'));
+			}
+			$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
+			$start = $range['start'];
+			$end = $range['end'];
+			if (strtotime($start) > strtotime($occurrence_from) || strtotime($occurrence_from) > strtotime($occurrence_to)
+				|| strtotime($occurrence_to) > strtotime($end)) {
+				throw new \InvalidArgumentException(_('Peak occurrence falls outside the report range.'));
+			}
+
+			$detail = $this->buildPeakDetails($trunk, $start, $end, $occurrence_from, $occurrence_to);
+			return ['status' => true, 'detail' => $detail];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function isCanonicalTimestamp(string $value): bool {
+		return (bool)preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/', $value)
+			&& $this->validatePartialDate($value);
+	}
+
+	private function buildPeakDetails(string $trunk, string $start, string $end, string $occurrence_from, string $occurrence_to): array {
+		$compact_rows = $this->filterTrunkRows($this->fetchTrunkRows([$trunk], $start, $end), [$trunk]);
+		$analyser = new \FreePBX\modules\Concurrencycount\Analyzers\PeakDetailAnalyser();
+		$analysis = $analyser->analyseTrunk($compact_rows, $trunk);
+		$selected = null;
+		foreach ($analysis['occurrences'] as $occurrence) {
+			if ($occurrence['from'] === $occurrence_from && $occurrence['to'] === $occurrence_to) {
+				$selected = $occurrence;
+				break;
+			}
+		}
+		if ($selected === null) {
+			throw new \InvalidArgumentException(_('Peak occurrence is no longer present in the selected report data.'));
+		}
+
+		$rows = $this->fetchTrunkDetailRows($trunk, $start, $end, $occurrence_from, $occurrence_to);
+		$legs = [];
+		foreach ($rows as $row) {
+			$channel_match = $this->channelMatchesTrunk(isset($row['channel']) ? $row['channel'] : '', $trunk);
+			$destination_match = $this->channelMatchesTrunk(isset($row['dstchannel']) ? $row['dstchannel'] : '', $trunk);
+			$direction = $this->classifyTrunkLeg($channel_match, $destination_match);
+			if ($channel_match) {
+				$legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['channel'], 'direction' => $direction, 'cdr' => $row];
+			}
+			if ($destination_match) {
+				$legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['dstchannel'], 'direction' => $direction, 'cdr' => $row];
+			}
+		}
+
+		$calls = [];
+		$directions = ['inbound' => 0, 'outbound' => 0, 'unknown' => 0];
+		foreach ($legs as $leg) {
+			$leg_start = strtotime($leg['calldate']);
+			$leg_end = $leg_start + (int)$leg['duration'];
+			if ($leg_start > strtotime($occurrence_to) || $leg_end < strtotime($occurrence_from)) continue;
+			$call = $this->formatPeakCall($leg, $trunk);
+			$calls[] = $call;
+			$directions[$call['direction']]++;
+		}
+		unset($selected['row_indexes']);
+		$selected['calls'] = $calls;
+		$selected['direction_counts'] = $directions;
+		return $selected;
+	}
+
+	private function channelMatchesTrunk($channel, string $trunk): bool {
+		if (!preg_match('|^PJSIP/([^ ]+)-[0-9a-f]+$|', (string)$channel, $match)) {
+			return false;
+		}
+		return hash_equals($trunk, $match[1]);
+	}
+
+	private function classifyTrunkLeg(bool $channel_match, bool $destination_match): string {
+		if ($channel_match === $destination_match) return 'unknown';
+		return $channel_match ? 'inbound' : 'outbound';
+	}
+
+	private function fetchTrunkDetailRows(string $trunk, string $start, string $end, string $occurrence_from, string $occurrence_to): array {
+		$available = [];
+		foreach ($this->getCdrColumns() as $column) {
+			if (isset($column['Field'])) $available[$column['Field']] = true;
+		}
+		$wanted = ['calldate', 'clid', 'src', 'did', 'dst', 'dcontext', 'channel', 'dstchannel', 'lastapp', 'lastdata', 'duration', 'billsec', 'disposition', 'uniqueid', 'linkedid', 'recordingfile'];
+		$select = [];
+		foreach ($wanted as $field) {
+			if (isset($available[$field])) $select[] = '`' . $field . '`';
+		}
+		foreach (['calldate', 'duration', 'channel', 'dstchannel'] as $required) {
+			if (!isset($available[$required])) throw new \RuntimeException(sprintf(_('Required CDR field is unavailable: %s'), $required));
+		}
+		$sql = 'SELECT ' . implode(', ', $select) . " FROM cdr
+			WHERE disposition = 'ANSWERED' AND calldate BETWEEN :start AND :end
+			AND (channel LIKE :trunk_channel OR dstchannel LIKE :trunk_destination)
+			AND calldate <= :occurrence_to
+			AND TIMESTAMPADD(SECOND, duration, calldate) >= :occurrence_from
+			ORDER BY calldate ASC";
+		$stmt = $this->cdrdb->prepare($sql);
+		$stmt->execute([
+			':start' => $start, ':end' => $end,
+			':occurrence_from' => $occurrence_from, ':occurrence_to' => $occurrence_to,
+			':trunk_channel' => 'PJSIP/' . $trunk . '-%',
+			':trunk_destination' => 'PJSIP/' . $trunk . '-%',
+		]);
+		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+	}
+
+	private function formatPeakCall(array $leg, string $trunk): array {
+		$row = $leg['cdr'];
+		$direction = $leg['direction'];
+		$path = [];
+		$trunk_entity = $this->buildTrunkEntity($trunk);
+		if ($direction === 'inbound' && !empty($row['did'])) {
+			$entity = $this->resolveFreepbxDestination('from-trunk,' . $row['did'] . ',1');
+			if ($entity !== null) $path[] = $entity;
+		}
+		$extension_channel = $direction === 'outbound' ? (isset($row['channel']) ? $row['channel'] : '') : (isset($row['dstchannel']) ? $row['dstchannel'] : '');
+		if (preg_match('|^PJSIP/([0-9]+)-|', $extension_channel, $match)) {
+			$entity = $this->resolveFreepbxDestination('from-did-direct,' . $match[1] . ',1');
+			if ($entity !== null) $path[] = $entity;
+		}
+
+		return [
+			'calldate' => isset($row['calldate']) ? (string)$row['calldate'] : '',
+			'caller_id' => isset($row['clid']) ? (string)$row['clid'] : '',
+			'source' => isset($row['src']) ? (string)$row['src'] : '',
+			'did' => isset($row['did']) ? (string)$row['did'] : '',
+			'destination' => isset($row['dst']) ? (string)$row['dst'] : '',
+			'disposition' => isset($row['disposition']) ? (string)$row['disposition'] : '',
+			'duration' => isset($row['duration']) ? (int)$row['duration'] : 0,
+			'billsec' => isset($row['billsec']) ? (int)$row['billsec'] : 0,
+			'direction' => $direction,
+			'trunk' => $trunk,
+			'trunk_entity' => $trunk_entity,
+			'trunk_channel' => (string)$leg['chan'],
+			'channel' => isset($row['channel']) ? (string)$row['channel'] : '',
+			'destination_channel' => isset($row['dstchannel']) ? (string)$row['dstchannel'] : '',
+			'uniqueid' => isset($row['uniqueid']) ? (string)$row['uniqueid'] : '',
+			'linkedid' => isset($row['linkedid']) ? (string)$row['linkedid'] : '',
+			'recording' => isset($row['recordingfile']) ? (string)$row['recordingfile'] : '',
+			'path' => $path,
+			'cdr_search' => $this->buildCdrSearch($row),
+		];
+	}
+
+	private function buildTrunkEntities(array $trunks): array {
+		$entities = [];
+		foreach ($trunks as $trunk) {
+			$entities[$trunk] = $this->buildTrunkEntity((string)$trunk);
+		}
+		return $entities;
+	}
+
+	private function buildTrunkEntity(string $trunk): ?array {
+		try {
+			$configured = $this->FreePBX->Core->listTrunks();
+			foreach ($configured as $item) {
+				$channel_id = isset($item['channelid']) ? (string)$item['channelid'] : '';
+				$name = isset($item['name']) ? (string)$item['name'] : '';
+				if (!hash_equals($trunk, $channel_id) && !hash_equals($trunk, $name)) continue;
+				$trunk_id = isset($item['trunkid']) ? (string)$item['trunkid'] : '';
+				if (!preg_match('/^[0-9]+$/', $trunk_id)) return null;
+				return $this->resolveFreepbxDestination('ext-trunk,' . $trunk_id . ',1');
+			}
+		} catch (\Throwable $exception) {
+			return null;
+		}
+		return null;
+	}
+
+	private function resolveFreepbxDestination(string $destination): ?array {
+		$resolver = new \FreePBX\modules\Concurrencycount\Resolvers\FreepbxEntityResolver();
+		return $resolver->resolveDestination($destination, 'observed');
+	}
+
+	private function buildCdrSearch(array $row): array {
+		$timestamp = strtotime(isset($row['calldate']) ? $row['calldate'] : '');
+		$fields = [
+			'need_html' => 'true',
+			'startday' => date('d', $timestamp), 'startmonth' => date('m', $timestamp), 'startyear' => date('Y', $timestamp),
+			'starthour' => date('H', $timestamp), 'startmin' => date('i', $timestamp),
+			'endday' => date('d', $timestamp), 'endmonth' => date('m', $timestamp), 'endyear' => date('Y', $timestamp),
+			'endhour' => date('H', $timestamp), 'endmin' => date('i', $timestamp),
+			'disposition' => isset($row['disposition']) ? (string)$row['disposition'] : 'ANSWERED',
+		];
+		foreach (['dst', 'did'] as $field) {
+			if (!empty($row[$field])) {
+				$fields[$field] = (string)$row[$field];
+				$fields[$field . '_mod'] = 'exact';
+			}
+		}
+		if (!empty($row['src'])) {
+			$fields['cnum'] = (string)$row['src'];
+			$fields['cnum_mod'] = 'exact';
+		}
+		return ['url' => 'config.php?display=cdr', 'method' => 'POST', 'fields' => $fields];
 	}
 
 	/* ============================================================
@@ -1112,10 +1333,33 @@ class Concurrencycount implements \BMO {
 			'rows_processed' => $calculated['rows_processed'],
 			'warning' => $this->trunkNamingWarning(),
 		];
+		if ($mode === 'trunk') {
+			$result['peak_occurrences'] = $this->buildTrunkPeakOccurrences($rows, $calculated['per_name']);
+			$result['trunk_entities'] = $this->buildTrunkEntities($trunks);
+		}
 		if ($engine_id !== 'original') {
 			$result['engine'] = $engine_id;
 		}
 		return $result;
+	}
+
+	private function buildTrunkPeakOccurrences(array $rows, array $per_name): array {
+		$analyser = new \FreePBX\modules\Concurrencycount\Analyzers\PeakDetailAnalyser();
+		$by_trunk = [];
+		foreach ($per_name as $trunk => $peak) {
+			$peak = (int)$peak;
+			if ($peak <= 0) {
+				$by_trunk[$trunk] = [];
+				continue;
+			}
+			$analysis = $analyser->analyseTrunk($rows, (string)$trunk, $peak);
+			$by_trunk[$trunk] = [];
+			foreach ($analysis['occurrences'] as $occurrence) {
+				unset($occurrence['row_indexes']);
+				$by_trunk[$trunk][] = $occurrence;
+			}
+		}
+		return $by_trunk;
 	}
 
 	/**

@@ -42,9 +42,11 @@ window._ccLoaded = true;
 	var finalDemoSeed = null;
 	var finalEngine = 'original';
 	var finalDemoEngines = ['original'];
+	var currentResults = null;
 	var demoSeed = 0;
 	var demoMoves = 0;
 	var demoPlan = null;
+	var guiRange = null;
 
 	/**
 	 * Use jQuery's DOM round-trip for HTML escaping. Cheaper than chained
@@ -264,6 +266,7 @@ window._ccLoaded = true;
 	/* ---------- Results rendering ---------- */
 
 	function renderResults(r) {
+		currentResults = r;
 		finalMode = r.mode;
 		finalStart = r.start;
 		finalEnd = r.end;
@@ -423,14 +426,147 @@ window._ccLoaded = true;
 		names.forEach(function (n) {
 			var count = r.per_name[n];
 			var isPeak = (count === r.global_max && r.global_max > 0);
+			var nameIndex = names.indexOf(n);
+			var entity = r.mode === 'trunk' && r.trunk_entities ? r.trunk_entities[n] : null;
+			var occurrences = r.mode === 'trunk' && r.peak_occurrences && r.peak_occurrences[n] ? r.peak_occurrences[n] : [];
 			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + escapeHtml(n) + '</td>' +
-				'<td>' + escapeHtml(count) + '</td>' +
+				'<td>' + renderEntity(entity, n) + '</td>' +
+				'<td><strong>' + escapeHtml(count) + '</strong>' +
+				(r.mode === 'trunk' && occurrences.length ? '<br><button type="button" class="btn btn-link cc-show-occurrences" data-name-index="' + nameIndex + '">Peak occurred ' + escapeHtml(occurrences.length) + ' ' + (occurrences.length === 1 ? 'time' : 'times') + '</button>' : '') +
+				'</td>' +
 				'</tr>';
 		});
 		html += '</tbody></table></div>';
+		if (r.mode === 'trunk') {
+			html += renderOccurrenceSections(names, r);
+		}
 		html += '<div class="cc-peak-summary">Global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		el.html(html);
+	}
+
+	function renderOccurrenceSections(names, r) {
+		var html = '';
+		names.forEach(function (trunk, nameIndex) {
+			var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
+			if (!occurrences.length) return;
+			html += '<section class="cc-occurrence-section" data-name-index="' + nameIndex + '" style="display:none">';
+			html += '<h4>Simultaneous Call Details: ' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>';
+			occurrences.forEach(function (occurrence, occurrenceIndex) {
+				html += '<div class="panel panel-default cc-occurrence">' +
+					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false">' +
+					'<span><strong>Peak ' + escapeHtml(occurrence.peak) + ' calls</strong> &middot; ' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + ' &middot; lasted ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</span>' +
+					'<i class="fa fa-chevron-down" aria-hidden="true"></i></button></div>' +
+					'<div class="panel-body cc-occurrence-detail" style="display:none"></div>' +
+					'</div>';
+			});
+			html += '</section>';
+		});
+		return html;
+	}
+
+	function renderEntity(entity, fallback) {
+		if (!entity || !entity.label) return escapeHtml(fallback || '');
+		var label = entity.label;
+		if (entity.number && label.indexOf(entity.number) === -1) label += ' (' + entity.number + ')';
+		return entity.native_url
+			? '<a class="cc-entity-link" href="' + escapeHtml(entity.native_url) + '">' + escapeHtml(label) + '</a>'
+			: escapeHtml(label);
+	}
+
+	function formatClockRange(from, to) {
+		var fromClock = String(from || '').split(' ')[1] || from;
+		var toClock = String(to || '').split(' ')[1] || to;
+		return fromClock === toClock ? fromClock : fromClock + ' to ' + toClock;
+	}
+
+	function formatDuration(seconds) {
+		seconds = Math.max(0, parseInt(seconds, 10) || 0);
+		var hours = Math.floor(seconds / 3600);
+		var minutes = Math.floor((seconds % 3600) / 60);
+		var remainder = seconds % 60;
+		var parts = [];
+		if (hours) parts.push(hours + 'h');
+		if (minutes) parts.push(minutes + 'm');
+		if (remainder || !parts.length) parts.push(remainder + 's');
+		return parts.join(' ');
+	}
+
+	function loadOccurrence(button) {
+		var nameIndex = parseInt(button.data('name-index'), 10);
+		var occurrenceIndex = parseInt(button.data('occurrence-index'), 10);
+		var names = Object.keys(currentResults.per_name || {});
+		var trunk = names[nameIndex];
+		var occurrence = currentResults.peak_occurrences[trunk][occurrenceIndex];
+		var detail = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+		if (detail.data('loaded')) {
+			detail.toggle();
+			button.attr('aria-expanded', detail.is(':visible') ? 'true' : 'false');
+			return;
+		}
+		if (detail.data('loading')) return;
+		detail.data('loading', true);
+		button.prop('disabled', true);
+		detail.html('<p class="text-muted"><span class="cc-spinner"></span>Loading contributing calls...</p>').show();
+		button.attr('aria-expanded', 'true');
+		ajax({
+			command: 'peakdetails', trunk: trunk,
+			start_date: currentResults.start, end_date: currentResults.end,
+			occurrence_from: occurrence.from, occurrence_to: occurrence.to
+		}).done(function (response) {
+			if (!response.status) {
+				detail.html('<div class="alert alert-danger">' + escapeHtml(response.message || 'Unable to load call details.') + '</div>');
+				return;
+			}
+			detail.data('loaded', true).data('detail', response.detail).html(renderPeakCalls(response.detail));
+		}).fail(function () {
+			detail.html('<div class="alert alert-danger">' + escapeHtml(randomOops()) + '</div>');
+		}).always(function () {
+			detail.data('loading', false);
+			button.prop('disabled', false);
+		});
+	}
+
+	function renderPeakCalls(detail) {
+		var counts = detail.direction_counts || {};
+		var summary = [];
+		if (counts.inbound) summary.push(counts.inbound + ' inbound');
+		if (counts.outbound) summary.push(counts.outbound + ' outbound');
+		if (counts.unknown) summary.push(counts.unknown + ' unknown');
+		var html = '<p class="cc-direction-summary">' + escapeHtml(summary.join(' \u00b7 ')) + '</p>';
+		html += '<div class="cc-table-scroll"><table class="table table-condensed cc-call-table"><thead><tr>' +
+			'<th>Started</th><th>Caller / source</th><th>DID / destination</th><th>Direction</th><th>Duration</th><th>Observed path</th><th></th>' +
+			'</tr></thead><tbody>';
+		(detail.calls || []).forEach(function (call, callIndex) {
+			var caller = call.caller_id || call.source;
+			var destination = [call.did, call.destination].filter(Boolean).join(' / ');
+			var path = [];
+			if (call.direction === 'inbound') path.push(renderEntity(call.trunk_entity, call.trunk));
+			(call.path || []).forEach(function (entity) { path.push(renderEntity(entity, entity.label)); });
+			if (call.direction === 'outbound') path.push(renderEntity(call.trunk_entity, call.trunk));
+			html += '<tr><td>' + escapeHtml(call.calldate) + '</td>' +
+				'<td>' + escapeHtml(caller) + '</td><td>' + escapeHtml(destination) + '</td>' +
+				'<td>' + escapeHtml(call.direction) + '</td><td>' + escapeHtml(formatDuration(call.duration)) + '</td>' +
+				'<td class="cc-call-path">' + path.join(' <span aria-hidden="true">&rarr;</span> ') + '</td>' +
+				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button></td></tr>';
+		});
+		html += '</tbody></table></div>';
+		return html;
+	}
+
+	function openCdrSearch(button) {
+		var occurrence = button.closest('.cc-occurrence');
+		var nameIndex = parseInt(occurrence.find('.cc-occurrence-toggle').data('name-index'), 10);
+		var occurrenceIndex = parseInt(occurrence.find('.cc-occurrence-toggle').data('occurrence-index'), 10);
+		var callIndex = parseInt(button.data('call-index'), 10);
+		var detail = occurrence.find('.cc-occurrence-detail').data('detail');
+		if (!detail || !detail.calls || !detail.calls[callIndex]) return;
+		var search = detail.calls[callIndex].cdr_search;
+		var form = $('<form>', {method: 'POST', action: search.url}).hide();
+		Object.keys(search.fields || {}).forEach(function (name) {
+			form.append($('<input>', {type: 'hidden', name: name, value: search.fields[name]}));
+		});
+		$('body').append(form);
+		form.trigger('submit');
 	}
 
 	function renderDemo(el, r) {
@@ -531,18 +667,58 @@ window._ccLoaded = true;
 	/* ---------- Wizard state machine ---------- */
 
 	function newWizard() {
-		wizardState = {
-			step: 'mode', attempts: 0,
-			mode: null, month: null, year: null,
-			start_date: null, end_date: null,
-			engine: 'original'
-		};
+		wizardState = {mode: 'trunk', engine: 'original'};
 		$('#cc-engine').val('original');
-		$('#cc-engine-group').hide();
+		$('#cc-wizard-mode').val('trunk');
+		$('#cc-engine-group, #cc-wizard-mode-group').show();
 		$('#cc-results').hide();
 		setStatus('', null);
+		applyDatePreset('last7');
 		showWizard();
-		askMode();
+	}
+
+	function applyDatePreset(kind) {
+		if (kind === 'custom') {
+			guiRange.kind = 'custom';
+			$('#cc-custom-dates').show();
+		} else {
+			guiRange = window.CCDateRange.preset(kind, new Date());
+			guiRange.includeTime = $('#cc-include-time').is(':checked');
+			guiRange.fromTime = $('#cc-time-from').val() || '00:00';
+			guiRange.toTime = $('#cc-time-to').val() || '23:59';
+			$('#cc-custom-dates').hide();
+		}
+		$('.cc-date-preset').removeClass('active').filter('[data-preset="' + kind + '"]').addClass('active');
+		updateDateRangeControls();
+	}
+
+	function updateDateRangeControls() {
+		if (!guiRange) return;
+		$('#cc-date-from').val(guiRange.from);
+		$('#cc-date-to').val(guiRange.to);
+		$('#cc-range-label').text(formatDisplayDate(guiRange.from) + ' - ' + formatDisplayDate(guiRange.to));
+		var today = window.CCDateRange.dateOnly(new Date());
+		$('.cc-range-shift[data-direction="1"]').prop('disabled', guiRange.to >= today);
+		$('#cc-time-controls').toggle($('#cc-include-time').is(':checked'));
+	}
+
+	function readCustomRange() {
+		var from = $('#cc-date-from').val();
+		var to = $('#cc-date-to').val();
+		if (!window.CCDateRange.parseDate(from) || !window.CCDateRange.parseDate(to) || to < from) {
+			showError('Choose a valid From and To date.');
+			return false;
+		}
+		guiRange.from = from;
+		guiRange.to = to;
+		updateDateRangeControls();
+		clearError();
+		return true;
+	}
+
+	function formatDisplayDate(value) {
+		var date = window.CCDateRange.parseDate(value);
+		return date ? date.toLocaleDateString([], {day: 'numeric', month: 'short', year: 'numeric'}) : value;
 	}
 
 	function askMode() {
@@ -596,44 +772,18 @@ window._ccLoaded = true;
 	}
 
 	function submitStep() {
-		var step = wizardState.step;
-		var value = (step === 'mode') ? $('#cc-wizard-mode').val() : $('#cc-wizard-value').val();
-
-		// Month prompt shortcuts handled client-side. The server would also
-		// catch these via the wizardstep endpoint, but resolving here avoids
-		// a round-trip for the common case.
-		if (step === 'month') {
-			var trimmed = (value || '').trim().toLowerCase();
-			if (trimmed === '') {
-				askStartDate();
-				return;
-			}
-			if (/^(t|to|tod|toda|today)$/.test(trimmed)) {
-				hideWizard();
-				resolveAndRun({kind: 'today'});
-				return;
-			}
-			if (/^(y|ye|yes|yest|yeste|yester|yesterd|yesterda|yesterday)$/.test(trimmed)) {
-				hideWizard();
-				resolveAndRun({kind: 'yesterday'});
-				return;
-			}
+		if (!guiRange || (guiRange.kind === 'custom' && !readCustomRange())) return;
+		guiRange.includeTime = $('#cc-include-time').is(':checked');
+		guiRange.fromTime = $('#cc-time-from').val() || '00:00';
+		guiRange.toTime = $('#cc-time-to').val() || '23:59';
+		try {
+			var canonical = window.CCDateRange.resolve(guiRange, new Date());
+			wizardState.mode = $('#cc-wizard-mode').val();
+			hideWizard();
+			executeRun(wizardState.mode, canonical.start, canonical.end);
+		} catch (error) {
+			showError(error.message || 'Choose a valid date range.');
 		}
-
-		ajax({command: 'wizardstep', step: step, value: value}).done(function (resp) {
-			if (resp.status) {
-				handleStepSuccess(resp);
-				return;
-			}
-			wizardState.attempts++;
-			if (wizardState.attempts >= MAX_ATTEMPTS) {
-				tooManyAttempts();
-				return;
-			}
-			showError(resp.message, wizardState.attempts);
-		}).fail(function () {
-			showError(randomOops());
-		});
 	}
 
 	function handleStepSuccess(resp) {
@@ -934,6 +1084,20 @@ window._ccLoaded = true;
 			stirDemoSeed(Math.floor(touch.pageX - off.left), Math.floor(touch.pageY - off.top));
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
+		$('.cc-date-preset').off('click').on('click', function () {
+			applyDatePreset($(this).data('preset'));
+		});
+		$('.cc-range-shift').off('click').on('click', function () {
+			if (guiRange && (guiRange.kind !== 'custom' || readCustomRange())) {
+				guiRange = window.CCDateRange.shift(guiRange, parseInt($(this).data('direction'), 10), new Date());
+				updateDateRangeControls();
+			}
+		});
+		$('#cc-date-from, #cc-date-to').off('change').on('change', readCustomRange);
+		$('#cc-include-time').off('change').on('change', function () {
+			if (guiRange) guiRange.includeTime = $(this).is(':checked');
+			updateDateRangeControls();
+		});
 		$('#cc-wizard-cancel').off('click').on('click', function () {
 			setStatus('Session aborted.', 'warning');
 		});
@@ -948,6 +1112,14 @@ window._ccLoaded = true;
 		$('#cc-download-cdr').off('click').on('click', onDownloadCdr);
 		$('#cc-email-toggle').off('click').on('click', onEmailToggle);
 		$('#cc-email-send').off('click').on('click', onEmailSend);
+		$('#cc-results-body').off('click', '.cc-show-occurrences').on('click', '.cc-show-occurrences', function () {
+			var nameIndex = parseInt($(this).data('name-index'), 10);
+			$('.cc-occurrence-section[data-name-index="' + nameIndex + '"]').toggle();
+		}).off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
+			loadOccurrence($(this));
+		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
+			openCdrSearch($(this));
+		});
 	});
 
 })(window.jQuery);

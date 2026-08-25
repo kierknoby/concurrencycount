@@ -295,6 +295,34 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertTrue($this->cc->ajaxRequest('run', $setting));
 		$this->assertSame(true, $setting['authenticate']);
 		$this->assertSame(false, $setting['allowremote']);
+		$setting = [];
+		$this->assertTrue($this->cc->ajaxRequest('peakdetails', $setting));
+		$this->assertSame(true, $setting['authenticate']);
+		$this->assertSame(false, $setting['allowremote']);
+	}
+
+	public function testDirectionUsesActualTrunkLegPlacement(): void {
+		$this->assertSame('inbound', $this->invokePrivate('classifyTrunkLeg', [true, false]));
+		$this->assertSame('outbound', $this->invokePrivate('classifyTrunkLeg', [false, true]));
+		$this->assertSame('unknown', $this->invokePrivate('classifyTrunkLeg', [true, true]));
+		$this->assertSame('unknown', $this->invokePrivate('classifyTrunkLeg', [false, false]));
+	}
+
+	public function testNativeCdrSearchUsesSupportedReportFields(): void {
+		$search = $this->invokePrivate('buildCdrSearch', [[
+			'calldate' => '2026-08-24 10:14:22',
+			'src' => '203', 'dst' => '02071234567', 'did' => '02079461234',
+			'disposition' => 'ANSWERED',
+		]]);
+		$this->assertSame('config.php?display=cdr', $search['url']);
+		$this->assertSame('POST', $search['method']);
+		$this->assertSame('true', $search['fields']['need_html']);
+		$this->assertSame('10', $search['fields']['starthour']);
+		$this->assertSame('14', $search['fields']['startmin']);
+		$this->assertSame('203', $search['fields']['cnum']);
+		$this->assertSame('exact', $search['fields']['cnum_mod']);
+		$this->assertSame('exact', $search['fields']['dst_mod']);
+		$this->assertSame('exact', $search['fields']['did_mod']);
 	}
 
 	public function testTrunkRowsOnlyContainDiscoveredTrunks(): void {
