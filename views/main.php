@@ -56,7 +56,7 @@ $_ccAssetVer = max(
 
 			<div class="row">
 				<div class="col-sm-12">
-					<div class="cc-workspace-tabs" role="tablist" aria-label="<?php echo _('Concurrency views'); ?>">
+					<div class="cc-workspace-tabs" id="cc-workspace-tabs" role="tablist" aria-label="<?php echo _('Concurrency views'); ?>">
 						<button type="button" class="cc-workspace-tab" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live Command Centre'); ?></button>
 						<button type="button" class="cc-workspace-tab" id="cc-tab-historical" data-target="historical" role="tab" aria-selected="false"><i class="fa fa-history"></i> <?php echo _('Historical Reports'); ?></button>
 					</div>
@@ -98,15 +98,10 @@ $_ccAssetVer = max(
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
 								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>
-						<div id="cc-report-workspace" style="display:none;">
-							<div class="cc-report-tab-bar">
-								<div id="cc-report-tabs" class="cc-report-tabs" role="tablist" aria-label="<?php echo _('Open historical reports'); ?>"></div>
-								<button type="button" id="cc-report-new" class="btn btn-default btn-sm cc-report-new" title="<?php echo _('Open another historical report'); ?>"><i class="fa fa-plus"></i> <?php echo _('New Historical Report'); ?></button>
-								<button type="button" id="cc-demo-launch-compact" class="btn btn-default btn-sm" title="<?php echo _('Run Demo'); ?>"><i class="fa fa-flask"></i> <?php echo _('Demo'); ?></button>
-							</div>
-							<div id="cc-report-limit-message" class="alert alert-warning" style="display:none;"></div>
+						<div id="cc-report-active" style="display:none;">
 							<div id="cc-report-loading" class="text-muted" style="display:none;"><span class="cc-spinner"></span> <span id="cc-report-loading-text"></span></div>
 							<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
 							<div id="cc-results" style="display:none; margin-top:20px;">

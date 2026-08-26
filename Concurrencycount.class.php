@@ -31,7 +31,7 @@ class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.1.0';
+	const VERSION = '2.0.0';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';

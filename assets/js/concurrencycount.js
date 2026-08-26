@@ -713,11 +713,14 @@ window._ccLoaded = true;
 	}
 
 	/* ---------- Historical report tabs ----------
-	 * One shared wizard/results DOM subtree (unchanged) is repainted from
-	 * whichever report instance is active. Report definitions (mode/engine/
-	 * date preset/options) persist server-side; CDR results/graphs/occurrence
-	 * state are cached only in this in-memory model for the current page
-	 * load and are regenerated (not replayed) after a reload.
+	 * Historic Report tabs are peers of Live Command Centre / Historical
+	 * Reports on the one top-level tab strip (#cc-workspace-tabs), not a
+	 * second-level control nested inside the Historical section. One shared
+	 * wizard/results DOM subtree (unchanged) is repainted from whichever
+	 * report instance is active. Report definitions (mode/engine/date preset/
+	 * options) persist server-side; CDR results/graphs/occurrence state are
+	 * cached only in this in-memory model for the current page load and are
+	 * regenerated (not replayed) after a reload.
 	 */
 
 	function occurrenceKey(nameIndex, occurrenceIndex) {
@@ -739,40 +742,23 @@ window._ccLoaded = true;
 			(response.reports || []).forEach(function (report) {
 				historicalReports[report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, report);
 			});
-			renderReportTabs();
-			if (!reportCount()) {
-				showReportLanding();
-				return;
-			}
-			showReportWorkspace();
-			var preferred = response.active_id && historicalReports[response.active_id] ? response.active_id : sortedReports()[0].id;
-			activateReportTab(preferred);
-		}).fail(function () {
-			showReportLanding();
+			renderTopReportTabs();
+			// Deliberately does not change which top-level tab is active on
+			// load: Live Command Centre remains the default landing tab, and
+			// each report tab regenerates lazily only when actually selected.
 		});
 	}
 
-	function showReportLanding() {
-		$('#cc-report-landing').show();
-		$('#cc-report-workspace').hide();
-	}
-
-	function showReportWorkspace() {
-		$('#cc-report-landing').hide();
-		$('#cc-report-workspace').show();
-	}
-
-	function renderReportTabs() {
-		var reports = sortedReports();
-		var html = reports.map(function (report) {
+	function renderTopReportTabs() {
+		$('#cc-workspace-tabs .cc-report-tab-top').remove();
+		var html = sortedReports().map(function (report) {
 			var selected = report.id === activeReportId;
-			return '<div class="cc-report-tab' + (selected ? ' active' : '') + '" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-report-id="' + escapeHtml(report.id) + '">' +
-				'<button type="button" class="cc-report-tab-select" data-report-id="' + escapeHtml(report.id) + '">' + escapeHtml(report.title) + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
+			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '">' +
+				'<button type="button" class="cc-report-tab-select" data-target="' + escapeHtml(report.id) + '">' + escapeHtml(report.title) + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
 				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.title) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
 				'</div>';
 		}).join('');
-		$('#cc-report-tabs').html(html);
-		$('#cc-report-new').prop('disabled', reportCount() >= 5);
+		$('#cc-tab-historical').after(html);
 	}
 
 	function showReportLimitMessage() {
@@ -780,9 +766,35 @@ window._ccLoaded = true;
 		setTimeout(function () { $('#cc-report-limit-message').fadeOut(); }, 4000);
 	}
 
+	function showHistoricalLanding() {
+		activeReportId = null;
+		$('#cc-report-landing').show();
+		$('#cc-report-active').hide();
+	}
+
+	/**
+	 * Single point of top-level tab selection: Live Command Centre,
+	 * Historical Reports (landing), or a Historic Report tab. Owns
+	 * aria-selected for the whole shared strip; delegates section
+	 * show/hide + Live polling to live-command-centre.js.
+	 */
+	function selectTopTab(target) {
+		$('#cc-workspace-tabs [data-target]').attr('aria-selected', 'false');
+		$('#cc-workspace-tabs [data-target="' + target + '"]').attr('aria-selected', 'true');
+		if (window.CCLiveWorkspace) window.CCLiveWorkspace.switchSection(target === 'live' ? 'live' : 'historical');
+		if (target === 'live') {
+			activeReportId = null;
+			return;
+		}
+		if (target === 'historical') {
+			showHistoricalLanding();
+			return;
+		}
+		activateReportTab(target);
+	}
+
 	function createReportTab() {
 		if (reportCount() >= 5) {
-			showReportWorkspace();
 			showReportLimitMessage();
 			return;
 		}
@@ -793,14 +805,17 @@ window._ccLoaded = true;
 			include_time: '', from_time: '00:00', to_time: '23:59'
 		}).done(function (response) {
 			if (!response.status) {
-				showReportWorkspace();
 				showReportLimitMessage();
 				return;
 			}
 			historicalReports[response.report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, response.report);
-			showReportWorkspace();
-			renderReportTabs();
-			activateReportTab(response.report.id, {skipRegenerate: true});
+			renderTopReportTabs();
+			selectTopTab(response.report.id);
+			$('#cc-report-active').show();
+			$('#cc-report-landing').hide();
+			$('#cc-status').hide();
+			$('#cc-results').hide();
+			$('#cc-report-empty').show();
 			newWizard(response.report.id);
 		}).fail(function () {
 			setStatus(randomOops(), 'error');
@@ -816,31 +831,19 @@ window._ccLoaded = true;
 			// needs a guaranteed round trip to discard.
 		});
 		delete historicalReports[id];
-		if (closingActive) {
-			var remaining = sortedReports();
-			activeReportId = null;
-			if (remaining.length) {
-				activateReportTab(remaining[0].id);
-			} else {
-				$('#cc-status').hide();
-				$('#cc-results').hide();
-				$('#cc-historical-graph').hide();
-				$('#cc-report-empty').hide();
-				renderReportTabs();
-				showReportLanding();
-			}
-		} else {
-			renderReportTabs();
-		}
+		renderTopReportTabs();
+		if (!closingActive) return;
+		var remaining = sortedReports();
+		selectTopTab(remaining.length ? remaining[0].id : 'historical');
 	}
 
-	function activateReportTab(id, options) {
-		options = options || {};
+	function activateReportTab(id) {
 		var report = historicalReports[id];
 		if (!report) return;
 		activeReportId = id;
-		renderReportTabs();
 		ajax({command: 'activatehistoricalreport', id: id});
+		$('#cc-report-landing').hide();
+		$('#cc-report-active').show();
 		if (report.result) {
 			$('#cc-report-empty').hide();
 			renderResults(report.result);
@@ -848,17 +851,12 @@ window._ccLoaded = true;
 			$(document).trigger('cc:historical-results', [report.result, report.graphSeries]);
 			return;
 		}
-		if (options.skipRegenerate) {
-			$('#cc-status').hide();
-			$('#cc-results').hide();
-			$('#cc-historical-graph').hide();
-			$('#cc-report-empty').show();
-			return;
-		}
 		regenerateReport(report);
 	}
 
 	function regenerateReport(report) {
+		$('#cc-status').hide();
+		$('#cc-results').hide();
 		$('#cc-report-empty').hide();
 		$('#cc-report-loading-text').text('Regenerating ' + report.title + '...');
 		$('#cc-report-loading').show();
@@ -876,6 +874,7 @@ window._ccLoaded = true;
 			executeRun(report.mode, canonical.start, canonical.end, null, report.engine);
 		} catch (error) {
 			$('#cc-report-loading').hide();
+			$('#cc-report-empty').show();
 			setStatus('Unable to regenerate ' + report.title + ': ' + (error.message || 'invalid saved date range.'), 'error');
 		}
 	}
@@ -885,7 +884,7 @@ window._ccLoaded = true;
 		ajax($.extend({command: 'updatehistoricalreport', id: id}, definition)).done(function (response) {
 			if (response.status && response.report) {
 				historicalReports[id] = $.extend(historicalReports[id], response.report);
-				renderReportTabs();
+				renderTopReportTabs();
 			}
 		});
 	}
@@ -1359,11 +1358,11 @@ window._ccLoaded = true;
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', createReportTab);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
-		$('#cc-demo-launch, #cc-demo-launch-compact').off('click').on('click', showDemoPrompt);
-		$('#cc-report-new').off('click').on('click', createReportTab);
-		$('#cc-report-tabs').off('click', '.cc-report-tab-select').on('click', '.cc-report-tab-select', function () {
-			activateReportTab($(this).data('report-id'));
-		}).off('click', '.cc-report-tab-close').on('click', '.cc-report-tab-close', function (e) {
+		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
+			if ($(e.target).closest('.cc-report-tab-close').length) return;
+			selectTopTab($(this).data('target'));
+		}).off('click.ccTabsClose', '.cc-report-tab-close').on('click.ccTabsClose', '.cc-report-tab-close', function (e) {
 			e.stopPropagation();
 			closeReportTab($(this).data('report-id'));
 		});

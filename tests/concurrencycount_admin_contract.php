@@ -140,7 +140,7 @@ foreach (['Unattended alert monitor', 'Restart monitor', 'reconciles every 5 sec
 admin_contract_assert(preg_match('/class="cc-workspace-tab"[^>]*id="cc-tab-live"[^>]*role="tab"[^>]*aria-selected="true"/', $view) === 1, 'Live workspace tab must default to selected via aria-selected, not a button-state class');
 admin_contract_assert(strpos($view, 'btn btn-primary cc-workspace-tab') === false && strpos($view, 'btn btn-default cc-workspace-tab') === false, 'Workspace tabs must not use enable/disable button styling');
 admin_contract_assert(strpos($liveJavascript, "removeClass('active btn-primary')") === false && strpos($liveJavascript, "addClass('active btn-primary')") === false, 'Workspace switching must not toggle button-state classes');
-admin_contract_assert(strpos($liveJavascript, "attr('aria-selected', 'true')") !== false && strpos($liveJavascript, "attr('aria-selected', 'false')") !== false, 'Workspace switching must use aria-selected semantics');
+admin_contract_assert(strpos($javascript, "attr('aria-selected', 'true')") !== false && strpos($javascript, "attr('aria-selected', 'false')") !== false, 'Top-level tab selection must use aria-selected semantics');
 admin_contract_assert(strpos($view, 'do not enable or disable live monitoring') !== false, 'Workspace tabs must be explicitly labelled as navigation only');
 admin_contract_assert(strpos($view, 'cc-settings-button') !== false, 'Thresholds & alerts control must use a neutral settings affordance, not an enable/disable button style');
 foreach (['OVERALL LIVE CONCURRENCY', 'active monitored PJSIP call legs now'] as $overallLabel) {
@@ -177,7 +177,7 @@ admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && st
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.0.0', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -189,22 +189,34 @@ admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_historical_repo
 admin_contract_assert(strpos($historicalReportsService, 'MAX_REPORTS = 5') !== false, 'Five-report hard limit must be enforced in the backend service, not only the GUI');
 admin_contract_assert(strpos($console, "'list-historical-reports'") !== false && strpos($console, "'show-historical-report'") !== false && strpos($console, "'delete-historical-report'") !== false, 'CLI visibility/management for persisted historical report tabs is missing');
 
-/* Tab strip markup: exactly one of each core container, no duplicated result DOM */
-foreach (['id="cc-report-tabs"', 'id="cc-report-workspace"', 'id="cc-report-landing"', 'id="cc-report-new"'] as $needle) {
-	admin_contract_assert(substr_count($view, $needle) === 1, 'Historical report tab container must appear exactly once: ' . $needle);
+/* Historic Report tabs are top-level peers of Live Command Centre / Historical Reports, not a nested second-level strip */
+admin_contract_assert(substr_count($view, 'id="cc-workspace-tabs"') === 1, 'A single top-level tab strip container must exist');
+foreach (['cc-report-tabs', 'cc-report-workspace', 'cc-report-new', 'cc-report-tab-bar'] as $legacyNestedNeedle) {
+	admin_contract_assert(strpos($view, $legacyNestedNeedle) === false, 'No nested second-level historical report-tab container may remain: ' . $legacyNestedNeedle);
+	admin_contract_assert(strpos($javascript, $legacyNestedNeedle) === false, 'No nested second-level historical report-tab container may remain in JS: ' . $legacyNestedNeedle);
+}
+admin_contract_assert(strpos($javascript, "\$('#cc-tab-historical').after(html)") !== false, 'Historic Report tabs must be inserted into the same top-level tab container as Live/Historical, immediately after the Historical Reports tab');
+admin_contract_assert(strpos($javascript, 'class="cc-workspace-tab cc-report-tab-top"') !== false, 'Historic Report tabs must share the cc-workspace-tab top-level tab styling, not a separate nested tab style');
+foreach (['id="cc-report-landing"', 'id="cc-report-active"'] as $needle) {
+	admin_contract_assert(substr_count($view, $needle) === 1, 'Historical landing/active container must appear exactly once: ' . $needle);
 }
 admin_contract_assert(substr_count($view, 'id="cc-results"') === 1 && substr_count($view, 'id="cc-results-body"') === 1, 'Results DOM must remain a single shared surface, not duplicated per report tab (avoids duplicate IDs)');
 admin_contract_assert(strpos($view, 'aria-label="Close ') === false, 'Close button accessible label is generated client-side per report, not hardcoded in markup');
 admin_contract_assert(strpos($javascript, "escapeHtml('Close ' + report.title)") !== false, 'Each report tab close control must expose an accessible "Close Historic Report N" label');
-admin_contract_assert(strpos($javascript, "role=\"tab\"") !== false, 'Report tabs must use tab semantics');
+admin_contract_assert(strpos($javascript, 'role="tab"') !== false, 'Report tabs must use tab semantics');
+admin_contract_assert(strpos($javascript, "closest('.cc-report-tab-close')") !== false, 'Clicking the close (x) control must not also trigger tab selection');
+admin_contract_assert(strpos($javascript, 'function selectTopTab') !== false, 'A single top-level tab selection function must own Live/Historical/report-tab switching');
+admin_contract_assert(strpos($javascript, 'CCLiveWorkspace.switchSection') !== false, 'Top-level tab selection must delegate Live/Historical section visibility, not duplicate it');
 admin_contract_assert(strpos($javascript, 'runTargetReportId') !== false && strpos($javascript, 'targetReportId') !== false, 'Report results must be attached to the report instance captured at request time, not read live at response time');
 admin_contract_assert(strpos($javascript, 'occurrenceCache') !== false, 'Occurrence drill-down state must be scoped per report instance');
 admin_contract_assert(strpos($javascript, 'runTargetReportId = null;') !== false, 'Demo must not silently attach its result to a persisted report tab');
 
 /* Live Command Centre must remain untouched by this change */
-foreach (['function switchWorkspace', 'function updateOverall', 'function pollLive', 'function startPolling'] as $liveFn) {
+foreach (['function updateOverall', 'function pollLive', 'function startPolling'] as $liveFn) {
 	admin_contract_assert(strpos($liveJavascript, $liveFn) !== false, 'Live Command Centre function must remain present and unchanged: ' . $liveFn);
 }
+admin_contract_assert(strpos($liveJavascript, 'window.CCLiveWorkspace') !== false, 'Live Command Centre must expose its section-switch hook for the shared top-level tab strip');
+admin_contract_assert(strpos($liveJavascript, "\$('.cc-workspace-tab').off('click.ccLive')") === false, 'Live Command Centre must no longer bind top-level tab clicks itself now that report tabs share the strip');
 admin_contract_assert(strpos($liveJavascript, 'historicalReports') === false, 'Live Command Centre file must not know about the historical report tab model');
 
 echo "Administrative contract passed\n";

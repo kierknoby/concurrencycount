@@ -12,7 +12,7 @@ function contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
 
-contract_assert((string)$module->version === '2.1.0', 'Unexpected module version');
+contract_assert((string)$module->version === '2.0.0', 'Unexpected module version');
 $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');

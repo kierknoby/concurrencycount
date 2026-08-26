@@ -30,7 +30,6 @@ window._ccLiveLoaded = true;
 	}
 
 	function bindEvents() {
-		$('.cc-workspace-tab').off('click.ccLive').on('click.ccLive', function () { switchWorkspace($(this).data('target')); });
 		$('#cc-live-refresh').off('change.ccLive').on('change.ccLive', function () {
 			if (!settings) return;
 			settings.refresh_interval = parseInt($(this).val(), 10);
@@ -46,10 +45,14 @@ window._ccLiveLoaded = true;
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 	}
 
+	/**
+	 * Section-visibility/polling side effect only. Which top-level tab is
+	 * visually selected (Live, Historical Reports, or a Historic Report tab)
+	 * is owned centrally by concurrencycount.js so all three kinds of tab
+	 * share one tab strip; exposed here for it to call.
+	 */
 	function switchWorkspace(target) {
-		activeWorkspace = target === 'historical' ? 'historical' : 'live';
-		$('.cc-workspace-tab').attr('aria-selected', 'false');
-		$('.cc-workspace-tab[data-target="' + activeWorkspace + '"]').attr('aria-selected', 'true');
+		activeWorkspace = target === 'live' ? 'live' : 'historical';
 		$('#cc-live-section').toggle(activeWorkspace === 'live');
 		$('#cc-historical-section').toggle(activeWorkspace === 'historical');
 		if (activeWorkspace === 'live') startPolling(true);
@@ -376,6 +379,8 @@ window._ccLiveLoaded = true;
 		var minutes = Math.floor(seconds / 60);
 		return minutes ? minutes + 'm ' + (seconds % 60) + 's' : seconds + 's';
 	}
+
+	window.CCLiveWorkspace = {switchSection: switchWorkspace};
 
 	$(initialise);
 }(window.jQuery));
