@@ -322,6 +322,7 @@ window._ccLoaded = true;
 		$('#cc-results-warning').text(r.warning || '');
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
+		$(document).trigger('cc:historical-results', [r]);
 	}
 
 	function renderExplanation(r) {

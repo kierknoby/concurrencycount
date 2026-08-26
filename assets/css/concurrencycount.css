@@ -218,8 +218,192 @@ body:has(.concurrencycount) #page_body {
 	font-weight: 600;
 }
 
+.concurrencycount .cc-monitor-health {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	margin: 8px 0;
+}
+
+.concurrencycount .cc-monitor-health #cc-monitor-status {
+	margin-right: auto;
+}
+
 .concurrencycount .cc-entity-link {
 	font-weight: 600;
+}
+
+.concurrencycount .cc-workspace-tabs {
+	display: flex;
+	gap: 8px;
+	margin: 16px 0;
+}
+
+.concurrencycount .cc-workspace {
+	border-top: 1px solid #d8dde3;
+	padding-top: 16px;
+}
+
+.concurrencycount .cc-section-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 12px;
+}
+
+.concurrencycount .cc-section-heading h2,
+.concurrencycount .cc-section-heading h3 {
+	margin: 2px 0 0;
+}
+
+.concurrencycount .cc-section-kicker {
+	display: block;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0;
+	color: #52606b;
+}
+
+.concurrencycount .cc-live-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.concurrencycount .cc-live-actions .form-control {
+	width: 112px;
+}
+
+.concurrencycount .cc-status-panel,
+.concurrencycount .cc-live-trunk {
+	border: 1px solid #cbd3da;
+	border-left: 5px solid #3c763d;
+	background: #fff;
+	padding: 14px;
+}
+
+.concurrencycount [data-status="approaching"] {
+	border-left-color: #a46b00;
+}
+
+.concurrencycount [data-status="exceeded"] {
+	border-left-color: #a94442;
+}
+
+.concurrencycount [data-status="unavailable"],
+.concurrencycount [data-status="stale"] {
+	border-left-color: #687681;
+}
+
+.concurrencycount .cc-live-overall {
+	display: grid;
+	grid-template-columns: minmax(220px, 0.7fr) minmax(320px, 1.3fr);
+	gap: 20px;
+	align-items: center;
+}
+
+.concurrencycount .cc-live-value {
+	display: block;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: #1f5f88;
+	font-size: 42px;
+	font-weight: 700;
+	line-height: 1.1;
+	text-align: left;
+}
+
+.concurrencycount .cc-live-value:focus,
+.concurrencycount .cc-trunk-value:focus {
+	outline: 3px solid #66afe9;
+	outline-offset: 3px;
+}
+
+.concurrencycount .cc-live-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	margin-top: 10px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.concurrencycount .cc-live-chart,
+.concurrencycount #cc-historical-chart {
+	display: block;
+	width: 100%;
+	height: 150px;
+}
+
+.concurrencycount #cc-historical-chart {
+	height: 220px;
+}
+
+.concurrencycount .cc-live-updated {
+	margin: 8px 0 18px;
+	color: #52606b;
+}
+
+.concurrencycount .cc-live-trunk-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 12px;
+}
+
+.concurrencycount .cc-live-trunk-header {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+	align-items: flex-start;
+}
+
+.concurrencycount .cc-live-trunk h4 {
+	margin: 0;
+	font-size: 16px;
+}
+
+.concurrencycount .cc-trunk-value {
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	font-size: 26px;
+	font-weight: 700;
+	color: #1f5f88;
+}
+
+.concurrencycount .cc-live-trunk canvas {
+	display: block;
+	width: 100%;
+	height: 110px;
+	margin-top: 8px;
+}
+
+.concurrencycount .cc-live-call-detail,
+.concurrencycount .cc-historical-graph {
+	margin-top: 18px;
+	padding: 14px;
+	border: 1px solid #cbd3da;
+	background: #fff;
+}
+
+.concurrencycount .cc-live-call-table {
+	min-width: 980px;
+}
+
+.concurrencycount .cc-historical-series {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.concurrencycount .cc-series-choice {
+	min-height: 36px;
 }
 
 @media (max-width: 767px) {
@@ -279,6 +463,36 @@ body:has(.concurrencycount) #page_body {
 
 	.concurrencycount .cc-occurrence-toggle {
 		align-items: flex-start;
+	}
+
+	.concurrencycount .cc-monitor-health {
+		align-items: flex-start;
+		flex-wrap: wrap;
+	}
+
+	.concurrencycount .cc-monitor-health #cc-monitor-status {
+		width: 100%;
+	}
+
+	.concurrencycount .cc-workspace-tabs,
+	.concurrencycount .cc-section-heading,
+	.concurrencycount .cc-live-actions {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.concurrencycount .cc-workspace-tab,
+	.concurrencycount .cc-live-actions .form-control,
+	.concurrencycount .cc-live-actions .btn {
+		width: 100%;
+	}
+
+	.concurrencycount .cc-live-overall {
+		grid-template-columns: 1fr;
+	}
+
+	.concurrencycount .cc-live-trunk-grid {
+		grid-template-columns: 1fr;
 	}
 
 	.concurrencycount .dl-horizontal dt,

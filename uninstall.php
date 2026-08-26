@@ -1,2 +1,7 @@
 <?php
-// Concurrency Count uninstall hook. No database changes required in v1.
+
+if (!defined('FREEPBX_IS_AUTH')) {
+	die('No direct script access allowed');
+}
+
+\FreePBX::Concurrencycount()->uninstall();

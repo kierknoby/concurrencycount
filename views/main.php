@@ -30,6 +30,8 @@ $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
 $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/live-command-centre.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
 ?>
@@ -54,59 +56,90 @@ $_ccAssetVer = max(
 
 			<div class="row">
 				<div class="col-sm-12">
-					<button type="button" id="cc-launch" class="btn btn-primary">
-						<i class="fa fa-play"></i> <?php echo _('Start Concurrency Count'); ?>
-					</button>
-					<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;">
-						<i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?>
-					</button>
-				</div>
-			</div>
+					<div class="cc-workspace-tabs" role="tablist" aria-label="<?php echo _('Concurrency views'); ?>">
+						<button type="button" class="btn btn-primary cc-workspace-tab active" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live Command Centre'); ?></button>
+						<button type="button" class="btn btn-default cc-workspace-tab" id="cc-tab-historical" data-target="historical" role="tab" aria-selected="false"><i class="fa fa-history"></i> <?php echo _('Historical Reports'); ?></button>
+					</div>
 
-			<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
-
-			<div id="cc-results" style="display:none; margin-top:20px;">
-				<h3 id="cc-results-title"></h3>
-				<div class="row">
-					<div class="col-sm-12">
-						<dl class="dl-horizontal" id="cc-results-meta"></dl>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-sm-12">
-						<div id="cc-results-body"></div>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-sm-12">
-						<div id="cc-results-warning" class="alert alert-warning"></div>
-					</div>
-				</div>
-				<div class="row">
-					<div class="col-sm-12">
-						<button type="button" id="cc-download" class="btn btn-default">
-							<i class="fa fa-download"></i> <?php echo _('Download CSV'); ?>
-						</button>
-						<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;">
-							<i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?>
-						</button>
-						<button type="button" id="cc-email-toggle" class="btn btn-default">
-							<i class="fa fa-envelope"></i> <?php echo _('Email report'); ?>
-						</button>
-					</div>
-				</div>
-				<div id="cc-email-row" class="row" style="display:none; margin-top:12px;">
-					<div class="col-sm-6">
-						<div class="input-group">
-							<input type="email" id="cc-email" class="form-control" placeholder="<?php echo _('recipient@example.com'); ?>">
-							<span class="input-group-btn">
-								<button type="button" id="cc-email-send" class="btn btn-primary"><?php echo _('Send'); ?></button>
-							</span>
+					<section id="cc-live-section" class="cc-workspace" role="tabpanel" aria-labelledby="cc-tab-live">
+						<div class="cc-section-heading">
+							<div><span class="cc-section-kicker"><?php echo _('LIVE'); ?></span><h2><?php echo _('Current Asterisk state'); ?></h2></div>
+							<div class="cc-live-actions">
+								<label for="cc-live-refresh"><?php echo _('Refresh'); ?></label>
+								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
+									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
+								</select>
+								<button type="button" id="cc-live-settings" class="btn btn-default"><i class="fa fa-cog"></i> <?php echo _('Thresholds & alerts'); ?></button>
+							</div>
 						</div>
-					</div>
-				</div>
-			</div>
+						<p class="text-muted"><?php echo _('Live values come directly from current AMI channel state. Browser refresh does not control background alert monitoring.'); ?></p>
+						<div id="cc-live-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
+						<div id="cc-live-content" style="display:none;">
+							<div class="cc-live-overall cc-status-panel" data-status="normal">
+								<div class="cc-live-metric-copy">
+									<span class="cc-section-kicker"><?php echo _('OVERALL EXTENSION CONCURRENCY'); ?></span>
+									<button type="button" id="cc-live-overall-value" class="cc-live-value" aria-controls="cc-live-call-detail">0</button>
+									<span><?php echo _('numeric PJSIP extension channels active now'); ?></span>
+									<div class="cc-live-meta"><span id="cc-live-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-live-overall-peak"><?php echo _('Recent peak 0'); ?></span><span id="cc-live-overall-status"><?php echo _('Normal'); ?></span></div>
+								</div>
+								<canvas id="cc-live-overall-chart" class="cc-live-chart" height="150"></canvas>
+							</div>
+							<div class="cc-live-updated"><strong><?php echo _('Last successful update:'); ?></strong> <time id="cc-live-updated-time">--</time></div>
+							<h3><?php echo _('Live trunk activity'); ?></h3>
+							<div id="cc-live-trunks" class="cc-live-trunk-grid"></div>
+							<section id="cc-live-call-detail" class="cc-live-call-detail" style="display:none;" aria-live="polite"></section>
+						</div>
+					</section>
 
+					<section id="cc-historical-section" class="cc-workspace" role="tabpanel" aria-labelledby="cc-tab-historical" style="display:none;">
+						<div class="cc-section-heading"><div><span class="cc-section-kicker"><?php echo _('HISTORICAL'); ?></span><h2><?php echo _('Reconstructed from CDR records'); ?></h2></div></div>
+						<div class="row"><div class="col-sm-12">
+							<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
+							<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+						</div></div>
+						<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
+						<div id="cc-results" style="display:none; margin-top:20px;">
+							<h3 id="cc-results-title"></h3>
+							<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
+							<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical concurrency'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+							<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
+							<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
+							<div class="row"><div class="col-sm-12">
+								<button type="button" id="cc-download" class="btn btn-default"><i class="fa fa-download"></i> <?php echo _('Download CSV'); ?></button>
+								<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;"><i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?></button>
+								<button type="button" id="cc-email-toggle" class="btn btn-default"><i class="fa fa-envelope"></i> <?php echo _('Email report'); ?></button>
+							</div></div>
+							<div id="cc-email-row" class="row" style="display:none; margin-top:12px;"><div class="col-sm-6"><div class="input-group"><input type="email" id="cc-email" class="form-control" placeholder="<?php echo _('recipient@example.com'); ?>"><span class="input-group-btn"><button type="button" id="cc-email-send" class="btn btn-primary"><?php echo _('Send'); ?></button></span></div></div></div>
+						</div>
+					</section>
+
+		</div>
+	</div>
+</div>
+
+<div class="modal fade concurrencycount" id="cc-live-settings-modal" tabindex="-1" role="dialog" aria-labelledby="cc-live-settings-title">
+	<div class="modal-dialog modal-lg" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+				<h4 id="cc-live-settings-title" class="modal-title"><?php echo _('Live thresholds and alerts'); ?></h4>
+			</div>
+			<div class="modal-body">
+				<div class="row">
+					<div class="col-sm-4 form-group"><label for="cc-setting-refresh"><?php echo _('Browser refresh interval'); ?></label><select id="cc-setting-refresh" class="form-control"><?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"><?php echo $seconds; ?> <?php echo _('seconds'); ?><?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?></select></div>
+					<div class="col-sm-4 form-group"><label for="cc-setting-email"><?php echo _('Alert email'); ?></label><input type="email" id="cc-setting-email" class="form-control"></div>
+					<div class="col-sm-4"><div class="checkbox"><label><input type="checkbox" id="cc-setting-alerts"> <?php echo _('Enable threshold alerts'); ?></label></div><div class="checkbox"><label><input type="checkbox" id="cc-setting-recovery"> <?php echo _('Send recovery notifications'); ?></label></div></div>
+				</div>
+				<div class="cc-monitor-health">
+					<strong><?php echo _('Unattended alert monitor'); ?>:</strong>
+					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
+					<button type="button" id="cc-monitor-restart" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> <?php echo _('Restart monitor'); ?></button>
+				</div>
+				<p class="help-block"><?php echo _('Thresholds remain visible when alerts are disabled. A value of 0 disables that threshold. The supervised monitor reacts to AMI channel events and reconciles every 5 seconds, independently of browser refresh.'); ?></p>
+				<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th><?php echo _('Scope'); ?></th><th><?php echo _('Threshold enabled'); ?></th><th><?php echo _('Threshold'); ?></th><th><?php echo _('Alert enabled'); ?></th></tr></thead><tbody id="cc-threshold-rows"></tbody></table></div>
+				<div id="cc-settings-error" class="alert alert-danger" style="display:none;"></div>
+			</div>
+			<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-settings-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save settings'); ?></button></div>
 		</div>
 	</div>
 </div>
@@ -282,4 +315,6 @@ $_ccAssetVer = max(
 </div>
 
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/live-command-centre.js?v=<?php echo $_ccAssetVer; ?>"></script>

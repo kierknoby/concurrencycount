@@ -17,7 +17,7 @@ $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');
 contract_assert((string)$module->depends->version === '16.0', 'FreePBX minimum version must be 16.0');
-foreach (['framework', 'core', 'cdr'] as $dependency) {
+foreach (['framework', 'core', 'cdr', 'pm2'] as $dependency) {
 	$found = false;
 	foreach ($module->depends->module as $item) {
 		if (strpos((string)$item, $dependency . ' ge 16.0.0') === 0) $found = true;
@@ -30,7 +30,10 @@ $runtimeFiles = [
 	'Engines/EngineInterface.php', 'Engines/Original.php', 'Engines/Sweep.php',
 	'Engines/Registry.php', 'page.concurrencycount.php', 'views/main.php',
 	'Analyzers/PeakDetailAnalyser.php', 'Resolvers/FreepbxEntityResolver.php',
-	'install.php', 'uninstall.php',
+	'Services/LiveSnapshotService.php', 'Services/ThresholdService.php',
+	'Services/SettingsRepository.php', 'Services/HistoricalGraphService.php',
+	'Services/AlertMonitorCoordinator.php', 'Services/AmiChannelSource.php',
+	'Services/AlertOutboxService.php', 'alert-monitor.php', 'alert-mailer.php', 'install.php', 'uninstall.php',
 ];
 foreach ($runtimeFiles as $file) {
 	$source = file_get_contents($root . '/' . $file);

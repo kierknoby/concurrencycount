@@ -140,6 +140,60 @@ Engines are calculation strategies, not reporting modes. Choosing an engine does
 
 **Sweep** is experimental. It processes start and end events instead of visiting every occupied second, while preserving the same inclusive boundaries and intended result. It can be faster and use less memory, but should be treated as experimental and checked through Demo comparison before operational use.
 
+## Live Command Centre
+
+The Live Command Centre is a separate current-state view backed by Asterisk Manager Interface channel data. It does not derive live values from CDRs and does not store browser samples as historical records.
+
+**Overall Extension Concurrency** counts current numeric `PJSIP/<extension>-<channel-id>` channels only. It excludes trunk endpoints, Local channels and other Asterisk helper/application channel technologies. It answers how much numeric extension-side activity is present now; it is not a total of every PBX or Asterisk channel.
+
+**Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
+
+Live and historical values answer related capacity questions but are not semantically identical. Live sees channels before their calls finish. Historical reports reconstruct answered CDR intervals later. An inbound call may therefore appear as one current trunk channel and one current numeric extension channel, while its eventual CDR contributes according to the historical projection rules. These figures should not be added together.
+
+The browser refresh interval can be 1, 5, 10, 15, 30 or 60 seconds, with 5 seconds as the default. Requests never overlap and pause while the tab is hidden. The 1-second option is labelled aggressive and still requires the live-PBX load validation listed below. Browser refresh does not control unattended alerts.
+
+## Unattended threshold alerts
+
+Alerts are evaluated by one persistent PHP worker supervised by the standard FreePBX Process Management (`pm2`) module. This follows the same PM2 and AMI event-loop pattern used by FreePBX Core on releases 16 and 17.
+
+The worker bootstraps FreePBX once, keeps one AMI connection open, and reacts to `Newchannel`, `Newstate`, `Hangup`, `Rename` and `Masquerade` lifecycle events. Relevant events trigger an immediate full channel reconciliation. A full reconciliation also runs every 5 seconds to protect against missed or reordered events. Every snapshot uses a unique AMI ActionID and is accepted only after its matching `CoreShowChannelsComplete`; incomplete or interrupted responses are unavailable, never an empty PBX. Detection is normally limited by AMI event delivery and otherwise by the approximately 5-second reconciliation interval. It does not launch a new `fwconsole` process every few seconds.
+
+PM2 supervises two workers: the AMI event/reconciliation worker and a separate mail-delivery worker. It starts them at module installation and after Asterisk starts, stops them before Asterisk stops, restarts them after process failure, and provides status/restart operations in both GUI and CLI. Installation removes the obsolete once-per-minute cron line if it exists from an earlier development build. Monitor health is degraded when PM2 is online but no complete successful AMI snapshot has been recorded recently.
+
+Threshold comparison remains `current >= threshold`; zero disables that threshold. Master alert enablement, per-scope alert enablement, visual thresholds and recovery notification preference remain separate settings. Alert state and a stable notification outbox record are persisted atomically before delivery, suppressing duplicates during a sustained crossing and after worker restart while tracking the episode peak. The AMI worker never blocks on SMTP. The mail worker retries failures with bounded exponential backoff.
+
+Email delivery is **at least once**. Stable event IDs prevent duplicate queue records, but SMTP/local-mailer acceptance cannot be made atomic with the module database. A process failure in the narrow interval after mail acceptance but before outbox removal can result in a duplicate delivery; it cannot cause the threshold episode itself to be forgotten.
+
+Version 1 does not add hidden hysteresis: dropping below the threshold completes an episode, and a later `>=` crossing starts a new one. Rapid oscillation can therefore produce one alert/recovery pair per genuine episode, but never repeated alerts while a scope remains continuously above threshold.
+
+AMI loss is never interpreted as zero concurrency. The worker retains persisted alert state, sends no false recovery, reconnects with exponential backoff up to 30 seconds, reseeds from a successful snapshot, and resumes evaluation only after live data is available again.
+
+## GUI and CLI parity
+
+The GUI and `fwconsole concurrencycount` call the same live snapshot, settings, validation, threshold and monitor lifecycle methods. Existing historical CLI syntax remains valid. New operations are additive:
+
+| GUI capability | CLI equivalent |
+| --- | --- |
+| Current live snapshot and active channels | `fwconsole concurrencycount --live` |
+| Machine-readable live snapshot | `fwconsole concurrencycount --live --json` |
+| View settings and thresholds | `fwconsole concurrencycount --settings` |
+| Browser refresh interval | `fwconsole concurrencycount --set-refresh=5` |
+| Overall threshold value | `fwconsole concurrencycount --set-overall-threshold=30` |
+| Overall visual threshold enabled | `fwconsole concurrencycount --overall-threshold=on` |
+| Trunk threshold value | `fwconsole concurrencycount --set-trunk-threshold='gamma=8'` |
+| Trunk visual threshold enabled | `fwconsole concurrencycount --trunk-threshold='gamma=on'` |
+| Master alerts enabled | `fwconsole concurrencycount --alerts=on` |
+| Overall alert enabled | `fwconsole concurrencycount --overall-alert=on` |
+| Per-trunk alert enabled | `fwconsole concurrencycount --trunk-alert='gamma=on'` |
+| Recovery notifications | `fwconsole concurrencycount --recovery=on` |
+| Alert email | `fwconsole concurrencycount --alert-email=admin@example.com` |
+| Alert monitor status | `fwconsole concurrencycount --monitor-status` |
+| Restart alert monitor | `fwconsole concurrencycount --restart-monitor` |
+| One manual threshold evaluation for diagnostics | `fwconsole concurrencycount --monitor` |
+| Historical graph data | `fwconsole concurrencycount --historical-graph=trunk --graph-trunk=gamma --start='...' --end='...' --json` |
+
+Ordinary live CLI queries take one snapshot and exit. They do not poll continuously and do not replace the unattended PM2 monitor.
+
 ## GUI report flow
 
 1. Choose Trunk Concurrency, Extension Concurrency or Overall Extension Concurrency, then choose an engine. Demo runs use the separate **Run Demo** button.
@@ -180,6 +234,22 @@ This version does not use CEL and does not infer a historic IVR/queue/announceme
 - Trunk direction can be **unknown** when the CDR leg placement is ambiguous.
 - CEL is neither required nor used. It may be considered later as optional enrichment, but current reports continue to work from CDR alone.
 - Extension and Group-total modes do not currently provide the peak CDR drill-down available for trunks.
+
+## Required live-PBX validation
+
+Before production use, perform these checks on both FreePBX 16 and 17:
+
+1. Confirm `fwconsole concurrencycount --monitor-status` reports `ONLINE` after install, `fwconsole restart`, Asterisk restart and module upgrade.
+2. With the browser closed, hold an overall or trunk threshold above its boundary for less than one minute, then for less than 30 seconds. Confirm one alert is accepted by the local mailer.
+3. Hold a threshold above for several minutes. Confirm only one initial alert, correct peak tracking and one optional recovery.
+4. Restart the monitor while still above threshold. Confirm persisted state prevents a duplicate initial alert.
+5. Interrupt AMI or restart Asterisk while an alert episode is active. Confirm no false recovery, then confirm normal reconciliation after reconnect.
+6. Exercise multiple trunks, similarly named trunks and simultaneous overall/trunk threshold crossings.
+7. Verify idle, inbound, outbound, mixed inbound/outbound and internal extension calls against `fwconsole concurrencycount --live --json` and the GUI.
+8. Leave the dashboard open for an extended period and verify bounded browser history, stale timestamps, hidden-tab pause and clean resume.
+9. Test 1-second browser polling with idle, light and heavy channel counts, several trunks, one dashboard, and multiple tabs. Observe AJAX/AMI latency, PHP and Asterisk CPU, request overlap and browser responsiveness. Retain it only if operational load is acceptable.
+10. Verify alert email content and local-mailer acceptance; do not treat that as proof of external delivery.
+11. Verify desktop, tablet and approximately 320px layouts.
 
 ## Output
 
@@ -225,10 +295,6 @@ These are intentionally not hidden:
 - Consider wrapping demo insert/query/cleanup in a transaction if it proves safe with the deployed CDR engine and FreePBX environment.
 - Add integration tests on real FreePBX 16 and 17 systems for email delivery, CDR schema variation, and module-page permissions.
 
-## AI disclosure
-
-This module has been developed with AI assistance for code generation, review, testing, and documentation. Changes should still be reviewed, tested, and accepted by a human maintainer before deployment.
-
 ## Tests
 
 The engine parity harness can be run without a FreePBX install:
@@ -257,6 +323,18 @@ The standalone CLI tool (`concurrency-count` via IN1CLICK) remains the recommend
 
 GPLv3+. See LICENSE.
 
+## AI-Assisted Contributions and Disclosure
+
+This module has been developed with AI assistance for code generation, review, testing, and documentation. From 26 August 2026, generative AI assistance must be disclosed in every commit containing AI-assisted changes:
+
+```text
+Assisted-by: AGENT_NAME:MODEL_VERSION
+```
+
+For example: `Assisted-by: GitHub-Copilot:gpt-5.6-sol`
+
+The human contributor remains solely responsible for the contribution. AI tools must not be listed as co-authors.
+
 ## Author
 
-@kierknoby, Kieran Byrne // FreePBX UK
+[@kierknoby](https://github.com/kierknoby), Kieran Knowles-Byrne // [FreePBX UK](https://github.com/freepbxUK)

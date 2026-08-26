@@ -18,6 +18,13 @@ require_once __DIR__ . '/Engines/Sweep.php';
 require_once __DIR__ . '/Engines/Registry.php';
 require_once __DIR__ . '/Analyzers/PeakDetailAnalyser.php';
 require_once __DIR__ . '/Resolvers/FreepbxEntityResolver.php';
+require_once __DIR__ . '/Services/LiveSnapshotService.php';
+require_once __DIR__ . '/Services/ThresholdService.php';
+require_once __DIR__ . '/Services/SettingsRepository.php';
+require_once __DIR__ . '/Services/HistoricalGraphService.php';
+require_once __DIR__ . '/Services/AlertMonitorCoordinator.php';
+require_once __DIR__ . '/Services/AmiChannelSource.php';
+require_once __DIR__ . '/Services/AlertOutboxService.php';
 
 class Concurrencycount implements \BMO {
 
@@ -25,12 +32,20 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'download', 'previewfixture', 'email', 'gettrunks'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
+	const SETTINGS_KEY = 'live_settings';
+	const ALERT_STATE_KEY = 'alert_state';
+	const ALERT_OUTBOX_KEY = 'alert_outbox';
+	const MONITOR_HEARTBEAT_KEY = 'monitor_heartbeat';
+	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
+	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
+	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
 
 	private $FreePBX;
 	private $cdrdb;
 	private $cdrColumnsCache = null;
+	private $settingsRepository = null;
 
 	public function __construct($freepbx = null) {
 		if ($freepbx === null) {
@@ -41,11 +56,118 @@ class Concurrencycount implements \BMO {
 		$this->ensureCsrfToken();
 	}
 
-	public function install(): void {}
-	public function uninstall(): void {}
+	public function install(): void {
+		$this->getSettingsRepository()->install();
+		try {
+			\FreePBX::Cron()->removeLine(self::LEGACY_MONITOR_CRON_LINE);
+		} catch (\Throwable $exception) {
+			$this->logWarning('Unable to remove legacy threshold monitor cron: ' . $exception->getMessage());
+		}
+		$this->startAlertMonitor();
+	}
+	public function uninstall(): void {
+		$this->stopAlertMonitor(true);
+		try {
+			\FreePBX::Cron()->removeLine(self::LEGACY_MONITOR_CRON_LINE);
+		} catch (\Throwable $exception) {
+			$this->logWarning('Unable to remove legacy threshold monitor cron: ' . $exception->getMessage());
+		}
+		$this->getSettingsRepository()->uninstall();
+	}
 	public function backup(): void {}
 	public function restore($backup): void {}
 	public function doConfigPageInit($page): void {}
+
+	public function startFreepbx($output = null): void {
+		$this->startAlertMonitor();
+	}
+
+	public function stopFreepbx($output = null): void {
+		$this->stopAlertMonitor(false);
+	}
+
+	public function startAlertMonitor(): array {
+		try {
+			if (!$this->FreePBX->Modules->checkStatus('pm2')) {
+				return ['available' => false, 'status' => 'unavailable', 'message' => _('FreePBX Process Management (PM2) is unavailable.')];
+			}
+			$pm2 = $this->FreePBX->Pm2;
+			foreach ([self::MONITOR_PROCESS_NAME => __DIR__ . '/alert-monitor.php', self::MAIL_PROCESS_NAME => __DIR__ . '/alert-mailer.php'] as $name => $script) {
+				$current = $pm2->getStatus($name);
+				if (!empty($current) && isset($current['pm2_env']['status']) && $current['pm2_env']['status'] === 'online') continue;
+				$pm2->start($name, $script, [], true);
+				$pm2->reset($name);
+			}
+			return $this->getAlertMonitorStatus();
+		} catch (\Throwable $exception) {
+			$this->logWarning('Unable to start threshold alert monitor: ' . $exception->getMessage());
+			return ['available' => false, 'status' => 'failed', 'message' => $exception->getMessage()];
+		}
+	}
+
+	public function stopAlertMonitor(bool $delete = false): array {
+		try {
+			if (!$this->FreePBX->Modules->checkStatus('pm2')) {
+				return ['available' => false, 'status' => 'unavailable'];
+			}
+			$pm2 = $this->FreePBX->Pm2;
+			foreach ([self::MONITOR_PROCESS_NAME, self::MAIL_PROCESS_NAME] as $name) {
+				$current = $pm2->getStatus($name);
+				if (empty($current)) continue;
+				if ($delete) $pm2->delete($name);
+				else $pm2->stop($name);
+			}
+			return ['available' => true, 'status' => $delete ? 'deleted' : 'stopped'];
+		} catch (\Throwable $exception) {
+			$this->logWarning('Unable to stop threshold alert monitor: ' . $exception->getMessage());
+			return ['available' => false, 'status' => 'failed', 'message' => $exception->getMessage()];
+		}
+	}
+
+	public function restartAlertMonitor(): array {
+		$this->stopAlertMonitor(true);
+		return $this->startAlertMonitor();
+	}
+
+	public function getAlertMonitorStatus(): array {
+		try {
+			if (!$this->FreePBX->Modules->checkStatus('pm2')) {
+				return ['available' => false, 'status' => 'unavailable', 'message' => _('FreePBX Process Management (PM2) is unavailable.')];
+			}
+			$current = $this->FreePBX->Pm2->getStatus(self::MONITOR_PROCESS_NAME);
+			if (empty($current)) return ['available' => true, 'status' => 'stopped', 'pid' => 0];
+			$mailer = $this->FreePBX->Pm2->getStatus(self::MAIL_PROCESS_NAME);
+			$heartbeat = $this->getSettingsRepository()->get(self::MONITOR_HEARTBEAT_KEY, []);
+			$lastSuccess = is_array($heartbeat) && isset($heartbeat['last_successful_snapshot_at']) ? (int)$heartbeat['last_successful_snapshot_at'] : 0;
+			$pm2Status = isset($current['pm2_env']['status']) ? (string)$current['pm2_env']['status'] : 'unknown';
+			$mailerStatus = !empty($mailer) && isset($mailer['pm2_env']['status']) ? (string)$mailer['pm2_env']['status'] : 'stopped';
+			$status = $pm2Status;
+			if ($pm2Status === 'online' && (($lastSuccess === 0 || time() - $lastSuccess > 15) || $mailerStatus !== 'online')) $status = 'degraded';
+			return [
+				'available' => true,
+				'status' => $status,
+				'pm2_status' => $pm2Status,
+				'mailer_status' => $mailerStatus,
+				'pid' => isset($current['pid']) ? (int)$current['pid'] : 0,
+				'restarts' => isset($current['pm2_env']['restart_time']) ? (int)$current['pm2_env']['restart_time'] : 0,
+				'last_loop_at' => is_array($heartbeat) && isset($heartbeat['last_loop_at']) ? (int)$heartbeat['last_loop_at'] : 0,
+				'last_successful_snapshot_at' => $lastSuccess,
+				'ami_status' => is_array($heartbeat) && isset($heartbeat['ami_status']) ? (string)$heartbeat['ami_status'] : 'unknown',
+				'last_error' => is_array($heartbeat) && isset($heartbeat['last_error']) ? (string)$heartbeat['last_error'] : '',
+			];
+		} catch (\Throwable $exception) {
+			return ['available' => false, 'status' => 'failed', 'message' => $exception->getMessage()];
+		}
+	}
+
+	public function recordMonitorHeartbeat(array $heartbeat): void {
+		$this->getSettingsRepository()->set(self::MONITOR_HEARTBEAT_KEY, [
+			'last_loop_at' => isset($heartbeat['last_loop_at']) ? (int)$heartbeat['last_loop_at'] : time(),
+			'last_successful_snapshot_at' => isset($heartbeat['last_successful_snapshot_at']) ? (int)$heartbeat['last_successful_snapshot_at'] : 0,
+			'ami_status' => isset($heartbeat['ami_status']) ? (string)$heartbeat['ami_status'] : 'unknown',
+			'last_error' => isset($heartbeat['last_error']) ? substr((string)$heartbeat['last_error'], 0, 1000) : '',
+		]);
+	}
 
 	/**
 	 * Get the running version of this module. Authoritative source is the
@@ -119,12 +241,236 @@ class Concurrencycount implements \BMO {
 				return $this->handleRun();
 			case 'peakdetails':
 				return $this->handlePeakDetails();
+			case 'livestatus':
+				return ['status' => true, 'snapshot' => $this->getLiveStatus()];
+			case 'getsettings':
+				return ['status' => true, 'settings' => $this->getLiveSettings()];
+			case 'savesettings':
+				return $this->handleSaveSettings();
+			case 'monitorstatus':
+				return ['status' => true, 'monitor' => $this->getAlertMonitorStatus()];
+			case 'restartmonitor':
+				return ['status' => true, 'monitor' => $this->restartAlertMonitor()];
+			case 'historicalgraph':
+				return $this->handleHistoricalGraph();
 			case 'email':
 				return $this->handleEmail();
 			case 'gettrunks':
 				return ['status' => true, 'trunks' => $this->getTrunks()];
 		}
 		return ['status' => false, 'message' => _('Unknown command')];
+	}
+
+	public function getLiveSettings(): array {
+		$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
+		$stored = $this->getSettingsRepository()->get(self::SETTINGS_KEY, $service->defaults());
+		return $service->reconcileStored(is_array($stored) ? $stored : [], $this->getConfiguredLiveTrunks());
+	}
+
+	public function saveLiveSettings(array $settings): array {
+		$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
+		$normalised = $service->normalise($settings, $this->getConfiguredLiveTrunks());
+		$this->getSettingsRepository()->set(self::SETTINGS_KEY, $normalised);
+		return $normalised;
+	}
+
+	public function getLiveStatus(): array {
+		$service = new \FreePBX\modules\Concurrencycount\Services\LiveSnapshotService();
+		try {
+			global $astman;
+			$source = new \FreePBX\modules\Concurrencycount\Services\AmiChannelSource();
+			$sourceResult = $source->snapshot($astman, 3);
+			if (empty($sourceResult['available'])) return $service->unavailable(isset($sourceResult['message']) ? (string)$sourceResult['message'] : _('Asterisk did not return a complete live channel snapshot.'));
+			$settings = $this->getLiveSettings();
+			$snapshot = $service->analyse($sourceResult['channels'], $this->getConfiguredLiveTrunks(), $settings);
+			return $this->enrichLiveSnapshot($snapshot);
+		} catch (\Throwable $exception) {
+			$this->logWarning('Live AMI snapshot failed: ' . $exception->getMessage());
+			return $service->unavailable(_('Unable to read current Asterisk channel state.'));
+		}
+	}
+
+	public function getConfiguredLiveTrunks(): array {
+		$trunks = [];
+		try {
+			foreach ($this->FreePBX->Core->listTrunks() as $trunk) {
+				$tech = strtolower((string)(isset($trunk['tech']) ? $trunk['tech'] : ''));
+				$endpoint = trim((string)(isset($trunk['channelid']) ? $trunk['channelid'] : ''));
+				if ($tech !== 'pjsip' || $endpoint === '' || preg_match('/^[0-9]+$/', $endpoint)) continue;
+				$trunks[$endpoint] = true;
+			}
+		} catch (\Throwable $exception) {
+			$this->logWarning('Configured PJSIP trunk discovery failed: ' . $exception->getMessage());
+		}
+		$names = array_keys($trunks);
+		sort($names);
+		return $names;
+	}
+
+	private function getSettingsRepository(): \FreePBX\modules\Concurrencycount\Services\SettingsRepository {
+		if ($this->settingsRepository === null) {
+			$this->settingsRepository = new \FreePBX\modules\Concurrencycount\Services\SettingsRepository($this->FreePBX->Database);
+		}
+		return $this->settingsRepository;
+	}
+
+	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = ''): array {
+		$mode = $this->normaliseMode($mode);
+		if (!in_array($mode, ['trunk', 'group'], true)) {
+			throw new \InvalidArgumentException(_('Historical graphs support Trunk Concurrency and Overall Extension Concurrency.'));
+		}
+		$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
+		$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalGraphService();
+		if ($mode === 'trunk') {
+			$trunks = $this->getTrunks();
+			if ($trunk !== '') {
+				if (!in_array($trunk, $trunks, true)) throw new \InvalidArgumentException(_('Invalid trunk selected for historical graph.'));
+				$trunks = [$trunk];
+			}
+			$rows = $this->filterTrunkRows($this->fetchTrunkRows($trunks, $range['start'], $range['end']), $trunks);
+			$graph = $service->trunkSeries($rows, $trunks, $range['start'], $range['end']);
+		} else {
+			$stmt = $this->cdrdb->prepare("SELECT calldate, duration, channel, dstchannel FROM cdr
+				WHERE disposition = 'ANSWERED' AND calldate BETWEEN :start AND :end
+				AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')");
+			$stmt->execute([':start' => $range['start'], ':end' => $range['end']]);
+			$graph = $service->overallSeries($stmt->fetchAll(\PDO::FETCH_ASSOC), $range['start'], $range['end']);
+		}
+		$settings = $this->getLiveSettings();
+		$graph['start'] = $range['start'];
+		$graph['end'] = $range['end'];
+		$graph['thresholds'] = $mode === 'trunk' ? $settings['trunks'] : ['overall' => $settings['overall']];
+		return $graph;
+	}
+
+	public function runThresholdMonitor(): array {
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_alert_monitor', 0)")->fetchColumn();
+		if ((int)$lock !== 1) return ['available' => false, 'checked_at' => date('Y-m-d H:i:s'), 'events' => [], 'errors' => [], 'skipped' => 'monitor_busy'];
+		try {
+			$settings = $this->getLiveSettings();
+			$snapshot = $this->getLiveStatus();
+			$result = ['available' => $snapshot['available'], 'checked_at' => $snapshot['generated_at'], 'events' => [], 'errors' => []];
+			if (!$snapshot['available']) {
+				$result['errors'][] = isset($snapshot['message']) ? $snapshot['message'] : _('Live status unavailable.');
+				return $result;
+			}
+			$repository = $this->getSettingsRepository();
+			$states = $repository->get(self::ALERT_STATE_KEY, []);
+			if (!is_array($states)) $states = [];
+			$outbox = $repository->get(self::ALERT_OUTBOX_KEY, []);
+			if (!is_array($outbox)) $outbox = [];
+			$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
+			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
+			$scopes = ['overall' => ['value' => (int)$snapshot['overall']['current'], 'config' => $settings['overall'], 'split' => []]];
+			foreach ($snapshot['trunks'] as $trunk => $trunkResult) {
+				$scopes['trunk:' . $trunk] = [
+					'value' => (int)$trunkResult['current'],
+					'config' => isset($settings['trunks'][$trunk]) ? $settings['trunks'][$trunk] : [],
+					'split' => isset($trunkResult['direction_counts']) ? $trunkResult['direction_counts'] : [],
+				];
+			}
+			$now = time();
+			foreach ($scopes as $scope => $scopeData) {
+				$prior = isset($states[$scope]) && is_array($states[$scope]) ? $states[$scope] : [];
+				$transition = $service->evaluate($scope, $scopeData['value'], $scopeData['config'], $prior, $settings['alerts_enabled'], $settings['recovery_enabled'], $now);
+				if ($transition['event'] !== null) {
+					$event = $transition['event'];
+					$event['direction_counts'] = $scopeData['split'];
+					$outbox = $outboxService->queue($outbox, $event, $now);
+					$result['events'][] = $event;
+				}
+				$states[$scope] = $transition['state'];
+			}
+			$repository->transaction(function ($repository) use ($states, $outbox): void {
+				$repository->set(self::ALERT_STATE_KEY, $states);
+				$repository->set(self::ALERT_OUTBOX_KEY, $outbox);
+			});
+			return $result;
+		} finally {
+			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_alert_monitor')");
+		}
+	}
+
+	public function processAlertOutbox(): array {
+		$repository = $this->getSettingsRepository();
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_alert_monitor', 0)")->fetchColumn();
+		if ((int)$lock !== 1) return ['processed' => false, 'status' => 'busy'];
+		$ready = null;
+		try {
+			$outbox = $repository->get(self::ALERT_OUTBOX_KEY, []);
+			if (!is_array($outbox) || empty($outbox)) return ['processed' => false, 'status' => 'empty'];
+			$now = time();
+			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
+			$ready = $outboxService->nextReady($outbox, $now);
+			if ($ready === null) return ['processed' => false, 'status' => 'waiting'];
+			$outbox[$ready['event_id']]['delivery_status'] = 'delivering';
+			$outbox[$ready['event_id']]['next_attempt_at'] = $now + 60;
+			$repository->set(self::ALERT_OUTBOX_KEY, $outbox);
+		} finally {
+			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_alert_monitor')");
+		}
+
+		$settings = $this->getLiveSettings();
+		$mail = $this->sendThresholdEvent($ready['event'], $settings['alert_email']);
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_alert_monitor', 5)")->fetchColumn();
+		if ((int)$lock !== 1) return ['processed' => true, 'status' => 'retry', 'event_id' => $ready['event_id'], 'message' => _('Unable to record alert delivery result; the leased event will be retried.')];
+		try {
+			$outbox = $repository->get(self::ALERT_OUTBOX_KEY, []);
+			if (!is_array($outbox)) $outbox = [];
+			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
+			$outbox = $outboxService->applyDelivery($outbox, $ready['event_id'], $mail['ok'], $mail['message'], time());
+			$repository->set(self::ALERT_OUTBOX_KEY, $outbox);
+			return ['processed' => true, 'status' => $mail['ok'] ? 'accepted' : 'retry', 'event_id' => $ready['event_id'], 'message' => $mail['message']];
+		} finally {
+			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_alert_monitor')");
+		}
+	}
+
+	private function handleSaveSettings(): array {
+		try {
+			$json = isset($_REQUEST['settings']) ? (string)$_REQUEST['settings'] : '';
+			$decoded = json_decode($json, true);
+			if (!is_array($decoded)) throw new \InvalidArgumentException(_('Invalid settings payload.'));
+			return ['status' => true, 'settings' => $this->saveLiveSettings($decoded)];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function handleHistoricalGraph(): array {
+		try {
+			return ['status' => true, 'graph' => $this->getHistoricalGraph(
+				isset($_REQUEST['mode']) ? (string)$_REQUEST['mode'] : '',
+				isset($_REQUEST['start_date']) ? (string)$_REQUEST['start_date'] : '',
+				isset($_REQUEST['end_date']) ? (string)$_REQUEST['end_date'] : '',
+				isset($_REQUEST['trunk']) ? trim((string)$_REQUEST['trunk']) : ''
+			)];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function enrichLiveSnapshot(array $snapshot): array {
+		foreach ($snapshot['overall']['calls'] as &$call) {
+			$call['extension_entity'] = !empty($call['extension']) ? $this->resolveFreepbxDestination('from-did-direct,' . $call['extension'] . ',1') : null;
+		}
+		unset($call);
+		foreach ($snapshot['trunks'] as $trunk => &$trunkResult) {
+			$trunkResult['entity'] = $this->buildTrunkEntity($trunk);
+			foreach ($trunkResult['calls'] as &$call) $call['trunk_entity'] = $trunkResult['entity'];
+			unset($call);
+		}
+		unset($trunkResult);
+		return $snapshot;
+	}
+
+	private function sendThresholdEvent(array $event, string $to): array {
+		if ($to === '' || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+			return ['ok' => false, 'message' => _('Threshold alert email is not configured.')];
+		}
+		$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
+		$message = $service->buildNotification($event, $this->getSystemIdentifier());
+		return $this->sendMail($to, $message['subject'], $message['body'], '', '');
 	}
 
 	/* ============================================================
@@ -2055,7 +2401,7 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
-	private function sendMail(string $to, string $subject, string $body, string $attachFilename, string $attachContent): array {
+	private function sendMail(string $to, string $subject, string $body, string $attachFilename = '', string $attachContent = ''): array {
 		$tempPath = '';
 		try {
 			if (!class_exists('\\CI_Email')) {
@@ -2083,16 +2429,18 @@ class Concurrencycount implements \BMO {
 			$email->set_mailtype('text');
 			$email->message($body);
 
-			$tempPath = tempnam(sys_get_temp_dir(), 'cc-');
-			if ($tempPath === false) {
-				throw new \Exception(_('Unable to create a temporary CSV attachment.'));
+			if ($attachFilename !== '') {
+				$tempPath = tempnam(sys_get_temp_dir(), 'cc-');
+				if ($tempPath === false) {
+					throw new \Exception(_('Unable to create a temporary CSV attachment.'));
+				}
+				$attachmentPath = $tempPath . '-' . basename($attachFilename);
+				if (!rename($tempPath, $attachmentPath) || file_put_contents($attachmentPath, $attachContent) === false) {
+					throw new \Exception(_('Unable to prepare the CSV attachment.'));
+				}
+				$tempPath = $attachmentPath;
+				$email->attach($attachmentPath, 'attachment');
 			}
-			$attachmentPath = $tempPath . '-' . basename($attachFilename);
-			if (!rename($tempPath, $attachmentPath) || file_put_contents($attachmentPath, $attachContent) === false) {
-				throw new \Exception(_('Unable to prepare the CSV attachment.'));
-			}
-			$tempPath = $attachmentPath;
-			$email->attach($attachmentPath, 'attachment');
 
 			if ($email->send()) {
 				return ['ok' => true, 'message' => ''];

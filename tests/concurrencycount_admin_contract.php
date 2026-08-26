@@ -9,6 +9,13 @@ $class = file_get_contents($root . '/Concurrencycount.class.php');
 $view = file_get_contents($root . '/views/main.php');
 $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
+$liveJavascript = file_get_contents($root . '/assets/js/live-command-centre.js');
+$chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
+$monitor = file_get_contents($root . '/alert-monitor.php');
+$mailer = file_get_contents($root . '/alert-mailer.php');
+$amiSource = file_get_contents($root . '/Services/AmiChannelSource.php');
+$install = file_get_contents($root . '/install.php');
+$uninstall = file_get_contents($root . '/uninstall.php');
 $readme = file_get_contents($root . '/README.md');
 $registry = file_get_contents($root . '/Engines/Registry.php');
 $module = simplexml_load_file($root . '/module.xml');
@@ -18,7 +25,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'download', 'previewfixture', 'email', 'gettrunks'] as $command) {
+foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -86,6 +93,48 @@ foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak overa
 }
 admin_contract_assert(strpos($javascript, 'config.php?display=') === false, 'Frontend must not construct FreePBX administrative URLs');
 admin_contract_assert(strpos($class, "'need_html' => 'true'") !== false, 'Native CDR report action must submit an HTML search');
+foreach (['ActionID', 'CoreShowChannelsComplete', 'ListItems', 'Asterisk channel snapshot did not complete'] as $snapshotContract) {
+	admin_contract_assert(strpos($amiSource, $snapshotContract) !== false, 'Complete AMI snapshot contract missing: ' . $snapshotContract);
+}
+foreach (['CoreShowChannels', 'send_request', 'add_event_handler'] as $rawAmiPrimitive) {
+	admin_contract_assert(strpos($liveJavascript, $rawAmiPrimitive) === false, 'Browser must not provide raw AMI primitive: ' . $rawAmiPrimitive);
+}
+admin_contract_assert(strpos($class, 'getConfiguredLiveTrunks') !== false && strpos($class, 'listTrunks()') !== false, 'Live trunk discovery must use Core configuration');
+foreach (['getLiveStatus', 'getLiveSettings', 'saveLiveSettings', 'getHistoricalGraph', 'runThresholdMonitor'] as $sharedMethod) {
+	admin_contract_assert(strpos($class, 'function ' . $sharedMethod) !== false, 'Shared backend capability missing: ' . $sharedMethod);
+}
+admin_contract_assert(strpos($class, 'LEGACY_MONITOR_CRON_LINE') !== false && strpos($class, 'removeLine(self::LEGACY_MONITOR_CRON_LINE)') !== false, 'Legacy minute monitor cron is not removed on upgrade');
+admin_contract_assert(strpos($class, 'addLine(self::LEGACY_MONITOR_CRON_LINE)') === false, 'Minute monitor cron must not be registered');
+foreach (['startAlertMonitor', 'stopAlertMonitor', 'restartAlertMonitor', 'getAlertMonitorStatus'] as $monitorMethod) {
+	admin_contract_assert(strpos($class, 'function ' . $monitorMethod) !== false, 'PM2 monitor lifecycle method missing: ' . $monitorMethod);
+}
+foreach (['Newchannel', 'Newstate', 'Hangup', 'Rename', 'Masquerade', 'wait_response(true, true)', 'stream_set_timeout($astman->socket, 5)', 'min(30, $reconnectDelay * 2)'] as $workerContract) {
+	admin_contract_assert(strpos($monitor, $workerContract) !== false, 'Event monitor contract missing: ' . $workerContract);
+}
+admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_alert_monitor', 0)") !== false, 'Monitor evaluation lock missing');
+admin_contract_assert(strpos($class, 'ALERT_OUTBOX_KEY') !== false && strpos($class, '->transaction(') !== false, 'Atomic alert state/outbox persistence missing');
+admin_contract_assert(strpos($class, 'MAIL_PROCESS_NAME') !== false && strpos($class, "__DIR__ . '/alert-mailer.php'") !== false, 'Separate supervised mail worker missing');
+admin_contract_assert(strpos($mailer, 'processAlertOutbox()') !== false && strpos($mailer, "['skip_astman']") !== false, 'Mail worker must drain outbox without AMI');
+foreach (['MONITOR_HEARTBEAT_KEY', 'last_successful_snapshot_at', 'ami_status', "status = 'degraded'"] as $heartbeatContract) {
+	admin_contract_assert(strpos($class, $heartbeatContract) !== false, 'Monitor heartbeat contract missing: ' . $heartbeatContract);
+}
+admin_contract_assert(strpos($install, '->install()') !== false && strpos($uninstall, '->uninstall()') !== false, 'Procedural lifecycle does not delegate persistence/worker setup');
+foreach (['LIVE', 'Current Asterisk state', 'HISTORICAL', 'Reconstructed from CDR records'] as $sourceLabel) {
+	admin_contract_assert(strpos($view, $sourceLabel) !== false, 'Live/historical source label missing: ' . $sourceLabel);
+}
+foreach (['1, 5, 10, 15, 30, 60', 'Enable threshold alerts', 'Send recovery notifications', 'cc-threshold-rows'] as $settingControl) {
+	admin_contract_assert(strpos($view, $settingControl) !== false, 'Live setting control missing: ' . $settingControl);
+}
+foreach (['Unattended alert monitor', 'Restart monitor', 'reconciles every 5 seconds'] as $monitorControl) {
+	admin_contract_assert(strpos($view, $monitorControl) !== false, 'Monitor health control missing: ' . $monitorControl);
+}
+admin_contract_assert(strpos($liveJavascript, "command: 'monitorstatus'") !== false && strpos($liveJavascript, "command: 'restartmonitor'") !== false, 'GUI monitor status/restart parity missing');
+foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length > 900', "command: 'livestatus'", "command: 'savesettings'", "command: 'historicalgraph'"] as $pollingContract) {
+	admin_contract_assert(strpos($liveJavascript, $pollingContract) !== false, 'Safe live polling contract missing: ' . $pollingContract);
+}
+admin_contract_assert(strpos($liveJavascript, "trigger('click')") !== false && strpos($liveJavascript, 'cc-occurrence-section') !== false, 'Historical graph does not reuse occurrence drill-down');
+admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && strpos($chartJavascript, 'onSelect') !== false, 'Chart threshold/interaction support missing');
+admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
 admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
