@@ -298,6 +298,80 @@ body:has(.concurrencycount) #page_body {
 	margin-bottom: 12px;
 }
 
+.concurrencycount .cc-report-tab-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin: 12px 0;
+}
+
+.concurrencycount .cc-report-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	flex: 1 1 auto;
+}
+
+.concurrencycount .cc-report-tab {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	border: 1px solid #d8dde3;
+	border-radius: 4px;
+	background: #f5f7f9;
+	overflow: hidden;
+}
+
+.concurrencycount .cc-report-tab.active {
+	background: #f0f6fb;
+	border-color: #1f5f88;
+}
+
+.concurrencycount .cc-report-tab-select {
+	border: 0;
+	background: transparent;
+	padding: 6px 10px;
+	min-height: 36px;
+	font-weight: 600;
+	color: #33414d;
+}
+
+.concurrencycount .cc-report-tab.active .cc-report-tab-select {
+	color: #1f5f88;
+}
+
+.concurrencycount .cc-report-tab-select:focus,
+.concurrencycount .cc-report-tab-close:focus {
+	outline: 3px solid #66afe9;
+	outline-offset: -2px;
+}
+
+.concurrencycount .cc-report-tab-close {
+	border: 0;
+	background: transparent;
+	color: #8a97a3;
+	padding: 6px 8px;
+	min-height: 36px;
+	min-width: 32px;
+}
+
+.concurrencycount .cc-report-tab-close:hover {
+	color: #a94442;
+	background: #f2dede;
+}
+
+@media (max-width: 767px) {
+	.concurrencycount .cc-report-tab-bar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.concurrencycount .cc-report-tabs {
+		flex-direction: column;
+	}
+}
+
 .concurrencycount .cc-section-heading h2,
 .concurrencycount .cc-section-heading h3 {
 	margin: 2px 0 0;

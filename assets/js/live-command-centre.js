@@ -43,7 +43,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP activity (trunk + extension legs)', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
-		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result) { loadHistoricalGraph(result); });
+		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 	}
 
 	function switchWorkspace(target) {
@@ -301,16 +301,22 @@ window._ccLiveLoaded = true;
 		}).fail(function () { $('#cc-settings-error').text('Unable to save settings.').show(); });
 	}
 
-	function loadHistoricalGraph(result) {
+	function loadHistoricalGraph(result, cachedSeries) {
 		historicalResult = result;
 		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message) {
 			$('#cc-historical-graph').hide();
+			return;
+		}
+		if (cachedSeries) {
+			historicalSeries = cachedSeries;
+			renderHistoricalSeries();
 			return;
 		}
 		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end}).done(function (response) {
 			if (!response.status) return;
 			historicalSeries = response.graph;
 			renderHistoricalSeries();
+			$(document).trigger('cc:historical-graph-loaded', [response.graph]);
 		});
 	}
 

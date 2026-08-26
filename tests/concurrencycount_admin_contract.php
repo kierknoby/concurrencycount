@@ -21,6 +21,7 @@ $uninstall = file_get_contents($root . '/uninstall.php');
 $readme = file_get_contents($root . '/README.md');
 $registry = file_get_contents($root . '/Engines/Registry.php');
 $liveSnapshotService = file_get_contents($root . '/Services/LiveSnapshotService.php');
+$historicalReportsService = file_get_contents($root . '/Services/HistoricalReportsService.php');
 $module = simplexml_load_file($root . '/module.xml');
 
 function admin_contract_assert($condition, $message) {
@@ -28,7 +29,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks'] as $command) {
+foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -177,4 +178,33 @@ admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($c
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
 admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
+
+/* Persisted historical report tabs */
+admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
+admin_contract_assert(strpos($install, 'install()') !== false && strpos($class, 'CREATE TABLE') === false, 'No new database table should be introduced for historical report tabs');
+foreach (['getHistoricalReports', 'createHistoricalReport', 'updateHistoricalReport', 'closeHistoricalReport', 'setActiveHistoricalReport'] as $method) {
+	admin_contract_assert(strpos($class, 'function ' . $method) !== false, 'Historical report tab GUI/CLI-shared method missing: ' . $method);
+}
+admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_historical_reports'") !== false, 'Historical report tab mutations must be serialised so a double-click cannot exceed the five-report limit');
+admin_contract_assert(strpos($historicalReportsService, 'MAX_REPORTS = 5') !== false, 'Five-report hard limit must be enforced in the backend service, not only the GUI');
+admin_contract_assert(strpos($console, "'list-historical-reports'") !== false && strpos($console, "'show-historical-report'") !== false && strpos($console, "'delete-historical-report'") !== false, 'CLI visibility/management for persisted historical report tabs is missing');
+
+/* Tab strip markup: exactly one of each core container, no duplicated result DOM */
+foreach (['id="cc-report-tabs"', 'id="cc-report-workspace"', 'id="cc-report-landing"', 'id="cc-report-new"'] as $needle) {
+	admin_contract_assert(substr_count($view, $needle) === 1, 'Historical report tab container must appear exactly once: ' . $needle);
+}
+admin_contract_assert(substr_count($view, 'id="cc-results"') === 1 && substr_count($view, 'id="cc-results-body"') === 1, 'Results DOM must remain a single shared surface, not duplicated per report tab (avoids duplicate IDs)');
+admin_contract_assert(strpos($view, 'aria-label="Close ') === false, 'Close button accessible label is generated client-side per report, not hardcoded in markup');
+admin_contract_assert(strpos($javascript, "escapeHtml('Close ' + report.title)") !== false, 'Each report tab close control must expose an accessible "Close Historic Report N" label');
+admin_contract_assert(strpos($javascript, "role=\"tab\"") !== false, 'Report tabs must use tab semantics');
+admin_contract_assert(strpos($javascript, 'runTargetReportId') !== false && strpos($javascript, 'targetReportId') !== false, 'Report results must be attached to the report instance captured at request time, not read live at response time');
+admin_contract_assert(strpos($javascript, 'occurrenceCache') !== false, 'Occurrence drill-down state must be scoped per report instance');
+admin_contract_assert(strpos($javascript, 'runTargetReportId = null;') !== false, 'Demo must not silently attach its result to a persisted report tab');
+
+/* Live Command Centre must remain untouched by this change */
+foreach (['function switchWorkspace', 'function updateOverall', 'function pollLive', 'function startPolling'] as $liveFn) {
+	admin_contract_assert(strpos($liveJavascript, $liveFn) !== false, 'Live Command Centre function must remain present and unchanged: ' . $liveFn);
+}
+admin_contract_assert(strpos($liveJavascript, 'historicalReports') === false, 'Live Command Centre file must not know about the historical report tab model');
+
 echo "Administrative contract passed\n";

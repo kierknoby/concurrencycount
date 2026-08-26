@@ -58,6 +58,13 @@ window._ccLoaded = true;
 		group: 'Group Concurrency'
 	};
 
+	/* ---------- Historical report tab state (client-side model) ---------- */
+	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
+	var activeReportId = null;
+	var wizardTargetReportId = null; // which report the open wizard will run into
+	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
+	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-command-centre.js
+
 	function selectedMode() {
 		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
 	}
@@ -158,6 +165,10 @@ window._ccLoaded = true;
 			return;
 		}
 		$('#cc-demo').modal('hide');
+		// Demo is a synthetic accuracy/perf check, not a persisted report tab
+		// (Option B): it paints the shared results surface transiently and
+		// never reads or writes any report instance's saved state.
+		runTargetReportId = null;
 		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
 			demo_size: demoPlan.size,
@@ -528,9 +539,13 @@ window._ccLoaded = true;
 		var trunk = names[nameIndex];
 		var occurrence = currentResults.peak_occurrences[trunk][occurrenceIndex];
 		var detail = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+		var cacheKey = occurrenceKey(nameIndex, occurrenceIndex);
+		var report = activeReportId ? historicalReports[activeReportId] : null;
 		if (detail.data('loaded')) {
 			detail.toggle();
-			button.attr('aria-expanded', detail.is(':visible') ? 'true' : 'false');
+			var nowExpanded = detail.is(':visible');
+			button.attr('aria-expanded', nowExpanded ? 'true' : 'false');
+			if (report && report.occurrenceCache[cacheKey]) report.occurrenceCache[cacheKey].expanded = nowExpanded;
 			return;
 		}
 		if (detail.data('loading')) return;
@@ -548,6 +563,7 @@ window._ccLoaded = true;
 				return;
 			}
 			detail.data('loaded', true).data('detail', response.detail).html(renderPeakCalls(response.detail));
+			if (report) report.occurrenceCache[cacheKey] = {expanded: true, detail: response.detail};
 		}).fail(function () {
 			detail.html('<div class="alert alert-danger">' + escapeHtml(randomOops()) + '</div>');
 		}).always(function () {
@@ -696,17 +712,214 @@ window._ccLoaded = true;
 		}).join('; ');
 	}
 
+	/* ---------- Historical report tabs ----------
+	 * One shared wizard/results DOM subtree (unchanged) is repainted from
+	 * whichever report instance is active. Report definitions (mode/engine/
+	 * date preset/options) persist server-side; CDR results/graphs/occurrence
+	 * state are cached only in this in-memory model for the current page
+	 * load and are regenerated (not replayed) after a reload.
+	 */
+
+	function occurrenceKey(nameIndex, occurrenceIndex) {
+		return nameIndex + ':' + occurrenceIndex;
+	}
+
+	function reportCount() {
+		return Object.keys(historicalReports).length;
+	}
+
+	function sortedReports() {
+		return Object.keys(historicalReports).map(function (id) { return historicalReports[id]; }).sort(function (a, b) { return a.number - b.number; });
+	}
+
+	function initHistoricalReports() {
+		ajax({command: 'listhistoricalreports'}).done(function (response) {
+			if (!response.status) return;
+			historicalReports = {};
+			(response.reports || []).forEach(function (report) {
+				historicalReports[report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, report);
+			});
+			renderReportTabs();
+			if (!reportCount()) {
+				showReportLanding();
+				return;
+			}
+			showReportWorkspace();
+			var preferred = response.active_id && historicalReports[response.active_id] ? response.active_id : sortedReports()[0].id;
+			activateReportTab(preferred);
+		}).fail(function () {
+			showReportLanding();
+		});
+	}
+
+	function showReportLanding() {
+		$('#cc-report-landing').show();
+		$('#cc-report-workspace').hide();
+	}
+
+	function showReportWorkspace() {
+		$('#cc-report-landing').hide();
+		$('#cc-report-workspace').show();
+	}
+
+	function renderReportTabs() {
+		var reports = sortedReports();
+		var html = reports.map(function (report) {
+			var selected = report.id === activeReportId;
+			return '<div class="cc-report-tab' + (selected ? ' active' : '') + '" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-report-id="' + escapeHtml(report.id) + '">' +
+				'<button type="button" class="cc-report-tab-select" data-report-id="' + escapeHtml(report.id) + '">' + escapeHtml(report.title) + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
+				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.title) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
+				'</div>';
+		}).join('');
+		$('#cc-report-tabs').html(html);
+		$('#cc-report-new').prop('disabled', reportCount() >= 5);
+	}
+
+	function showReportLimitMessage() {
+		$('#cc-report-limit-message').text('Maximum of 5 historical reports can be open at once.').show();
+		setTimeout(function () { $('#cc-report-limit-message').fadeOut(); }, 4000);
+	}
+
+	function createReportTab() {
+		if (reportCount() >= 5) {
+			showReportWorkspace();
+			showReportLimitMessage();
+			return;
+		}
+		var defaultRange = window.CCDateRange.preset('last7', new Date());
+		ajax({
+			command: 'createhistoricalreport', mode: 'trunk', engine: 'original', preset: 'last7',
+			range_from: defaultRange.from, range_to: defaultRange.to,
+			include_time: '', from_time: '00:00', to_time: '23:59'
+		}).done(function (response) {
+			if (!response.status) {
+				showReportWorkspace();
+				showReportLimitMessage();
+				return;
+			}
+			historicalReports[response.report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, response.report);
+			showReportWorkspace();
+			renderReportTabs();
+			activateReportTab(response.report.id, {skipRegenerate: true});
+			newWizard(response.report.id);
+		}).fail(function () {
+			setStatus(randomOops(), 'error');
+		});
+	}
+
+	function closeReportTab(id) {
+		if (!historicalReports[id]) return;
+		var closingActive = id === activeReportId;
+		ajax({command: 'closehistoricalreport', id: id}).always(function () {
+			// Client-side removal proceeds regardless of network result; this
+			// is convenience GUI state, not a destructive record the user
+			// needs a guaranteed round trip to discard.
+		});
+		delete historicalReports[id];
+		if (closingActive) {
+			var remaining = sortedReports();
+			activeReportId = null;
+			if (remaining.length) {
+				activateReportTab(remaining[0].id);
+			} else {
+				$('#cc-status').hide();
+				$('#cc-results').hide();
+				$('#cc-historical-graph').hide();
+				$('#cc-report-empty').hide();
+				renderReportTabs();
+				showReportLanding();
+			}
+		} else {
+			renderReportTabs();
+		}
+	}
+
+	function activateReportTab(id, options) {
+		options = options || {};
+		var report = historicalReports[id];
+		if (!report) return;
+		activeReportId = id;
+		renderReportTabs();
+		ajax({command: 'activatehistoricalreport', id: id});
+		if (report.result) {
+			$('#cc-report-empty').hide();
+			renderResults(report.result);
+			restoreOccurrenceState(report);
+			$(document).trigger('cc:historical-results', [report.result, report.graphSeries]);
+			return;
+		}
+		if (options.skipRegenerate) {
+			$('#cc-status').hide();
+			$('#cc-results').hide();
+			$('#cc-historical-graph').hide();
+			$('#cc-report-empty').show();
+			return;
+		}
+		regenerateReport(report);
+	}
+
+	function regenerateReport(report) {
+		$('#cc-report-empty').hide();
+		$('#cc-report-loading-text').text('Regenerating ' + report.title + '...');
+		$('#cc-report-loading').show();
+		var rangeSource = report.preset === 'custom'
+			? {kind: 'custom', from: report.range_from, to: report.range_to}
+			: window.CCDateRange.preset(report.preset, new Date());
+		var candidate = {
+			kind: rangeSource.kind || report.preset, from: rangeSource.from, to: rangeSource.to,
+			includeTime: !!report.include_time, fromTime: report.from_time || '00:00', toTime: report.to_time || '23:59'
+		};
+		try {
+			var canonical = window.CCDateRange.resolve(candidate, new Date());
+			wizardTargetReportId = report.id;
+			runTargetReportId = report.id;
+			executeRun(report.mode, canonical.start, canonical.end, null, report.engine);
+		} catch (error) {
+			$('#cc-report-loading').hide();
+			setStatus('Unable to regenerate ' + report.title + ': ' + (error.message || 'invalid saved date range.'), 'error');
+		}
+	}
+
+	function persistReportDefinition(id, definition) {
+		if (!historicalReports[id]) return;
+		ajax($.extend({command: 'updatehistoricalreport', id: id}, definition)).done(function (response) {
+			if (response.status && response.report) {
+				historicalReports[id] = $.extend(historicalReports[id], response.report);
+				renderReportTabs();
+			}
+		});
+	}
+
+	function restoreOccurrenceState(report) {
+		Object.keys(report.occurrenceCache || {}).forEach(function (key) {
+			var cached = report.occurrenceCache[key];
+			var parts = key.split(':');
+			var button = $('.cc-occurrence-toggle[data-name-index="' + parts[0] + '"][data-occurrence-index="' + parts[1] + '"]');
+			if (!button.length) return;
+			var detail = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+			if (cached.detail) {
+				detail.data('loaded', true).data('detail', cached.detail).html(renderPeakCalls(cached.detail));
+			}
+			if (cached.expanded) {
+				detail.show();
+				button.attr('aria-expanded', 'true');
+			}
+		});
+	}
+
 	/* ---------- Wizard state machine ---------- */
 
-	function newWizard() {
-		wizardState = {mode: 'trunk', engine: 'original'};
-		$('#cc-engine').val('original');
-		selectMode('trunk');
+	function newWizard(reportId) {
+		wizardTargetReportId = reportId || null;
+		var report = reportId ? historicalReports[reportId] : null;
+		wizardState = {mode: report ? report.mode : 'trunk', engine: report ? report.engine : 'original'};
+		$('#cc-engine').val(report ? report.engine : 'original');
+		selectMode(report ? report.mode : 'trunk');
 		$('#cc-engine-group, #cc-wizard-mode-group').show();
 		$('#cc-results').hide();
 		setStatus('', null);
 		updateModeDescription();
-		applyDatePreset('last7');
+		applyDatePreset(report ? report.preset : 'last7');
 		showWizard();
 	}
 
@@ -820,6 +1033,7 @@ window._ccLoaded = true;
 			var canonical = window.CCDateRange.resolve(guiRange, new Date());
 			wizardState.mode = selectedMode();
 			hideWizard();
+			runTargetReportId = wizardTargetReportId;
 			executeRun(wizardState.mode, canonical.start, canonical.end);
 		} catch (error) {
 			showError(error.message || 'Choose a valid date range.');
@@ -930,8 +1144,9 @@ window._ccLoaded = true;
 		return year + '-' + pad(m) + '-' + pad(d.getDate());
 	}
 
-	function executeRun(mode, start, end, extraParams) {
-		var selectedEngine = $('#cc-engine').val() || 'original';
+	function executeRun(mode, start, end, extraParams, engineOverride) {
+		var targetReportId = runTargetReportId;
+		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
 		if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
@@ -948,21 +1163,52 @@ window._ccLoaded = true;
 		}
 		ajax(params).done(function (resp) {
 			if (resp.overrun_warning) {
-				showOverrunModal(resp, mode, start, end, extraParams);
+				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine);
 				return;
 			}
+			$('#cc-report-loading').hide();
 			if (!resp.status) {
 				setStatus(resp.message || 'Failed to run.', 'error');
 				return;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
-			renderResults(resp.results);
+			applyReportResult(targetReportId, resp.results, selectedEngine);
 		}).fail(function () {
+			$('#cc-report-loading').hide();
 			setStatus(randomOops(), 'error');
 		});
 	}
 
-	function showOverrunModal(resp, mode, start, end, extraParams) {
+	/**
+	 * Attaches a freshly calculated result to the report instance that
+	 * requested it (captured before the AJAX round trip), persists the
+	 * definition that produced it, and only repaints the shared DOM surface
+	 * if that report is still the one visibly active.
+	 */
+	function applyReportResult(targetReportId, results, engineUsed) {
+		if (targetReportId && historicalReports[targetReportId]) {
+			var report = historicalReports[targetReportId];
+			report.result = results;
+			report.hasRun = true;
+			report.occurrenceCache = {};
+			report.graphSeries = null;
+			report.mode = results.mode === 'demo' ? report.mode : results.mode;
+			report.engine = engineUsed;
+			persistReportDefinition(targetReportId, {
+				mode: report.mode, engine: report.engine, preset: report.preset,
+				range_from: report.range_from, range_to: report.range_to,
+				include_time: report.include_time ? '1' : '', from_time: report.from_time, to_time: report.to_time,
+				filter: report.filter || ''
+			});
+		}
+		if (targetReportId === null || targetReportId === activeReportId) {
+			historicalGraphTargetReportId = targetReportId;
+			renderResults(results);
+			$(document).trigger('cc:historical-results', [results, null]);
+		}
+	}
+
+	function showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine) {
 		var est = formatTime(resp.estimated_remaining);
 		var left = formatTime(resp.runtime_remaining);
 		$('#cc-overrun-message').text(
@@ -978,19 +1224,21 @@ window._ccLoaded = true;
 			setStatus('Continuing despite estimated overrun...', 'running');
 			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
 			if (mode !== 'demo') {
-				params.engine = $('#cc-engine').val() || 'original';
+				params.engine = selectedEngine || $('#cc-engine').val() || 'original';
 			}
 			if (extraParams) {
 				$.extend(params, extraParams);
 			}
 			ajax(params).done(function (resp2) {
+				$('#cc-report-loading').hide();
 				if (!resp2.status) {
 					setStatus(resp2.message || 'Failed to run.', 'error');
 					return;
 				}
 				setStatus('Count complete. ' + resp2.results.rows_processed + ' rows processed.', 'success');
-				renderResults(resp2.results);
+				applyReportResult(targetReportId, resp2.results, params.engine || 'original');
 			}).fail(function () {
+				$('#cc-report-loading').hide();
 				setStatus(randomOops(), 'error');
 			});
 		});
@@ -1109,9 +1357,21 @@ window._ccLoaded = true;
 		// .off().on() everywhere so re-running this script (or anything that
 		// re-runs DOM-ready handlers) doesn't double-bind clicks. Lifted from
 		// Frogman's defensive style.
-		$('#cc-launch').off('click').on('click', newWizard);
+		$('#cc-launch').off('click').on('click', createReportTab);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
-		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-demo-launch, #cc-demo-launch-compact').off('click').on('click', showDemoPrompt);
+		$('#cc-report-new').off('click').on('click', createReportTab);
+		$('#cc-report-tabs').off('click', '.cc-report-tab-select').on('click', '.cc-report-tab-select', function () {
+			activateReportTab($(this).data('report-id'));
+		}).off('click', '.cc-report-tab-close').on('click', '.cc-report-tab-close', function (e) {
+			e.stopPropagation();
+			closeReportTab($(this).data('report-id'));
+		});
+		$(document).off('cc:historical-graph-loaded').on('cc:historical-graph-loaded', function (event, series) {
+			if (historicalGraphTargetReportId && historicalReports[historicalGraphTargetReportId]) {
+				historicalReports[historicalGraphTargetReportId].graphSeries = series;
+			}
+		});
 		$('.cc-demo-run-mode').off('click').on('click', function () {
 			runDemo($(this).data('report'));
 		});
@@ -1161,6 +1421,8 @@ window._ccLoaded = true;
 		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
 			openCdrSearch($(this));
 		});
+
+		initHistoricalReports();
 	});
 
 })(window.jQuery);

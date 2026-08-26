@@ -94,23 +94,35 @@ $_ccAssetVer = max(
 
 					<section id="cc-historical-section" class="cc-workspace" role="tabpanel" aria-labelledby="cc-tab-historical" style="display:none;">
 						<div class="cc-section-heading"><div><span class="cc-section-kicker"><?php echo _('HISTORICAL'); ?></span><h2><?php echo _('Reconstructed from CDR records'); ?></h2></div></div>
-						<div class="row"><div class="col-sm-12">
-							<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
-							<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
-						</div></div>
-						<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
-						<div id="cc-results" style="display:none; margin-top:20px;">
-							<h3 id="cc-results-title"></h3>
-							<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
-							<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical concurrency'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
-							<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
-							<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
-							<div class="row"><div class="col-sm-12">
-								<button type="button" id="cc-download" class="btn btn-default"><i class="fa fa-download"></i> <?php echo _('Download CSV'); ?></button>
-								<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;"><i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?></button>
-								<button type="button" id="cc-email-toggle" class="btn btn-default"><i class="fa fa-envelope"></i> <?php echo _('Email report'); ?></button>
-							</div></div>
-							<div id="cc-email-row" class="row" style="display:none; margin-top:12px;"><div class="col-sm-6"><div class="input-group"><input type="email" id="cc-email" class="form-control" placeholder="<?php echo _('recipient@example.com'); ?>"><span class="input-group-btn"><button type="button" id="cc-email-send" class="btn btn-primary"><?php echo _('Send'); ?></button></span></div></div></div>
+						<div id="cc-report-landing" class="row">
+							<div class="col-sm-12">
+								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
+								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+							</div>
+						</div>
+						<div id="cc-report-workspace" style="display:none;">
+							<div class="cc-report-tab-bar">
+								<div id="cc-report-tabs" class="cc-report-tabs" role="tablist" aria-label="<?php echo _('Open historical reports'); ?>"></div>
+								<button type="button" id="cc-report-new" class="btn btn-default btn-sm cc-report-new" title="<?php echo _('Open another historical report'); ?>"><i class="fa fa-plus"></i> <?php echo _('New Historical Report'); ?></button>
+								<button type="button" id="cc-demo-launch-compact" class="btn btn-default btn-sm" title="<?php echo _('Run Demo'); ?>"><i class="fa fa-flask"></i> <?php echo _('Demo'); ?></button>
+							</div>
+							<div id="cc-report-limit-message" class="alert alert-warning" style="display:none;"></div>
+							<div id="cc-report-loading" class="text-muted" style="display:none;"><span class="cc-spinner"></span> <span id="cc-report-loading-text"></span></div>
+							<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
+							<div id="cc-results" style="display:none; margin-top:20px;">
+								<h3 id="cc-results-title"></h3>
+								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical concurrency'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
+								<div class="row"><div class="col-sm-12">
+									<button type="button" id="cc-download" class="btn btn-default"><i class="fa fa-download"></i> <?php echo _('Download CSV'); ?></button>
+									<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;"><i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?></button>
+									<button type="button" id="cc-email-toggle" class="btn btn-default"><i class="fa fa-envelope"></i> <?php echo _('Email report'); ?></button>
+								</div></div>
+								<div id="cc-email-row" class="row" style="display:none; margin-top:12px;"><div class="col-sm-6"><div class="input-group"><input type="email" id="cc-email" class="form-control" placeholder="<?php echo _('recipient@example.com'); ?>"><span class="input-group-btn"><button type="button" id="cc-email-send" class="btn btn-primary"><?php echo _('Send'); ?></button></span></div></div></div>
+							</div>
+							<div id="cc-report-empty" class="text-muted" style="display:none; margin-top:20px;"><?php echo _('This report has no results yet. Use Run report in the wizard to generate it.'); ?></div>
 						</div>
 					</section>
 

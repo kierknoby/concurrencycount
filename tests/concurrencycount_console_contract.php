@@ -33,6 +33,8 @@ $newOptions = [
 	['historical-graph', 'VALUE_REQUIRED'], ['graph-trunk', 'VALUE_REQUIRED'],
 	['json', 'VALUE_NONE'], ['monitor', 'VALUE_NONE'],
 	['monitor-status', 'VALUE_NONE'], ['restart-monitor', 'VALUE_NONE'],
+	['list-historical-reports', 'VALUE_NONE'], ['show-historical-report', 'VALUE_REQUIRED'],
+	['delete-historical-report', 'VALUE_REQUIRED'],
 ];
 foreach ($newOptions as $option) {
 	$needle = "->addOption('" . $option[0] . "', null, InputOption::" . $option[1];

@@ -202,6 +202,9 @@ The GUI and `fwconsole concurrencycount` call the same live snapshot, settings, 
 | Restart alert monitor | `fwconsole concurrencycount --restart-monitor` |
 | One manual threshold evaluation for diagnostics | `fwconsole concurrencycount --monitor` |
 | Historical graph data | `fwconsole concurrencycount --historical-graph=trunk --graph-trunk=gamma --start='...' --end='...' --json` |
+| List persisted historical report tabs | `fwconsole concurrencycount --list-historical-reports` |
+| Show one persisted historical report tab | `fwconsole concurrencycount --show-historical-report=2` |
+| Close/delete one persisted historical report tab | `fwconsole concurrencycount --delete-historical-report=2` |
 
 Ordinary live CLI queries take one snapshot and exit. They do not poll continuously and do not replace the unattended PM2 monitor.
 
@@ -223,7 +226,17 @@ The three reporting questions are presented as native radio choices with concise
 
 If estimated runtime exceeds 3600 seconds, a warning modal asks whether to continue.
 
-## Trunk peak drill-down
+## Historical report tabs
+
+Historical Reports supports up to five open report tabs (Historic Report 1-5) inside the workspace, each with its own mode, engine, date preset/range, Include time setting and generated result. Clicking **Start Historical Report** allocates the lowest free slot number, opens the shared wizard for that new tab, and running the wizard renders into that tab only; other tabs are unaffected. Closing a tab (its `x` button) removes only that report; the freed slot number is reused by the next new report rather than counting upward forever. A sixth attempt shows "Maximum of 5 historical reports can be open at once." and does not replace an existing tab; the limit is enforced both in the GUI and, atomically, in the backend, so a double-click or a direct AJAX call cannot exceed it either.
+
+**Persistence.** Each tab's *definition* - mode, engine, date preset identity, resolved/custom dates, Include time, and any selected trunk/extension filter - is saved in Concurrency Count's existing settings table (the same key/value store used for Live thresholds), not in browser storage, so tabs survive reload, logout and FreePBX navigation. CDR results and graph points are never persisted: reopening the module recreates the tab headers immediately and regenerates each report's data on demand (the previously active tab first, others when you switch to them), so a page load never fires five CDR queries at once. A relative preset such as **Last 7 days** is stored as that preset identity and is re-resolved against the current date on every restore; **Custom** stores and reuses its exact chosen dates. If a saved report's trunk/extension filter no longer matches current configuration it is marked in its tab rather than silently retargeted or discarded.
+
+**Demo** is unaffected by report tabs: it remains a synthetic accuracy/performance check that renders into the same shared results view but never reads or writes a saved report tab's state, so it can never overwrite one of your open reports.
+
+Saved report tabs are inspectable and manageable from the CLI: `--list-historical-reports`, `--show-historical-report=<number-or-id>` and `--delete-historical-report=<number-or-id>` (numbers 1-5, or the stable internal id). These are additive management operations; they do not run a report or replace existing CLI syntax.
+
+
 
 For each trunk, the initial result contains only peak occurrence metadata. An occurrence is one continuous period where concurrency equals that trunk's maximum. Calls occupy the inclusive interval from `calldate` through `calldate + duration`, matching both existing engines; removal occurs at the following second. A call ending exactly when another begins therefore overlaps at that timestamp.
 

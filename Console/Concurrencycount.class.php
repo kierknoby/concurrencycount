@@ -50,7 +50,10 @@ class Concurrencycount extends Command {
 			->addOption('json', null, InputOption::VALUE_NONE, 'Use machine-readable JSON for live, settings, monitor or graph output')
 			->addOption('monitor', null, InputOption::VALUE_NONE, 'Run one threshold evaluation snapshot and exit (diagnostic)')
 			->addOption('monitor-status', null, InputOption::VALUE_NONE, 'Show the supervised threshold-alert monitor status')
-			->addOption('restart-monitor', null, InputOption::VALUE_NONE, 'Restart the supervised threshold-alert monitor');
+			->addOption('restart-monitor', null, InputOption::VALUE_NONE, 'Restart the supervised threshold-alert monitor')
+			->addOption('list-historical-reports', null, InputOption::VALUE_NONE, 'List persisted Historical Reports GUI tabs')
+			->addOption('show-historical-report', null, InputOption::VALUE_REQUIRED, 'Show one persisted historical report tab by number (1-5) or id')
+			->addOption('delete-historical-report', null, InputOption::VALUE_REQUIRED, 'Close/delete one persisted historical report tab by number (1-5) or id');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output) {
@@ -197,6 +200,7 @@ class Concurrencycount extends Command {
 			'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert',
 			'recovery', 'alert-email', 'historical-graph', 'monitor',
 			'monitor-status', 'restart-monitor',
+			'list-historical-reports', 'show-historical-report', 'delete-historical-report',
 		];
 		$requested = false;
 		foreach ($managementOptions as $option) {
@@ -220,6 +224,34 @@ class Concurrencycount extends Command {
 			$result = $cc->restartAlertMonitor();
 			$this->writeMonitorStatus($output, $result, $json);
 			return !empty($result['available']) && isset($result['pm2_status']) && $result['pm2_status'] === 'online' ? 0 : 1;
+		}
+		if ($input->getOption('list-historical-reports')) {
+			$result = $cc->getHistoricalReports();
+			$this->writeHistoricalReports($output, $result['reports'], $result['active_id'], $json);
+			return 0;
+		}
+		if ($input->getOption('show-historical-report') !== null) {
+			$report = $this->findHistoricalReport($cc, (string)$input->getOption('show-historical-report'));
+			if ($report === null) {
+				$output->writeln('<error>No persisted historical report matches that number or id.</error>');
+				return 1;
+			}
+			$this->writeStructured($output, $report, $json, 'Historical report');
+			return 0;
+		}
+		if ($input->getOption('delete-historical-report') !== null) {
+			$report = $this->findHistoricalReport($cc, (string)$input->getOption('delete-historical-report'));
+			if ($report === null) {
+				$output->writeln('<error>No persisted historical report matches that number or id.</error>');
+				return 1;
+			}
+			$result = $cc->closeHistoricalReport($report['id']);
+			if (empty($result['status'])) {
+				$output->writeln('<error>' . (isset($result['message']) ? $result['message'] : 'Unable to close historical report.') . '</error>');
+				return 1;
+			}
+			$output->writeln('<info>Closed ' . $report['title'] . '.</info>');
+			return 0;
 		}
 
 		$settings = $cc->getLiveSettings();
@@ -371,6 +403,34 @@ class Concurrencycount extends Command {
 		}
 		$output->writeln($label . ':');
 		$output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+	}
+
+	private function findHistoricalReport($cc, string $needle): ?array {
+		$reports = $cc->getHistoricalReports()['reports'];
+		foreach ($reports as $report) {
+			if ($needle === $report['id'] || $needle === (string)$report['number']) return $report;
+		}
+		return null;
+	}
+
+	private function writeHistoricalReports(OutputInterface $output, array $reports, $activeId, bool $json): void {
+		if ($json) {
+			$output->writeln(json_encode(['reports' => $reports, 'active_id' => $activeId], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		if (empty($reports)) {
+			$output->writeln('No historical report tabs are currently persisted.');
+			return;
+		}
+		foreach ($reports as $report) {
+			$active = ($report['id'] === $activeId) ? ' (active)' : '';
+			$missing = !empty($report['missing_reference']) ? ' [missing reference]' : '';
+			$output->writeln(sprintf(
+				'%s%s: mode=%s engine=%s preset=%s range=%s..%s%s',
+				$report['title'], $active, $report['mode'], $report['engine'], $report['preset'],
+				$report['range_from'], $report['range_to'], $missing
+			));
+		}
 	}
 
 	private function demoPlan(int $seed, string $size): array {

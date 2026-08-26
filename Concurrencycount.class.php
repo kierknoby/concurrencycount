@@ -25,6 +25,7 @@ require_once __DIR__ . '/Services/HistoricalGraphService.php';
 require_once __DIR__ . '/Services/AlertMonitorCoordinator.php';
 require_once __DIR__ . '/Services/AmiChannelSource.php';
 require_once __DIR__ . '/Services/AlertOutboxService.php';
+require_once __DIR__ . '/Services/HistoricalReportsService.php';
 
 class Concurrencycount implements \BMO {
 
@@ -32,12 +33,13 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
 	const ALERT_OUTBOX_KEY = 'alert_outbox';
 	const MONITOR_HEARTBEAT_KEY = 'monitor_heartbeat';
+	const HISTORICAL_REPORTS_KEY = 'historical_reports';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
@@ -257,6 +259,16 @@ class Concurrencycount implements \BMO {
 				return $this->handleEmail();
 			case 'gettrunks':
 				return ['status' => true, 'trunks' => $this->getTrunks()];
+			case 'listhistoricalreports':
+				return ['status' => true] + $this->getHistoricalReports();
+			case 'createhistoricalreport':
+				return $this->handleCreateHistoricalReport();
+			case 'updatehistoricalreport':
+				return $this->handleUpdateHistoricalReport();
+			case 'closehistoricalreport':
+				return $this->handleCloseHistoricalReport();
+			case 'activatehistoricalreport':
+				return $this->handleActivateHistoricalReport();
 		}
 		return ['status' => false, 'message' => _('Unknown command')];
 	}
@@ -312,6 +324,155 @@ class Concurrencycount implements \BMO {
 			$this->settingsRepository = new \FreePBX\modules\Concurrencycount\Services\SettingsRepository($this->FreePBX->Database);
 		}
 		return $this->settingsRepository;
+	}
+
+	/* ============================================================
+	 * PERSISTED HISTORICAL REPORT TABS
+	 * Definitions only (mode/engine/preset/range) - never CDR result
+	 * payloads or graph points. GUI and CLI share these methods.
+	 * ============================================================ */
+
+	public function getHistoricalReports(): array {
+		$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+		$stored = $service->reconcileStored($this->getSettingsRepository()->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+		$trunks = $this->getTrunks();
+		$reports = array_map(function ($report) use ($trunks) {
+			if ($report['mode'] === 'trunk' && $report['filter'] !== '') {
+				$report['missing_reference'] = !in_array($report['filter'], $trunks, true);
+			}
+			return $report;
+		}, $service->listReports($stored));
+		return ['reports' => $reports, 'active_id' => $stored['active_id']];
+	}
+
+	public function createHistoricalReport(array $definition): array {
+		return $this->withHistoricalReportsLock(function () use ($definition) {
+			$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+			$repository = $this->getSettingsRepository();
+			$stored = $service->reconcileStored($repository->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+			try {
+				$definition = $this->markMissingReference($definition);
+				list($stored, $report) = $service->createReport($stored, $definition);
+			} catch (\RuntimeException $exception) {
+				return ['status' => false, 'message' => $exception->getMessage(), 'reports' => $service->listReports($stored)];
+			} catch (\InvalidArgumentException $exception) {
+				return ['status' => false, 'message' => $exception->getMessage()];
+			}
+			$repository->set(self::HISTORICAL_REPORTS_KEY, $stored);
+			return ['status' => true, 'report' => $report, 'reports' => $service->listReports($stored)];
+		});
+	}
+
+	public function updateHistoricalReport(string $id, array $definition): array {
+		return $this->withHistoricalReportsLock(function () use ($id, $definition) {
+			$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+			$repository = $this->getSettingsRepository();
+			$stored = $service->reconcileStored($repository->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+			try {
+				$definition = $this->markMissingReference($definition);
+				list($stored, $report) = $service->updateReport($stored, $id, $definition);
+			} catch (\InvalidArgumentException $exception) {
+				return ['status' => false, 'message' => $exception->getMessage()];
+			}
+			$repository->set(self::HISTORICAL_REPORTS_KEY, $stored);
+			return ['status' => true, 'report' => $report, 'reports' => $service->listReports($stored)];
+		});
+	}
+
+	public function closeHistoricalReport(string $id): array {
+		return $this->withHistoricalReportsLock(function () use ($id) {
+			$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+			$repository = $this->getSettingsRepository();
+			$stored = $service->reconcileStored($repository->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+			$stored = $service->closeReport($stored, $id);
+			$repository->set(self::HISTORICAL_REPORTS_KEY, $stored);
+			return ['status' => true, 'reports' => $service->listReports($stored), 'active_id' => $stored['active_id']];
+		});
+	}
+
+	public function setActiveHistoricalReport(string $id): array {
+		return $this->withHistoricalReportsLock(function () use ($id) {
+			$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+			$repository = $this->getSettingsRepository();
+			$stored = $service->reconcileStored($repository->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+			try {
+				$stored = $service->setActive($stored, $id);
+			} catch (\InvalidArgumentException $exception) {
+				return ['status' => false, 'message' => $exception->getMessage()];
+			}
+			$repository->set(self::HISTORICAL_REPORTS_KEY, $stored);
+			return ['status' => true, 'active_id' => $stored['active_id']];
+		});
+	}
+
+	/**
+	 * Mark (never silently retarget) a persisted trunk/extension filter that
+	 * no longer matches current configuration, so the GUI can surface it.
+	 */
+	private function markMissingReference(array $definition): array {
+		$filter = isset($definition['filter']) ? trim((string)$definition['filter']) : '';
+		if ($filter === '') {
+			$definition['missing_reference'] = false;
+			return $definition;
+		}
+		$mode = isset($definition['mode']) ? (string)$definition['mode'] : '';
+		if ($mode === 'trunk') {
+			$definition['missing_reference'] = !in_array($filter, $this->getTrunks(), true);
+		}
+		return $definition;
+	}
+
+	/**
+	 * Serialises historical-report-tab mutations across concurrent requests
+	 * (e.g. a double-clicked "create" button) so the five-report limit and
+	 * slot allocation can never race past the maximum.
+	 */
+	private function withHistoricalReportsLock(callable $callback): array {
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_historical_reports', 5)")->fetchColumn();
+		if ((int)$lock !== 1) {
+			return ['status' => false, 'message' => _('Historical report tabs are busy, please try again.')];
+		}
+		try {
+			return $callback();
+		} finally {
+			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_historical_reports')");
+		}
+	}
+
+	private function handleCreateHistoricalReport(): array {
+		return $this->createHistoricalReport($this->readHistoricalReportRequest());
+	}
+
+	private function handleUpdateHistoricalReport(): array {
+		$id = isset($_REQUEST['id']) ? (string)$_REQUEST['id'] : '';
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) return ['status' => false, 'message' => _('Invalid historical report id.')];
+		return $this->updateHistoricalReport($id, $this->readHistoricalReportRequest());
+	}
+
+	private function handleCloseHistoricalReport(): array {
+		$id = isset($_REQUEST['id']) ? (string)$_REQUEST['id'] : '';
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) return ['status' => false, 'message' => _('Invalid historical report id.')];
+		return $this->closeHistoricalReport($id);
+	}
+
+	private function handleActivateHistoricalReport(): array {
+		$id = isset($_REQUEST['id']) ? (string)$_REQUEST['id'] : '';
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) return ['status' => false, 'message' => _('Invalid historical report id.')];
+		return $this->setActiveHistoricalReport($id);
+	}
+
+	private function readHistoricalReportRequest(): array {
+		return [
+			'mode' => isset($_REQUEST['mode']) ? (string)$_REQUEST['mode'] : 'trunk',
+			'engine' => isset($_REQUEST['engine']) ? (string)$_REQUEST['engine'] : 'original',
+			'preset' => isset($_REQUEST['preset']) ? (string)$_REQUEST['preset'] : 'last7',
+			'range_from' => isset($_REQUEST['range_from']) ? (string)$_REQUEST['range_from'] : '',
+			'range_to' => isset($_REQUEST['range_to']) ? (string)$_REQUEST['range_to'] : '',
+			'include_time' => !empty($_REQUEST['include_time']),
+			'from_time' => isset($_REQUEST['from_time']) ? (string)$_REQUEST['from_time'] : '00:00',
+			'to_time' => isset($_REQUEST['to_time']) ? (string)$_REQUEST['to_time'] : '23:59',
+			'filter' => isset($_REQUEST['filter']) ? (string)$_REQUEST['filter'] : '',
+		];
 	}
 
 	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = ''): array {
