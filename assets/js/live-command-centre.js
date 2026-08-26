@@ -40,7 +40,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-settings').off('click.ccLive').on('click.ccLive', openSettings);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
-		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live extension-side activity', snapshot ? snapshot.overall.calls : []); });
+		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP activity (trunk + extension legs)', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result) { loadHistoricalGraph(result); });
@@ -48,8 +48,8 @@ window._ccLiveLoaded = true;
 
 	function switchWorkspace(target) {
 		activeWorkspace = target === 'historical' ? 'historical' : 'live';
-		$('.cc-workspace-tab').removeClass('active btn-primary').addClass('btn-default').attr('aria-selected', 'false');
-		$('.cc-workspace-tab[data-target="' + activeWorkspace + '"]').addClass('active btn-primary').removeClass('btn-default').attr('aria-selected', 'true');
+		$('.cc-workspace-tab').attr('aria-selected', 'false');
+		$('.cc-workspace-tab[data-target="' + activeWorkspace + '"]').attr('aria-selected', 'true');
 		$('#cc-live-section').toggle(activeWorkspace === 'live');
 		$('#cc-historical-section').toggle(activeWorkspace === 'historical');
 		if (activeWorkspace === 'live') startPolling(true);
@@ -127,10 +127,10 @@ window._ccLiveLoaded = true;
 	function updateOverall(overall) {
 		$('#cc-live-overall-value').text(overall.current);
 		$('#cc-live-overall-threshold').text(overall.threshold_enabled ? 'Threshold ' + overall.threshold : 'Threshold off');
-		$('#cc-live-overall-peak').text('Recent peak ' + recentPeak(history.overall));
+		$('#cc-live-overall-peak').text('Recent peak ' + recentPeak(history.overall) + ' (this session)');
 		$('#cc-live-overall-status').text(statusLabel(overall.status));
 		$('.cc-live-overall').attr('data-status', overall.status);
-		if (!charts.overall) charts.overall = new window.ConcurrencyChart(document.getElementById('cc-live-overall-chart'), {onSelect: function () { showCalls('Current overall extension-side channels', snapshot.overall.calls); }});
+		if (!charts.overall) charts.overall = new window.ConcurrencyChart(document.getElementById('cc-live-overall-chart'), {onSelect: function () { showCalls('Current overall active PJSIP legs', snapshot.overall.calls); }});
 		charts.overall.setData(history.overall, overall.threshold_enabled ? overall.threshold : 0);
 	}
 
@@ -146,7 +146,7 @@ window._ccLiveLoaded = true;
 			html += '<article class="cc-live-trunk" data-trunk-index="' + index + '" data-status="normal">' +
 				'<div class="cc-live-trunk-header"><div><h4 class="cc-trunk-name">' + escapeHtml(trunk) + '</h4><span class="cc-trunk-split">0 inbound · 0 outbound · 0 unknown</span></div>' +
 				'<button type="button" class="cc-trunk-value" data-trunk-index="' + index + '">0</button></div>' +
-				'<div class="cc-live-meta"><span class="cc-trunk-threshold">Threshold off</span><span class="cc-trunk-peak">Recent peak 0</span><span class="cc-trunk-status">Normal</span></div>' +
+				'<div class="cc-live-meta"><span class="cc-trunk-threshold">Threshold off</span><span class="cc-trunk-peak">Recent peak 0 (this session)</span><span class="cc-trunk-status">Normal</span></div>' +
 				'<canvas class="cc-trunk-chart" id="cc-trunk-chart-' + index + '" height="110"></canvas></article>';
 		});
 		container.html(html).data('trunks', names);
@@ -169,7 +169,7 @@ window._ccLiveLoaded = true;
 		panel.find('.cc-trunk-name').html(renderEntity(result.entity, trunk));
 		panel.find('.cc-trunk-split').text(result.direction_counts.inbound + ' inbound · ' + result.direction_counts.outbound + ' outbound · ' + result.direction_counts.unknown + ' unknown');
 		panel.find('.cc-trunk-threshold').text(result.threshold_enabled ? 'Threshold ' + result.threshold : 'Threshold off');
-		panel.find('.cc-trunk-peak').text('Recent peak ' + recentPeak(history.trunks[trunk] || []));
+		panel.find('.cc-trunk-peak').text('Recent peak ' + recentPeak(history.trunks[trunk] || []) + ' (this session)');
 		panel.find('.cc-trunk-status').text(statusLabel(result.status));
 		charts.trunks[trunk].setData(history.trunks[trunk] || [], result.threshold_enabled ? result.threshold : 0);
 	}

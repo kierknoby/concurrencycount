@@ -12,12 +12,14 @@ $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-command-centre.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
 $monitor = file_get_contents($root . '/alert-monitor.php');
+$console = file_get_contents($root . '/Console/Concurrencycount.class.php');
 $mailer = file_get_contents($root . '/alert-mailer.php');
 $amiSource = file_get_contents($root . '/Services/AmiChannelSource.php');
 $install = file_get_contents($root . '/install.php');
 $uninstall = file_get_contents($root . '/uninstall.php');
 $readme = file_get_contents($root . '/README.md');
 $registry = file_get_contents($root . '/Engines/Registry.php');
+$liveSnapshotService = file_get_contents($root . '/Services/LiveSnapshotService.php');
 $module = simplexml_load_file($root . '/module.xml');
 
 function admin_contract_assert($condition, $message) {
@@ -128,6 +130,19 @@ foreach (['1, 5, 10, 15, 30, 60', 'Enable threshold alerts', 'Send recovery noti
 foreach (['Unattended alert monitor', 'Restart monitor', 'reconciles every 5 seconds'] as $monitorControl) {
 	admin_contract_assert(strpos($view, $monitorControl) !== false, 'Monitor health control missing: ' . $monitorControl);
 }
+admin_contract_assert(preg_match('/class="cc-workspace-tab"[^>]*id="cc-tab-live"[^>]*role="tab"[^>]*aria-selected="true"/', $view) === 1, 'Live workspace tab must default to selected via aria-selected, not a button-state class');
+admin_contract_assert(strpos($view, 'btn btn-primary cc-workspace-tab') === false && strpos($view, 'btn btn-default cc-workspace-tab') === false, 'Workspace tabs must not use enable/disable button styling');
+admin_contract_assert(strpos($liveJavascript, "removeClass('active btn-primary')") === false && strpos($liveJavascript, "addClass('active btn-primary')") === false, 'Workspace switching must not toggle button-state classes');
+admin_contract_assert(strpos($liveJavascript, "attr('aria-selected', 'true')") !== false && strpos($liveJavascript, "attr('aria-selected', 'false')") !== false, 'Workspace switching must use aria-selected semantics');
+admin_contract_assert(strpos($view, 'do not enable or disable live monitoring') !== false, 'Workspace tabs must be explicitly labelled as navigation only');
+admin_contract_assert(strpos($view, 'cc-settings-button') !== false, 'Thresholds & alerts control must use a neutral settings affordance, not an enable/disable button style');
+foreach (['OVERALL LIVE CONCURRENCY', 'active monitored PJSIP call legs now'] as $overallLabel) {
+	admin_contract_assert(strpos($view, $overallLabel) !== false, 'Overall Live Concurrency wording missing: ' . $overallLabel);
+}
+admin_contract_assert(strpos($view, 'OVERALL EXTENSION CONCURRENCY') === false, 'Live Overall metric must not be labelled as extension-only now that trunk legs are included');
+admin_contract_assert(substr_count($liveSnapshotService, '$overallCalls[] = $channel;') === 2, 'Monitored trunk legs must contribute to Overall Live Concurrency alongside numeric extension legs');
+admin_contract_assert(strpos($console, "'Overall Live Concurrency (active monitored PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
+admin_contract_assert(strpos($liveJavascript, "appendPoint(history.overall, data.generated_ts, data.overall.current)") !== false && strpos($liveJavascript, 'function renderSnapshot(data)') !== false, 'Overall and trunk rolling series must be derived from the same live snapshot object');
 admin_contract_assert(strpos($liveJavascript, "command: 'monitorstatus'") !== false && strpos($liveJavascript, "command: 'restartmonitor'") !== false, 'GUI monitor status/restart parity missing');
 foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length > 900', "command: 'livestatus'", "command: 'savesettings'", "command: 'historicalgraph'"] as $pollingContract) {
 	admin_contract_assert(strpos($liveJavascript, $pollingContract) !== false, 'Safe live polling contract missing: ' . $pollingContract);

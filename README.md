@@ -144,11 +144,22 @@ Engines are calculation strategies, not reporting modes. Choosing an engine does
 
 The Live Command Centre is a separate current-state view backed by Asterisk Manager Interface channel data. It does not derive live values from CDRs and does not store browser samples as historical records.
 
-**Overall Extension Concurrency** counts current numeric `PJSIP/<extension>-<channel-id>` channels only. It excludes trunk endpoints, Local channels and other Asterisk helper/application channel technologies. It answers how much numeric extension-side activity is present now; it is not a total of every PBX or Asterisk channel.
+The **Live Command Centre** / **Historical Reports** controls at the top of the page are workspace tabs, not enable/disable switches. Selecting one only changes which view is shown and whether the browser polls for live updates; it has no effect on backend AMI monitoring, threshold alerts, or the supervised PM2 worker, which continue running regardless of which tab is open. There is currently no separate "live monitoring enabled/disabled" setting — the only persistent settings are the threshold and alert-notification switches described below.
+
+**Overall Live Concurrency** counts active PJSIP call legs which Concurrency Count can reliably attribute to something it monitors: every current `PJSIP/<trunk>-<channel-id>` channel matching a configured trunk, plus every current numeric `PJSIP/<extension>-<channel-id>` channel. It is leg-based, consistent with how Trunk Concurrency and historical Overall/Group counting already work:
+
+- a call using only a monitored trunk (no concurrent extension leg) counts as **1**;
+- an inbound or outbound call with both a trunk leg and an extension leg counts as **2**;
+- an internal call between two extensions counts as **2** (both extension legs);
+- Local channels, other non-PJSIP technologies, and PJSIP endpoints which are neither a configured trunk nor a numeric extension are excluded and never inflate the total.
+
+It is not a total of every Asterisk channel — only monitored PJSIP trunk and extension legs are included.
 
 **Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
 
-Live and historical values answer related capacity questions but are not semantically identical. Live sees channels before their calls finish. Historical reports reconstruct answered CDR intervals later. An inbound call may therefore appear as one current trunk channel and one current numeric extension channel, while its eventual CDR contributes according to the historical projection rules. These figures should not be added together.
+Live and historical values answer related capacity questions but are not semantically identical. Historical **Overall Extension Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to the new Live "Overall Live Concurrency" metric, which deliberately includes monitored trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+
+"Recent peak" shown under each Live metric is a rolling maximum kept only in the current browser session's in-memory series (the same series drawn on that metric's chart); it is not the backend threshold-episode peak and resets when the page is reloaded. A value recorded for a single browser sample can appear as a very narrow spike on the chart rather than a visibly sustained rise.
 
 The browser refresh interval can be 1, 5, 10, 15, 30 or 60 seconds, with 5 seconds as the default. Requests never overlap and pause while the tab is hidden. The 1-second option is labelled aggressive and still requires the live-PBX load validation listed below. Browser refresh does not control unattended alerts.
 

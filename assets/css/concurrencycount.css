@@ -236,8 +236,53 @@ body:has(.concurrencycount) #page_body {
 
 .concurrencycount .cc-workspace-tabs {
 	display: flex;
-	gap: 8px;
-	margin: 16px 0;
+	gap: 4px;
+	margin: 16px 0 4px;
+	border-bottom: 2px solid #d8dde3;
+}
+
+.concurrencycount .cc-workspace-hint {
+	margin: 0 0 16px;
+	font-size: 12px;
+}
+
+.concurrencycount .cc-workspace-tab {
+	min-height: 44px;
+	padding: 8px 16px;
+	border: 0;
+	border-bottom: 3px solid transparent;
+	background: transparent;
+	color: #52606b;
+	font-weight: 600;
+	border-radius: 0;
+}
+
+.concurrencycount .cc-workspace-tab:hover {
+	color: #1f5f88;
+}
+
+.concurrencycount .cc-workspace-tab[aria-selected="true"] {
+	color: #1f5f88;
+	border-bottom-color: #1f5f88;
+	background: #f0f6fb;
+}
+
+.concurrencycount .cc-workspace-tab:focus {
+	outline: 3px solid #66afe9;
+	outline-offset: 2px;
+}
+
+.concurrencycount .cc-settings-button {
+	min-height: 44px;
+	background: #f5f7f9;
+	border: 1px solid #cbd3da;
+	color: #33414d;
+}
+
+.concurrencycount .cc-settings-button:hover,
+.concurrencycount .cc-settings-button:focus {
+	background: #eaeef1;
+	color: #1f2a33;
 }
 
 .concurrencycount .cc-workspace {

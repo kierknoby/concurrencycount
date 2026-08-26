@@ -57,9 +57,10 @@ $_ccAssetVer = max(
 			<div class="row">
 				<div class="col-sm-12">
 					<div class="cc-workspace-tabs" role="tablist" aria-label="<?php echo _('Concurrency views'); ?>">
-						<button type="button" class="btn btn-primary cc-workspace-tab active" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live Command Centre'); ?></button>
-						<button type="button" class="btn btn-default cc-workspace-tab" id="cc-tab-historical" data-target="historical" role="tab" aria-selected="false"><i class="fa fa-history"></i> <?php echo _('Historical Reports'); ?></button>
+						<button type="button" class="cc-workspace-tab" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live Command Centre'); ?></button>
+						<button type="button" class="cc-workspace-tab" id="cc-tab-historical" data-target="historical" role="tab" aria-selected="false"><i class="fa fa-history"></i> <?php echo _('Historical Reports'); ?></button>
 					</div>
+					<p class="text-muted cc-workspace-hint"><?php echo _('These select which view is shown. They do not enable or disable live monitoring.'); ?></p>
 
 					<section id="cc-live-section" class="cc-workspace" role="tabpanel" aria-labelledby="cc-tab-live">
 						<div class="cc-section-heading">
@@ -69,7 +70,7 @@ $_ccAssetVer = max(
 								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
 									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
 								</select>
-								<button type="button" id="cc-live-settings" class="btn btn-default"><i class="fa fa-cog"></i> <?php echo _('Thresholds & alerts'); ?></button>
+								<button type="button" id="cc-live-settings" class="btn cc-settings-button" aria-haspopup="dialog" title="<?php echo _('Open threshold and alert settings'); ?>"><i class="fa fa-cog"></i> <?php echo _('Thresholds & alerts'); ?></button>
 							</div>
 						</div>
 						<p class="text-muted"><?php echo _('Live values come directly from current AMI channel state. Browser refresh does not control background alert monitoring.'); ?></p>
@@ -77,10 +78,10 @@ $_ccAssetVer = max(
 						<div id="cc-live-content" style="display:none;">
 							<div class="cc-live-overall cc-status-panel" data-status="normal">
 								<div class="cc-live-metric-copy">
-									<span class="cc-section-kicker"><?php echo _('OVERALL EXTENSION CONCURRENCY'); ?></span>
+									<span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span>
 									<button type="button" id="cc-live-overall-value" class="cc-live-value" aria-controls="cc-live-call-detail">0</button>
-									<span><?php echo _('numeric PJSIP extension channels active now'); ?></span>
-									<div class="cc-live-meta"><span id="cc-live-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-live-overall-peak"><?php echo _('Recent peak 0'); ?></span><span id="cc-live-overall-status"><?php echo _('Normal'); ?></span></div>
+									<span><?php echo _('active monitored PJSIP call legs now (trunk + extension legs)'); ?></span>
+									<div class="cc-live-meta"><span id="cc-live-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-live-overall-peak"><?php echo _('Recent peak 0 (this session)'); ?></span><span id="cc-live-overall-status"><?php echo _('Normal'); ?></span></div>
 								</div>
 								<canvas id="cc-live-overall-chart" class="cc-live-chart" height="150"></canvas>
 							</div>

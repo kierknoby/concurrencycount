@@ -451,16 +451,22 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function enrichLiveSnapshot(array $snapshot): array {
-		foreach ($snapshot['overall']['calls'] as &$call) {
-			$call['extension_entity'] = !empty($call['extension']) ? $this->resolveFreepbxDestination('from-did-direct,' . $call['extension'] . ',1') : null;
-		}
-		unset($call);
+		$trunkEntities = [];
 		foreach ($snapshot['trunks'] as $trunk => &$trunkResult) {
 			$trunkResult['entity'] = $this->buildTrunkEntity($trunk);
+			$trunkEntities[$trunk] = $trunkResult['entity'];
 			foreach ($trunkResult['calls'] as &$call) $call['trunk_entity'] = $trunkResult['entity'];
 			unset($call);
 		}
 		unset($trunkResult);
+		foreach ($snapshot['overall']['calls'] as &$call) {
+			if (!empty($call['extension'])) {
+				$call['extension_entity'] = $this->resolveFreepbxDestination('from-did-direct,' . $call['extension'] . ',1');
+			} elseif (!empty($call['trunk'])) {
+				$call['trunk_entity'] = isset($trunkEntities[$call['trunk']]) ? $trunkEntities[$call['trunk']] : $this->buildTrunkEntity($call['trunk']);
+			}
+		}
+		unset($call);
 		return $snapshot;
 	}
 

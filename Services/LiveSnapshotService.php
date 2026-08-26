@@ -34,6 +34,8 @@ class LiveSnapshotService {
 			$trunkResults[$endpoint]['current']++;
 			$trunkResults[$endpoint]['direction_counts'][$channel['direction']]++;
 			$trunkResults[$endpoint]['calls'][] = $channel;
+			// A monitored trunk leg is itself a relevant PJSIP leg, so it also counts toward Overall Live Concurrency.
+			$overallCalls[] = $channel;
 		}
 
 		$overallThreshold = isset($thresholds['overall']) ? $thresholds['overall'] : [];
