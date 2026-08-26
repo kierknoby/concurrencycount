@@ -114,7 +114,7 @@ Where a CDR proves a FreePBX object, the drill-down links to its native administ
 
 **What the result means:** The table reports each selected extension separately; the global maximum is the highest peak reached by any one extension, not the total across the PBX. For example, extension 203 may have one inbound CDR and one outbound CDR whose recorded intervals overlap for 20 seconds. Extension 203 then has a peak of 2. Extension mode does not currently provide the trunk occurrence/CDR drill-down.
 
-### Overall Extension Concurrency
+### Group Concurrency
 
 **What it measures:** The internal mode name is `group`, but it does not mean a configured FreePBX Ring Group, queue, department or chosen member list. It is a PBX-wide total of all numeric PJSIP extension legs found in the selected answered CDRs.
 
@@ -122,11 +122,11 @@ Where a CDR proves a FreePBX object, the drill-down links to its native administ
 
 **What concurrent means here:** All overlapping numeric PJSIP legs are added into one PBX-wide total using the shared inclusive boundary rule. This is the only current mode that aggregates different extensions into one peak.
 
-**What the result means:** The single reported maximum is the largest number of numeric extension legs active across the PBX at the same instant. Peak time ranges show when that overall maximum was sustained. For example, an internal call from 201 to 202 contributes two legs; at the same time extension 203 is on an external call and contributes one leg. Overall Extension Concurrency is 3, even though there are only two CDR conversations. This mode does not currently provide contributing-call drill-down.
+**What the result means:** The single reported maximum is the largest number of numeric extension legs active across the PBX at the same instant. Peak time ranges show when that overall maximum was sustained. For example, an internal call from 201 to 202 contributes two legs; at the same time extension 203 is on an external call and contributes one leg. Group Concurrency is 3, even though there are only two CDR conversations. This mode does not currently provide contributing-call drill-down.
 
 ### Trunk capacity versus overall extension activity
 
-Trunk Concurrency and Overall Extension Concurrency are different views of activity and should not be added together. An inbound call may contribute a trunk leg to the selected trunk's external-capacity result and a numeric PJSIP extension leg to the PBX-wide extension-side result. Trunk mode asks how much external SIP capacity was in use; Overall mode asks how much numeric extension-side activity was occurring. The exact CDR topology determines which legs appear in each view.
+Trunk Concurrency and Group Concurrency are different views of activity and should not be added together. An inbound call may contribute a trunk leg to the selected trunk's external-capacity result and a numeric PJSIP extension leg to the PBX-wide extension-side result. Trunk mode asks how much external SIP capacity was in use; Group mode asks how much numeric extension-side activity was occurring. The exact CDR topology determines which legs appear in each view.
 
 ### Demo and engine comparison
 
@@ -146,7 +146,7 @@ The Live Command Centre is a separate current-state view backed by Asterisk Mana
 
 The **Live Command Centre** / **Historical Reports** controls at the top of the page are workspace tabs, not enable/disable switches. Selecting one only changes which view is shown and whether the browser polls for live updates; it has no effect on backend AMI monitoring, threshold alerts, or the supervised PM2 worker, which continue running regardless of which tab is open. There is currently no separate "live monitoring enabled/disabled" setting — the only persistent settings are the threshold and alert-notification switches described below.
 
-**Overall Live Concurrency** counts active PJSIP call legs which Concurrency Count can reliably attribute to something it monitors: every current `PJSIP/<trunk>-<channel-id>` channel matching a configured trunk, plus every current numeric `PJSIP/<extension>-<channel-id>` channel. It is leg-based, consistent with how Trunk Concurrency and historical Overall/Group counting already work:
+**Overall Live Concurrency** counts active PJSIP call legs which Concurrency Count can reliably attribute to something it monitors: every current `PJSIP/<trunk>-<channel-id>` channel matching a configured trunk, plus every current numeric `PJSIP/<extension>-<channel-id>` channel. It is leg-based, consistent with how Trunk Concurrency and historical Group counting already work:
 
 - a call using only a monitored trunk (no concurrent extension leg) counts as **1**;
 - an inbound or outbound call with both a trunk leg and an extension leg counts as **2**;
@@ -157,7 +157,7 @@ It is not a total of every Asterisk channel — only monitored PJSIP trunk and e
 
 **Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
 
-Live and historical values answer related capacity questions but are not semantically identical. Historical **Overall Extension Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to the new Live "Overall Live Concurrency" metric, which deliberately includes monitored trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to the new Live "Overall Live Concurrency" metric, which deliberately includes monitored trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
 
 "Recent peak" shown under each Live metric is a rolling maximum kept only in the current browser session's in-memory series (the same series drawn on that metric's chart); it is not the backend threshold-episode peak and resets when the page is reloaded. A value recorded for a single browser sample can appear as a very narrow spike on the chart rather than a visibly sustained rise.
 
@@ -207,7 +207,7 @@ Ordinary live CLI queries take one snapshot and exit. They do not poll continuou
 
 ## GUI report flow
 
-1. Choose Trunk Concurrency, Extension Concurrency or Overall Extension Concurrency, then choose an engine. Demo runs use the separate **Run Demo** button.
+1. Choose Trunk Concurrency, Extension Concurrency or Group Concurrency, then choose an engine. Demo runs use the separate **Run Demo** button.
 2. Choose a range preset:
 	- **Today:** midnight through the current time.
 	- **Yesterday:** the complete previous calendar day.

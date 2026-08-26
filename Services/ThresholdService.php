@@ -97,7 +97,7 @@ class ThresholdService {
 	}
 
 	public function buildNotification(array $event, string $systemIdentifier): array {
-		$scope = $event['scope'] === 'overall' ? 'Overall Extension Concurrency' : substr((string)$event['scope'], 6) . ' Trunk';
+		$scope = $event['scope'] === 'overall' ? 'Overall Live Concurrency' : substr((string)$event['scope'], 6) . ' Trunk';
 		$isRecovery = $event['type'] === 'recovery';
 		$subject = sprintf('Concurrency %s on %s', $isRecovery ? 'recovered' : 'threshold exceeded', $systemIdentifier);
 		$lines = [

@@ -50,12 +50,12 @@ window._ccLoaded = true;
 	var modeDescriptions = {
 		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
 		extension: 'Extensions measure overlapping CDRs assigned to each individual numeric PJSIP extension.',
-		group: 'Overall measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
+		group: 'Group measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
 	};
 	var modeLabels = {
 		trunk: 'Trunk Concurrency',
 		extension: 'Extension Concurrency',
-		group: 'Overall Extension Concurrency'
+		group: 'Group Concurrency'
 	};
 
 	function selectedMode() {
@@ -419,7 +419,7 @@ window._ccLoaded = true;
 	function renderGroup(el, r) {
 		var html = renderExplanation(r);
 		html += '<div class="cc-peak-summary">' +
-			'Peak overall extension concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
+			'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
 			'<br><span>' + escapeHtml(r.max_concurrency) + ' numeric PJSIP extension legs active simultaneously across the PBX.</span>' +
 			'</div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
@@ -628,7 +628,7 @@ window._ccLoaded = true;
 			html += renderEngineComparison(r.engines);
 		}
 		if (r.demo_report === 'group') {
-			html += '<h4>Overall extension-leg accuracy</h4>';
+			html += '<h4>Group accuracy</h4>';
 			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
 			html += '<tr><td>Peak simultaneous extension legs overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
 			html += '<tr><td>Peak ranges</td><td>' + escapeHtml(formatRanges(r.expected_peak_ranges)) + '</td><td>' + escapeHtml(formatRanges(r.peak_ranges)) + '</td></tr>';

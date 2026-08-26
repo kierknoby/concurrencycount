@@ -192,7 +192,7 @@ $_ccAssetVer = max(
 					<i class="fa fa-play"></i> <?php echo _('Run Extensions'); ?>
 				</button>
 				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group">
-					<i class="fa fa-play"></i> <?php echo _('Run Overall Extensions'); ?>
+					<i class="fa fa-play"></i> <?php echo _('Run Group'); ?>
 				</button>
 			</div>
 		</div>
@@ -233,7 +233,7 @@ $_ccAssetVer = max(
 							<input type="radio" name="cc-wizard-mode" id="cc-mode-group" value="group">
 							<span class="cc-mode-copy">
 								<span class="cc-mode-scope"><?php echo _('PBX extension-side load'); ?></span>
-								<strong><?php echo _('Overall Extension Concurrency'); ?></strong>
+								<strong><?php echo _('Group Concurrency'); ?></strong>
 								<span><?php echo _('Choose this for one PBX-wide view of simultaneous numeric PJSIP extension legs.'); ?></span>
 								<small><?php echo _('Example: Peak 12 means 12 extension legs were active across the PBX at once.'); ?></small>
 							</span>

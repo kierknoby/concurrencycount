@@ -317,7 +317,7 @@ class Concurrencycount implements \BMO {
 	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = ''): array {
 		$mode = $this->normaliseMode($mode);
 		if (!in_array($mode, ['trunk', 'group'], true)) {
-			throw new \InvalidArgumentException(_('Historical graphs support Trunk Concurrency and Overall Extension Concurrency.'));
+			throw new \InvalidArgumentException(_('Historical graphs support Trunk Concurrency and Group Concurrency.'));
 		}
 		$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
 		$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalGraphService();

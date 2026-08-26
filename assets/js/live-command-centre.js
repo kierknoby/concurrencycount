@@ -229,7 +229,7 @@ window._ccLiveLoaded = true;
 		$('#cc-setting-email').val(settings.alert_email || '');
 		$('#cc-setting-alerts').prop('checked', !!settings.alerts_enabled);
 		$('#cc-setting-recovery').prop('checked', !!settings.recovery_enabled);
-		var rows = [scopeRow('overall', 'Overall Extension Concurrency', settings.overall)];
+		var rows = [scopeRow('overall', 'Overall Live Concurrency', settings.overall)];
 		Object.keys(settings.trunks || {}).forEach(function (trunk) { rows.push(scopeRow('trunk:' + trunk, trunk, settings.trunks[trunk])); });
 		$('#cc-threshold-rows').html(rows.join(''));
 		$('#cc-settings-error').hide();

@@ -15,6 +15,7 @@ $monitor = file_get_contents($root . '/alert-monitor.php');
 $console = file_get_contents($root . '/Console/Concurrencycount.class.php');
 $mailer = file_get_contents($root . '/alert-mailer.php');
 $amiSource = file_get_contents($root . '/Services/AmiChannelSource.php');
+$thresholdService = file_get_contents($root . '/Services/ThresholdService.php');
 $install = file_get_contents($root . '/install.php');
 $uninstall = file_get_contents($root . '/uninstall.php');
 $readme = file_get_contents($root . '/README.md');
@@ -59,16 +60,20 @@ foreach (['trunk', 'extension', 'group'] as $mode) {
 	admin_contract_assert(strpos($view, 'for="cc-mode-' . $mode . '"') !== false, 'GUI reporting label missing: ' . $mode);
 	admin_contract_assert(strpos($javascript, $mode . ':') !== false, 'GUI mode description missing: ' . $mode);
 }
-foreach (['Trunk Concurrency', 'Extension Concurrency', 'Overall Extension Concurrency'] as $label) {
+foreach (['Trunk Concurrency', 'Extension Concurrency', 'Group Concurrency'] as $label) {
 	admin_contract_assert(strpos($view, $label) !== false, 'User-facing mode label missing: ' . $label);
 }
+admin_contract_assert(strpos($view, 'Overall Extension Concurrency') === false, 'Historical Group mode must no longer be labelled Overall Extension Concurrency');
+admin_contract_assert(strpos($liveJavascript, "scopeRow('overall', 'Overall Live Concurrency', settings.overall)") !== false, 'Live threshold settings must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($thresholdService, "'Overall Live Concurrency' : substr") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($liveJavascript, 'Overall Extension Concurrency') === false && strpos($thresholdService, 'Overall Extension Concurrency') === false, 'No Live Command Centre reference may use the stale Overall Extension Concurrency wording');
 admin_contract_assert(substr_count($view, 'type="radio" name="cc-wizard-mode"') === 3, 'Reporting modes must use three native radio controls');
 admin_contract_assert(preg_match('/id="cc-mode-trunk"[^>]+value="trunk"[^>]+checked/', $view) === 1, 'Trunk must remain the default GUI mode');
 admin_contract_assert(strpos($view, '<fieldset') !== false && strpos($view, '<legend') !== false, 'Reporting mode controls need an accessible fieldset and legend');
 admin_contract_assert(strpos($view, 'aria-describedby="cc-mode-description"') !== false, 'Mode controls are not associated with contextual help');
 admin_contract_assert(strpos($view, 'not a Ring Group') === false, 'Ring Group warning belongs in concise help, not as an ambiguous mode label');
 admin_contract_assert(strpos($view, 'cc-mode-description') !== false, 'Dynamic mode help is missing');
-admin_contract_assert(strpos($javascript, 'not a Ring Group or selected member list') !== false, 'Overall mode must explicitly reject Ring Group interpretation');
+admin_contract_assert(strpos($javascript, 'not a Ring Group or selected member list') !== false, 'Group mode must explicitly reject Ring Group interpretation');
 admin_contract_assert(strpos($view, 'Calculation engine') !== false, 'Engine control is not separated from reporting scope');
 admin_contract_assert(strpos($view, 'id="cc-engine-group"') !== false && strpos($view, 'id="cc-engine"') !== false, 'Engine control hierarchy missing');
 admin_contract_assert(strpos($css, '.cc-mode-options') !== false && strpos($css, 'grid-template-columns: repeat(3') !== false, 'Desktop mode selector layout missing');
@@ -76,9 +81,10 @@ admin_contract_assert(strpos($css, '.cc-mode-option.is-selected') !== false && s
 admin_contract_assert(strpos($css, 'grid-template-columns: 1fr') !== false, 'Mobile mode selector stacking missing');
 admin_contract_assert(strpos($registry, "'original'") !== false && strpos($registry, "'experimental' => false") !== false, 'Original engine status changed');
 admin_contract_assert(strpos($registry, "'sweep'") !== false && strpos($registry, "'experimental' => true") !== false, 'Sweep engine status changed');
-foreach (['### Trunk Concurrency', '### Extension Concurrency', '### Overall Extension Concurrency', '### Demo and engine comparison'] as $heading) {
+foreach (['### Trunk Concurrency', '### Extension Concurrency', '### Group Concurrency', '### Demo and engine comparison'] as $heading) {
 	admin_contract_assert(strpos($readme, $heading) !== false, 'README reporting section missing: ' . $heading);
 }
+admin_contract_assert(strpos($readme, 'Overall Extension Concurrency') === false, 'README must no longer describe historical Group mode as Overall Extension Concurrency');
 foreach (['including both boundary seconds', 'not mean a configured FreePBX Ring Group', 'Compare Engines', 'CLI keeps its existing option names'] as $concept) {
 	admin_contract_assert(strpos($readme, $concept) !== false, 'README reporting contract missing: ' . $concept);
 }
@@ -90,7 +96,7 @@ admin_contract_assert(strpos($javascript, "command: 'peakdetails'") !== false, '
 foreach (['cc-show-occurrences', 'cc-occurrence-toggle', 'loadOccurrence'] as $drilldown) {
 	admin_contract_assert(strpos($javascript, $drilldown) !== false, 'Trunk drill-down wiring missing: ' . $drilldown);
 }
-foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak overall extension concurrency'] as $resultTerm) {
+foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak group concurrency'] as $resultTerm) {
 	admin_contract_assert(strpos($javascript, $resultTerm) !== false, 'Mode-specific result terminology missing: ' . $resultTerm);
 }
 admin_contract_assert(strpos($javascript, 'config.php?display=') === false, 'Frontend must not construct FreePBX administrative URLs');
