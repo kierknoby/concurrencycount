@@ -42,9 +42,39 @@ window._ccLoaded = true;
 	var finalDemoSeed = null;
 	var finalEngine = 'original';
 	var finalDemoEngines = ['original'];
+	var currentResults = null;
 	var demoSeed = 0;
 	var demoMoves = 0;
 	var demoPlan = null;
+	var guiRange = null;
+	var modeDescriptions = {
+		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
+		extension: 'Extensions measure overlapping CDRs assigned to each individual numeric PJSIP extension.',
+		group: 'Group measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
+	};
+	var modeLabels = {
+		trunk: 'Trunk Concurrency',
+		extension: 'Extension Concurrency',
+		group: 'Group Concurrency'
+	};
+
+	/* ---------- Historical report tab state (client-side model) ---------- */
+	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
+	var activeReportId = null;
+	var wizardTargetReportId = null; // which report the open wizard will run into
+	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
+	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-command-centre.js
+
+	function selectedMode() {
+		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
+	}
+
+	function selectMode(mode) {
+		var input = $('input[name="cc-wizard-mode"][value="' + mode + '"]');
+		if (!input.length) input = $('#cc-mode-trunk');
+		input.prop('checked', true);
+		updateModeDescription();
+	}
 
 	/**
 	 * Use jQuery's DOM round-trip for HTML escaping. Cheaper than chained
@@ -57,6 +87,7 @@ window._ccLoaded = true;
 	}
 
 	function ajax(params) {
+		params = $.extend({}, params, {token: $('.concurrencycount').attr('data-csrf-token') || ''});
 		return $.ajax({
 			url: 'ajax.php?module=concurrencycount',
 			method: 'POST',
@@ -134,6 +165,10 @@ window._ccLoaded = true;
 			return;
 		}
 		$('#cc-demo').modal('hide');
+		// Demo is a synthetic accuracy/perf check, not a persisted report tab
+		// (Option B): it paints the shared results surface transiently and
+		// never reads or writes any report instance's saved state.
+		runTargetReportId = null;
 		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
 			demo_size: demoPlan.size,
@@ -263,6 +298,7 @@ window._ccLoaded = true;
 	/* ---------- Results rendering ---------- */
 
 	function renderResults(r) {
+		currentResults = r;
 		finalMode = r.mode;
 		finalStart = r.start;
 		finalEnd = r.end;
@@ -272,8 +308,8 @@ window._ccLoaded = true;
 		finalEngine = r.engine || 'original';
 		finalDemoEngines = r.engines ? Object.keys(r.engines) : [r.engine || 'original'];
 
-		var modeLabel = r.mode.charAt(0).toUpperCase() + r.mode.slice(1);
-		$('#cc-results-title').text('Results: ' + modeLabel + ' mode');
+		var modeLabel = modeLabels[r.mode] || (r.mode.charAt(0).toUpperCase() + r.mode.slice(1));
+		$('#cc-results-title').text(modeLabel + ' results');
 
 		$('#cc-results-meta').html(
 			'<dt>From</dt><dd>' + escapeHtml(r.start) + '</dd>' +
@@ -297,6 +333,7 @@ window._ccLoaded = true;
 		$('#cc-results-warning').text(r.warning || '');
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
+		$(document).trigger('cc:historical-results', [r]);
 	}
 
 	function renderExplanation(r) {
@@ -352,7 +389,7 @@ window._ccLoaded = true;
 		var average = parseFloat(overview.average_concurrency) || 0;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
-		var text = 'The highest total number of simultaneous extension calls in this date range was ' + max + '.';
+		var text = 'The highest total number of simultaneous numeric PJSIP extension legs in this date range was ' + max + '. Both numeric sides of one internal CDR can count.';
 		if (average > 0) {
 			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
@@ -375,7 +412,9 @@ window._ccLoaded = true;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var namesWithPeak = parseInt(overview.names_with_peak, 10) || 0;
 		var namesSeen = parseInt(overview.names_seen, 10) || 0;
-		var text = 'The highest simultaneous call count seen on any ' + label + ' in this date range was ' + max + '.';
+		var text = r.mode === 'trunk'
+			? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
+			: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.';
 		if (average > 0) {
 			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
@@ -391,7 +430,8 @@ window._ccLoaded = true;
 	function renderGroup(el, r) {
 		var html = renderExplanation(r);
 		html += '<div class="cc-peak-summary">' +
-			'Maximum concurrent calls overall: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
+			'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
+			'<br><span>' + escapeHtml(r.max_concurrency) + ' numeric PJSIP extension legs active simultaneously across the PBX.</span>' +
 			'</div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
 			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
@@ -415,29 +455,173 @@ window._ccLoaded = true;
 			return;
 		}
 		var html = renderExplanation(r);
-		html += '<table class="table table-striped"><thead><tr>' +
+		var peakColumn = r.mode === 'trunk' ? 'Peak trunk concurrency' : 'Peak assigned CDR concurrency';
+		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>' + escapeHtml(label) + '</th>' +
-			'<th>Max concurrent</th>' +
+			'<th>' + escapeHtml(peakColumn) + '</th>' +
 			'</tr></thead><tbody>';
 		names.forEach(function (n) {
 			var count = r.per_name[n];
 			var isPeak = (count === r.global_max && r.global_max > 0);
+			var nameIndex = names.indexOf(n);
+			var entity = r.mode === 'trunk' && r.trunk_entities ? r.trunk_entities[n] : null;
+			var occurrences = r.mode === 'trunk' && r.peak_occurrences && r.peak_occurrences[n] ? r.peak_occurrences[n] : [];
 			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + escapeHtml(n) + '</td>' +
-				'<td>' + escapeHtml(count) + '</td>' +
+				'<td>' + renderEntity(entity, n) + '</td>' +
+				'<td><strong>' + escapeHtml(count) + '</strong>' +
+				(r.mode === 'trunk' && occurrences.length ? '<br><button type="button" class="btn btn-link cc-show-occurrences" data-name-index="' + nameIndex + '">Peak occurred ' + escapeHtml(occurrences.length) + ' ' + (occurrences.length === 1 ? 'time' : 'times') + '</button>' : '') +
+				'</td>' +
 				'</tr>';
 		});
-		html += '</tbody></table>';
-		html += '<div class="cc-peak-summary">Global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
+		html += '</tbody></table></div>';
+		if (r.mode === 'trunk') {
+			html += renderOccurrenceSections(names, r);
+		}
+		var peakDetail = r.mode === 'trunk'
+			? r.global_max + ' trunk legs active simultaneously at the busiest point.'
+			: r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
+		html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong>' +
+			'<br><span>' + escapeHtml(peakDetail) + '</span></div>';
 		el.html(html);
+	}
+
+	function renderOccurrenceSections(names, r) {
+		var html = '';
+		names.forEach(function (trunk, nameIndex) {
+			var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
+			if (!occurrences.length) return;
+			html += '<section class="cc-occurrence-section" data-name-index="' + nameIndex + '" style="display:none">';
+			html += '<h4>Simultaneous Call Details: ' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>';
+			occurrences.forEach(function (occurrence, occurrenceIndex) {
+				html += '<div class="panel panel-default cc-occurrence">' +
+					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false">' +
+					'<span><strong>Peak ' + escapeHtml(occurrence.peak) + ' trunk legs</strong> &middot; ' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + ' &middot; lasted ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</span>' +
+					'<i class="fa fa-chevron-down" aria-hidden="true"></i></button></div>' +
+					'<div class="panel-body cc-occurrence-detail" style="display:none"></div>' +
+					'</div>';
+			});
+			html += '</section>';
+		});
+		return html;
+	}
+
+	function renderEntity(entity, fallback) {
+		if (!entity || !entity.label) return escapeHtml(fallback || '');
+		var label = entity.label;
+		if (entity.number && label.indexOf(entity.number) === -1) label += ' (' + entity.number + ')';
+		return entity.native_url
+			? '<a class="cc-entity-link" href="' + escapeHtml(entity.native_url) + '">' + escapeHtml(label) + '</a>'
+			: escapeHtml(label);
+	}
+
+	function formatClockRange(from, to) {
+		var fromClock = String(from || '').split(' ')[1] || from;
+		var toClock = String(to || '').split(' ')[1] || to;
+		return fromClock === toClock ? fromClock : fromClock + ' to ' + toClock;
+	}
+
+	function formatDuration(seconds) {
+		seconds = Math.max(0, parseInt(seconds, 10) || 0);
+		var hours = Math.floor(seconds / 3600);
+		var minutes = Math.floor((seconds % 3600) / 60);
+		var remainder = seconds % 60;
+		var parts = [];
+		if (hours) parts.push(hours + 'h');
+		if (minutes) parts.push(minutes + 'm');
+		if (remainder || !parts.length) parts.push(remainder + 's');
+		return parts.join(' ');
+	}
+
+	function loadOccurrence(button) {
+		var nameIndex = parseInt(button.data('name-index'), 10);
+		var occurrenceIndex = parseInt(button.data('occurrence-index'), 10);
+		var names = Object.keys(currentResults.per_name || {});
+		var trunk = names[nameIndex];
+		var occurrence = currentResults.peak_occurrences[trunk][occurrenceIndex];
+		var detail = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+		var cacheKey = occurrenceKey(nameIndex, occurrenceIndex);
+		var report = activeReportId ? historicalReports[activeReportId] : null;
+		if (detail.data('loaded')) {
+			detail.toggle();
+			var nowExpanded = detail.is(':visible');
+			button.attr('aria-expanded', nowExpanded ? 'true' : 'false');
+			if (report && report.occurrenceCache[cacheKey]) report.occurrenceCache[cacheKey].expanded = nowExpanded;
+			return;
+		}
+		if (detail.data('loading')) return;
+		detail.data('loading', true);
+		button.prop('disabled', true);
+		detail.html('<p class="text-muted"><span class="cc-spinner"></span>Loading contributing calls...</p>').show();
+		button.attr('aria-expanded', 'true');
+		ajax({
+			command: 'peakdetails', trunk: trunk,
+			start_date: currentResults.start, end_date: currentResults.end,
+			occurrence_from: occurrence.from, occurrence_to: occurrence.to
+		}).done(function (response) {
+			if (!response.status) {
+				detail.html('<div class="alert alert-danger">' + escapeHtml(response.message || 'Unable to load call details.') + '</div>');
+				return;
+			}
+			detail.data('loaded', true).data('detail', response.detail).html(renderPeakCalls(response.detail));
+			if (report) report.occurrenceCache[cacheKey] = {expanded: true, detail: response.detail};
+		}).fail(function () {
+			detail.html('<div class="alert alert-danger">' + escapeHtml(randomOops()) + '</div>');
+		}).always(function () {
+			detail.data('loading', false);
+			button.prop('disabled', false);
+		});
+	}
+
+	function renderPeakCalls(detail) {
+		var counts = detail.direction_counts || {};
+		var summary = [];
+		if (counts.inbound) summary.push(counts.inbound + ' inbound');
+		if (counts.outbound) summary.push(counts.outbound + ' outbound');
+		if (counts.unknown) summary.push(counts.unknown + ' unknown');
+		var html = '<p class="cc-direction-summary">' + escapeHtml(summary.join(' \u00b7 ')) + '</p>';
+		html += '<div class="cc-table-scroll"><table class="table table-condensed cc-call-table"><thead><tr>' +
+			'<th>Started</th><th>Caller / source</th><th>DID / destination</th><th>Direction</th><th>Duration</th><th>Observed path</th><th></th>' +
+			'</tr></thead><tbody>';
+		(detail.calls || []).forEach(function (call, callIndex) {
+			var caller = call.caller_id || call.source;
+			var destination = [call.did, call.destination].filter(Boolean).join(' / ');
+			var path = [];
+			if (call.direction === 'inbound') path.push(renderEntity(call.trunk_entity, call.trunk));
+			(call.path || []).forEach(function (entity) { path.push(renderEntity(entity, entity.label)); });
+			if (call.direction === 'outbound') path.push(renderEntity(call.trunk_entity, call.trunk));
+			html += '<tr><td>' + escapeHtml(call.calldate) + '</td>' +
+				'<td>' + escapeHtml(caller) + '</td><td>' + escapeHtml(destination) + '</td>' +
+				'<td>' + escapeHtml(call.direction) + '</td><td>' + escapeHtml(formatDuration(call.duration)) + '</td>' +
+				'<td class="cc-call-path">' + path.join(' <span aria-hidden="true">&rarr;</span> ') + '</td>' +
+				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button></td></tr>';
+		});
+		html += '</tbody></table></div>';
+		return html;
+	}
+
+	function openCdrSearch(button) {
+		var occurrence = button.closest('.cc-occurrence');
+		var nameIndex = parseInt(occurrence.find('.cc-occurrence-toggle').data('name-index'), 10);
+		var occurrenceIndex = parseInt(occurrence.find('.cc-occurrence-toggle').data('occurrence-index'), 10);
+		var callIndex = parseInt(button.data('call-index'), 10);
+		var detail = occurrence.find('.cc-occurrence-detail').data('detail');
+		if (!detail || !detail.calls || !detail.calls[callIndex]) return;
+		var search = detail.calls[callIndex].cdr_search;
+		var form = $('<form>', {method: 'POST', action: search.url}).hide();
+		Object.keys(search.fields || {}).forEach(function (name) {
+			form.append($('<input>', {type: 'hidden', name: name, value: search.fields[name]}));
+		});
+		$('body').append(form);
+		form.trigger('submit');
 	}
 
 	function renderDemo(el, r) {
 		var html = renderExplanation(r);
 		html += '<h4>Demo profile</h4>';
+		var demoReportLabel = modeLabels[r.demo_report] || r.demo_report || '';
 		html += '<dl class="dl-horizontal">' +
 			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
-			'<dt>Report</dt><dd>' + escapeHtml(r.demo_report || '') + '</dd>' +
+			'<dt>Report</dt><dd>' + escapeHtml(demoReportLabel) + '</dd>' +
 			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
 			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
 			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
@@ -461,15 +645,16 @@ window._ccLoaded = true;
 		}
 		if (r.demo_report === 'group') {
 			html += '<h4>Group accuracy</h4>';
-			html += '<table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
-			html += '<tr><td>Maximum concurrent calls overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
+			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<tr><td>Peak simultaneous extension legs overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
 			html += '<tr><td>Peak ranges</td><td>' + escapeHtml(formatRanges(r.expected_peak_ranges)) + '</td><td>' + escapeHtml(formatRanges(r.peak_ranges)) + '</td></tr>';
-			html += '</tbody></table>';
+			html += '</tbody></table></div>';
 		} else {
 			var label = (r.demo_report === 'trunk') ? 'Trunk' : 'Extension';
+			var demoUnit = r.demo_report === 'trunk' ? 'trunk-leg peak' : 'assigned-CDR peak';
 			var expected = r.expected_per_name || {};
 			html += '<h4>' + escapeHtml(label) + ' accuracy</h4>';
-			html += '<table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected ' + escapeHtml(demoUnit) + '</th><th>Actual ' + escapeHtml(demoUnit) + '</th></tr></thead><tbody>';
 			Object.keys(expected).forEach(function (n) {
 				html += '<tr>' +
 					'<td>' + escapeHtml(n) + '</td>' +
@@ -477,15 +662,15 @@ window._ccLoaded = true;
 					'<td>' + escapeHtml((r.per_name || {})[n] || 0) + '</td>' +
 					'</tr>';
 			});
-			html += '</tbody></table>';
-			html += '<div class="cc-peak-summary">Expected global maximum: <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
+			html += '</tbody></table></div>';
+			html += '<div class="cc-peak-summary">Expected highest ' + escapeHtml(demoUnit) + ': <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
 		el.html(html);
 	}
 
 	function renderEngineComparison(engines) {
 		var html = '<h4>Engine performance</h4>';
-		html += '<table class="table table-striped"><thead><tr>' +
+		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>Engine</th><th>Accuracy</th><th>Wall time</th><th>Peak memory</th><th>Rows/sec</th>' +
 			'</tr></thead><tbody>';
 		Object.keys(engines).forEach(function (id) {
@@ -499,7 +684,7 @@ window._ccLoaded = true;
 				'<td>' + escapeHtml(formatNumber(e.rows_per_second)) + '</td>' +
 				'</tr>';
 		});
-		html += '</tbody></table>';
+		html += '</tbody></table></div>';
 		html += renderEngineComparisonNotes(engines);
 		return html;
 	}
@@ -527,21 +712,265 @@ window._ccLoaded = true;
 		}).join('; ');
 	}
 
+	/* ---------- Historical report tabs ----------
+	 * Historic Report tabs are peers of Live Command Centre / Historical
+	 * Reports on the one top-level tab strip (#cc-workspace-tabs), not a
+	 * second-level control nested inside the Historical section. One shared
+	 * wizard/results DOM subtree (unchanged) is repainted from whichever
+	 * report instance is active. Report definitions (mode/engine/date preset/
+	 * options) persist server-side; CDR results/graphs/occurrence state are
+	 * cached only in this in-memory model for the current page load and are
+	 * regenerated (not replayed) after a reload.
+	 */
+
+	function occurrenceKey(nameIndex, occurrenceIndex) {
+		return nameIndex + ':' + occurrenceIndex;
+	}
+
+	function reportCount() {
+		return Object.keys(historicalReports).length;
+	}
+
+	function sortedReports() {
+		return Object.keys(historicalReports).map(function (id) { return historicalReports[id]; }).sort(function (a, b) { return a.number - b.number; });
+	}
+
+	function initHistoricalReports() {
+		ajax({command: 'listhistoricalreports'}).done(function (response) {
+			if (!response.status) return;
+			historicalReports = {};
+			(response.reports || []).forEach(function (report) {
+				historicalReports[report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, report);
+			});
+			renderTopReportTabs();
+			// Deliberately does not change which top-level tab is active on
+			// load: Live Command Centre remains the default landing tab, and
+			// each report tab regenerates lazily only when actually selected.
+		});
+	}
+
+	function renderTopReportTabs() {
+		$('#cc-workspace-tabs .cc-report-tab-top').remove();
+		var html = sortedReports().map(function (report) {
+			var selected = report.id === activeReportId;
+			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '">' +
+				'<button type="button" class="cc-report-tab-select" data-target="' + escapeHtml(report.id) + '">' + escapeHtml(report.title) + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
+				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.title) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
+				'</div>';
+		}).join('');
+		$('#cc-tab-historical').after(html);
+	}
+
+	function showReportLimitMessage() {
+		$('#cc-report-limit-message').text('Maximum of 5 historical reports can be open at once.').show();
+		setTimeout(function () { $('#cc-report-limit-message').fadeOut(); }, 4000);
+	}
+
+	function showHistoricalLanding() {
+		activeReportId = null;
+		$('#cc-report-landing').show();
+		$('#cc-report-active').hide();
+	}
+
+	/**
+	 * Single point of top-level tab selection: Live Command Centre,
+	 * Historical Reports (landing), or a Historic Report tab. Owns
+	 * aria-selected for the whole shared strip; delegates section
+	 * show/hide + Live polling to live-command-centre.js.
+	 */
+	function selectTopTab(target) {
+		$('#cc-workspace-tabs [data-target]').attr('aria-selected', 'false');
+		$('#cc-workspace-tabs [data-target="' + target + '"]').attr('aria-selected', 'true');
+		if (window.CCLiveWorkspace) window.CCLiveWorkspace.switchSection(target === 'live' ? 'live' : 'historical');
+		if (target === 'live') {
+			activeReportId = null;
+			return;
+		}
+		if (target === 'historical') {
+			showHistoricalLanding();
+			return;
+		}
+		activateReportTab(target);
+	}
+
+	function createReportTab() {
+		if (reportCount() >= 5) {
+			showReportLimitMessage();
+			return;
+		}
+		var defaultRange = window.CCDateRange.preset('last7', new Date());
+		ajax({
+			command: 'createhistoricalreport', mode: 'trunk', engine: 'original', preset: 'last7',
+			range_from: defaultRange.from, range_to: defaultRange.to,
+			include_time: '', from_time: '00:00', to_time: '23:59'
+		}).done(function (response) {
+			if (!response.status) {
+				showReportLimitMessage();
+				return;
+			}
+			historicalReports[response.report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, response.report);
+			renderTopReportTabs();
+			selectTopTab(response.report.id);
+			$('#cc-report-active').show();
+			$('#cc-report-landing').hide();
+			$('#cc-status').hide();
+			$('#cc-results').hide();
+			$('#cc-report-empty').show();
+			newWizard(response.report.id);
+		}).fail(function () {
+			setStatus(randomOops(), 'error');
+		});
+	}
+
+	function closeReportTab(id) {
+		if (!historicalReports[id]) return;
+		var closingActive = id === activeReportId;
+		ajax({command: 'closehistoricalreport', id: id}).always(function () {
+			// Client-side removal proceeds regardless of network result; this
+			// is convenience GUI state, not a destructive record the user
+			// needs a guaranteed round trip to discard.
+		});
+		delete historicalReports[id];
+		renderTopReportTabs();
+		if (!closingActive) return;
+		var remaining = sortedReports();
+		selectTopTab(remaining.length ? remaining[0].id : 'historical');
+	}
+
+	function activateReportTab(id) {
+		var report = historicalReports[id];
+		if (!report) return;
+		activeReportId = id;
+		ajax({command: 'activatehistoricalreport', id: id});
+		$('#cc-report-landing').hide();
+		$('#cc-report-active').show();
+		if (report.result) {
+			$('#cc-report-empty').hide();
+			renderResults(report.result);
+			restoreOccurrenceState(report);
+			$(document).trigger('cc:historical-results', [report.result, report.graphSeries]);
+			return;
+		}
+		regenerateReport(report);
+	}
+
+	function regenerateReport(report) {
+		$('#cc-status').hide();
+		$('#cc-results').hide();
+		$('#cc-report-empty').hide();
+		$('#cc-report-loading-text').text('Regenerating ' + report.title + '...');
+		$('#cc-report-loading').show();
+		var rangeSource = report.preset === 'custom'
+			? {kind: 'custom', from: report.range_from, to: report.range_to}
+			: window.CCDateRange.preset(report.preset, new Date());
+		var candidate = {
+			kind: rangeSource.kind || report.preset, from: rangeSource.from, to: rangeSource.to,
+			includeTime: !!report.include_time, fromTime: report.from_time || '00:00', toTime: report.to_time || '23:59'
+		};
+		try {
+			var canonical = window.CCDateRange.resolve(candidate, new Date());
+			wizardTargetReportId = report.id;
+			runTargetReportId = report.id;
+			executeRun(report.mode, canonical.start, canonical.end, null, report.engine);
+		} catch (error) {
+			$('#cc-report-loading').hide();
+			$('#cc-report-empty').show();
+			setStatus('Unable to regenerate ' + report.title + ': ' + (error.message || 'invalid saved date range.'), 'error');
+		}
+	}
+
+	function persistReportDefinition(id, definition) {
+		if (!historicalReports[id]) return;
+		ajax($.extend({command: 'updatehistoricalreport', id: id}, definition)).done(function (response) {
+			if (response.status && response.report) {
+				historicalReports[id] = $.extend(historicalReports[id], response.report);
+				renderTopReportTabs();
+			}
+		});
+	}
+
+	function restoreOccurrenceState(report) {
+		Object.keys(report.occurrenceCache || {}).forEach(function (key) {
+			var cached = report.occurrenceCache[key];
+			var parts = key.split(':');
+			var button = $('.cc-occurrence-toggle[data-name-index="' + parts[0] + '"][data-occurrence-index="' + parts[1] + '"]');
+			if (!button.length) return;
+			var detail = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+			if (cached.detail) {
+				detail.data('loaded', true).data('detail', cached.detail).html(renderPeakCalls(cached.detail));
+			}
+			if (cached.expanded) {
+				detail.show();
+				button.attr('aria-expanded', 'true');
+			}
+		});
+	}
+
 	/* ---------- Wizard state machine ---------- */
 
-	function newWizard() {
-		wizardState = {
-			step: 'mode', attempts: 0,
-			mode: null, month: null, year: null,
-			start_date: null, end_date: null,
-			engine: 'original'
-		};
-		$('#cc-engine').val('original');
-		$('#cc-engine-group').hide();
+	function newWizard(reportId) {
+		wizardTargetReportId = reportId || null;
+		var report = reportId ? historicalReports[reportId] : null;
+		wizardState = {mode: report ? report.mode : 'trunk', engine: report ? report.engine : 'original'};
+		$('#cc-engine').val(report ? report.engine : 'original');
+		selectMode(report ? report.mode : 'trunk');
+		$('#cc-engine-group, #cc-wizard-mode-group').show();
 		$('#cc-results').hide();
 		setStatus('', null);
+		updateModeDescription();
+		applyDatePreset(report ? report.preset : 'last7');
 		showWizard();
-		askMode();
+	}
+
+	function updateModeDescription() {
+		var mode = selectedMode();
+		$('.cc-mode-option').removeClass('is-selected');
+		$('input[name="cc-wizard-mode"]:checked').closest('.cc-mode-option').addClass('is-selected');
+		$('#cc-mode-description').text(modeDescriptions[mode] || 'Choose what the report should measure.');
+	}
+
+	function applyDatePreset(kind) {
+		if (kind === 'custom') {
+			guiRange.kind = 'custom';
+			$('#cc-custom-dates').show();
+		} else {
+			guiRange = window.CCDateRange.preset(kind, new Date());
+			guiRange.includeTime = $('#cc-include-time').is(':checked');
+			guiRange.fromTime = $('#cc-time-from').val() || '00:00';
+			guiRange.toTime = $('#cc-time-to').val() || '23:59';
+			$('#cc-custom-dates').hide();
+		}
+		$('.cc-date-preset').removeClass('active').filter('[data-preset="' + kind + '"]').addClass('active');
+		updateDateRangeControls();
+	}
+
+	function updateDateRangeControls() {
+		if (!guiRange) return;
+		$('#cc-date-from').val(guiRange.from);
+		$('#cc-date-to').val(guiRange.to);
+		$('#cc-range-label').text(formatDisplayDate(guiRange.from) + ' - ' + formatDisplayDate(guiRange.to));
+		var today = window.CCDateRange.dateOnly(new Date());
+		$('.cc-range-shift[data-direction="1"]').prop('disabled', guiRange.to >= today);
+		$('#cc-time-controls').toggle($('#cc-include-time').is(':checked'));
+	}
+
+	function readCustomRange() {
+		var from = $('#cc-date-from').val();
+		var to = $('#cc-date-to').val();
+		if (!window.CCDateRange.parseDate(from) || !window.CCDateRange.parseDate(to) || to < from) {
+			showError('Choose a valid From and To date.');
+			return false;
+		}
+		guiRange.from = from;
+		guiRange.to = to;
+		updateDateRangeControls();
+		clearError();
+		return true;
+	}
+
+	function formatDisplayDate(value) {
+		var date = window.CCDateRange.parseDate(value);
+		return date ? date.toLocaleDateString([], {day: 'numeric', month: 'short', year: 'numeric'}) : value;
 	}
 
 	function askMode() {
@@ -549,9 +978,9 @@ window._ccLoaded = true;
 		wizardState.attempts = 0;
 		$('#cc-wizard-value').closest('.form-group').hide();
 		$('#cc-wizard-mode-group').show();
-		$('#cc-wizard-mode').val('trunk');
+		selectMode('trunk');
 		clearError();
-		setTimeout(function () { $('#cc-wizard-mode').focus(); }, 100);
+		setTimeout(function () { $('#cc-mode-trunk').focus(); }, 100);
 	}
 
 	function askMonth() {
@@ -595,44 +1024,19 @@ window._ccLoaded = true;
 	}
 
 	function submitStep() {
-		var step = wizardState.step;
-		var value = (step === 'mode') ? $('#cc-wizard-mode').val() : $('#cc-wizard-value').val();
-
-		// Month prompt shortcuts handled client-side. The server would also
-		// catch these via the wizardstep endpoint, but resolving here avoids
-		// a round-trip for the common case.
-		if (step === 'month') {
-			var trimmed = (value || '').trim().toLowerCase();
-			if (trimmed === '') {
-				askStartDate();
-				return;
-			}
-			if (/^(t|to|tod|toda|today)$/.test(trimmed)) {
-				hideWizard();
-				resolveAndRun({kind: 'today'});
-				return;
-			}
-			if (/^(y|ye|yes|yest|yeste|yester|yesterd|yesterda|yesterday)$/.test(trimmed)) {
-				hideWizard();
-				resolveAndRun({kind: 'yesterday'});
-				return;
-			}
+		if (!guiRange || (guiRange.kind === 'custom' && !readCustomRange())) return;
+		guiRange.includeTime = $('#cc-include-time').is(':checked');
+		guiRange.fromTime = $('#cc-time-from').val() || '00:00';
+		guiRange.toTime = $('#cc-time-to').val() || '23:59';
+		try {
+			var canonical = window.CCDateRange.resolve(guiRange, new Date());
+			wizardState.mode = selectedMode();
+			hideWizard();
+			runTargetReportId = wizardTargetReportId;
+			executeRun(wizardState.mode, canonical.start, canonical.end);
+		} catch (error) {
+			showError(error.message || 'Choose a valid date range.');
 		}
-
-		ajax({command: 'wizardstep', step: step, value: value}).done(function (resp) {
-			if (resp.status) {
-				handleStepSuccess(resp);
-				return;
-			}
-			wizardState.attempts++;
-			if (wizardState.attempts >= MAX_ATTEMPTS) {
-				tooManyAttempts();
-				return;
-			}
-			showError(resp.message, wizardState.attempts);
-		}).fail(function () {
-			showError(randomOops());
-		});
 	}
 
 	function handleStepSuccess(resp) {
@@ -739,8 +1143,9 @@ window._ccLoaded = true;
 		return year + '-' + pad(m) + '-' + pad(d.getDate());
 	}
 
-	function executeRun(mode, start, end, extraParams) {
-		var selectedEngine = $('#cc-engine').val() || 'original';
+	function executeRun(mode, start, end, extraParams, engineOverride) {
+		var targetReportId = runTargetReportId;
+		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
 		if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
@@ -757,21 +1162,52 @@ window._ccLoaded = true;
 		}
 		ajax(params).done(function (resp) {
 			if (resp.overrun_warning) {
-				showOverrunModal(resp, mode, start, end, extraParams);
+				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine);
 				return;
 			}
+			$('#cc-report-loading').hide();
 			if (!resp.status) {
 				setStatus(resp.message || 'Failed to run.', 'error');
 				return;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
-			renderResults(resp.results);
+			applyReportResult(targetReportId, resp.results, selectedEngine);
 		}).fail(function () {
+			$('#cc-report-loading').hide();
 			setStatus(randomOops(), 'error');
 		});
 	}
 
-	function showOverrunModal(resp, mode, start, end, extraParams) {
+	/**
+	 * Attaches a freshly calculated result to the report instance that
+	 * requested it (captured before the AJAX round trip), persists the
+	 * definition that produced it, and only repaints the shared DOM surface
+	 * if that report is still the one visibly active.
+	 */
+	function applyReportResult(targetReportId, results, engineUsed) {
+		if (targetReportId && historicalReports[targetReportId]) {
+			var report = historicalReports[targetReportId];
+			report.result = results;
+			report.hasRun = true;
+			report.occurrenceCache = {};
+			report.graphSeries = null;
+			report.mode = results.mode === 'demo' ? report.mode : results.mode;
+			report.engine = engineUsed;
+			persistReportDefinition(targetReportId, {
+				mode: report.mode, engine: report.engine, preset: report.preset,
+				range_from: report.range_from, range_to: report.range_to,
+				include_time: report.include_time ? '1' : '', from_time: report.from_time, to_time: report.to_time,
+				filter: report.filter || ''
+			});
+		}
+		if (targetReportId === null || targetReportId === activeReportId) {
+			historicalGraphTargetReportId = targetReportId;
+			renderResults(results);
+			$(document).trigger('cc:historical-results', [results, null]);
+		}
+	}
+
+	function showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine) {
 		var est = formatTime(resp.estimated_remaining);
 		var left = formatTime(resp.runtime_remaining);
 		$('#cc-overrun-message').text(
@@ -787,19 +1223,21 @@ window._ccLoaded = true;
 			setStatus('Continuing despite estimated overrun...', 'running');
 			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
 			if (mode !== 'demo') {
-				params.engine = $('#cc-engine').val() || 'original';
+				params.engine = selectedEngine || $('#cc-engine').val() || 'original';
 			}
 			if (extraParams) {
 				$.extend(params, extraParams);
 			}
 			ajax(params).done(function (resp2) {
+				$('#cc-report-loading').hide();
 				if (!resp2.status) {
 					setStatus(resp2.message || 'Failed to run.', 'error');
 					return;
 				}
 				setStatus('Count complete. ' + resp2.results.rows_processed + ' rows processed.', 'success');
-				renderResults(resp2.results);
+				applyReportResult(targetReportId, resp2.results, params.engine || 'original');
 			}).fail(function () {
+				$('#cc-report-loading').hide();
 				setStatus(randomOops(), 'error');
 			});
 		});
@@ -846,7 +1284,8 @@ window._ccLoaded = true;
 		if (!finalMode) return;
 		var params = {
 			module: 'concurrencycount', command: 'download',
-			mode: finalMode, start_date: finalStart, end_date: finalEnd
+			mode: finalMode, start_date: finalStart, end_date: finalEnd,
+			token: $('.concurrencycount').attr('data-csrf-token') || ''
 		};
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
@@ -866,6 +1305,7 @@ window._ccLoaded = true;
 		var qs = $.param({
 			module: 'concurrencycount', command: 'previewfixture',
 			mode: 'demo', start_date: finalStart, end_date: finalEnd,
+			token: $('.concurrencycount').attr('data-csrf-token') || '',
 			demo_report: finalDemoReport || 'extension',
 			demo_size: finalDemoSize || 'light',
 			demo_rows: $('#cc-results-body').data('demoRows') || '',
@@ -916,8 +1356,21 @@ window._ccLoaded = true;
 		// .off().on() everywhere so re-running this script (or anything that
 		// re-runs DOM-ready handlers) doesn't double-bind clicks. Lifted from
 		// Frogman's defensive style.
-		$('#cc-launch').off('click').on('click', newWizard);
+		$('#cc-launch').off('click').on('click', createReportTab);
+		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
+			if ($(e.target).closest('.cc-report-tab-close').length) return;
+			selectTopTab($(this).data('target'));
+		}).off('click.ccTabsClose', '.cc-report-tab-close').on('click.ccTabsClose', '.cc-report-tab-close', function (e) {
+			e.stopPropagation();
+			closeReportTab($(this).data('report-id'));
+		});
+		$(document).off('cc:historical-graph-loaded').on('cc:historical-graph-loaded', function (event, series) {
+			if (historicalGraphTargetReportId && historicalReports[historicalGraphTargetReportId]) {
+				historicalReports[historicalGraphTargetReportId].graphSeries = series;
+			}
+		});
 		$('.cc-demo-run-mode').off('click').on('click', function () {
 			runDemo($(this).data('report'));
 		});
@@ -931,6 +1384,20 @@ window._ccLoaded = true;
 			stirDemoSeed(Math.floor(touch.pageX - off.left), Math.floor(touch.pageY - off.top));
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
+		$('.cc-date-preset').off('click').on('click', function () {
+			applyDatePreset($(this).data('preset'));
+		});
+		$('.cc-range-shift').off('click').on('click', function () {
+			if (guiRange && (guiRange.kind !== 'custom' || readCustomRange())) {
+				guiRange = window.CCDateRange.shift(guiRange, parseInt($(this).data('direction'), 10), new Date());
+				updateDateRangeControls();
+			}
+		});
+		$('#cc-date-from, #cc-date-to').off('change').on('change', readCustomRange);
+		$('#cc-include-time').off('change').on('change', function () {
+			if (guiRange) guiRange.includeTime = $(this).is(':checked');
+			updateDateRangeControls();
+		});
 		$('#cc-wizard-cancel').off('click').on('click', function () {
 			setStatus('Session aborted.', 'warning');
 		});
@@ -945,6 +1412,16 @@ window._ccLoaded = true;
 		$('#cc-download-cdr').off('click').on('click', onDownloadCdr);
 		$('#cc-email-toggle').off('click').on('click', onEmailToggle);
 		$('#cc-email-send').off('click').on('click', onEmailSend);
+		$('#cc-results-body').off('click', '.cc-show-occurrences').on('click', '.cc-show-occurrences', function () {
+			var nameIndex = parseInt($(this).data('name-index'), 10);
+			$('.cc-occurrence-section[data-name-index="' + nameIndex + '"]').toggle();
+		}).off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
+			loadOccurrence($(this));
+		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
+			openCdrSearch($(this));
+		});
+
+		initHistoricalReports();
 	});
 
 })(window.jQuery);

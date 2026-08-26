@@ -1,14 +1,14 @@
-# Concurrency Count for FreePBX 17
+# Concurrency Count for FreePBX/PBXact 16 and 17
 
-FreePBX/PBXact 17 only. DO NOT install on FreePBX/PBXact 16 and below.
+Supports FreePBX/PBXact 16 and 17.
 
-Maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
+Report peak PJSIP trunk use, overlapping CDRs assigned to individual extensions, or PBX-wide numeric extension-leg activity across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
 
-This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface uses a wizard modal for trunk, extension, and group reports, with the same shorthand date entry (today, yesterday, month names, Y/YY/YYYY years), the same three-attempt retry behaviour, and the same runtime-overrun warning. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
+This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface provides presets, native custom date controls, optional time selection, and previous/next range navigation. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
 
 ## Requirements
 
-- FreePBX 17 or later
+- FreePBX 16 or 17
 - PJSIP channel driver (no chan_sip support)
 - Asterisk CDR enabled and writing to `asteriskcdrdb`
 
@@ -59,11 +59,12 @@ cd /var/www/html/admin/modules && fwconsole ma uninstall concurrencycount && rm 
 
 ## Architecture
 
-Concurrency Count has three main paths:
+Concurrency Count has four main paths:
 
 1. **Normal report path** fetches answered PJSIP CDR rows from `asteriskcdrdb`, then passes the already-fetched rows to the selected calculation engine.
 2. **Engine path** calculates the same result shape for every engine. `Original` is the reference implementation and default. `Sweep` is experimental and exists to compare a faster event-based strategy against the reference behaviour.
 3. **Demo path** generates deterministic synthetic rows, inserts them with a unique `CCDEMO*` accountcode, runs the normal CDR-backed report query against those rows, compares the actual result against an independent expected calculation, and removes the rows.
+4. **Trunk detail path** runs after the engine. `PeakDetailAnalyser` receives only the same compact `calldate`, `duration`, and selected trunk-channel rows as the engines and groups the trunk's maximum into continuous occurrences. Full CDR fields are fetched by authenticated AJAX only when an occurrence is expanded.
 
 The expected demo calculation deliberately does not share engine code. That keeps the accuracy check useful: if an engine is wrong, the demo harness can catch it instead of repeating the same mistake.
 
@@ -71,6 +72,7 @@ The expected demo calculation deliberately does not share engine code. That keep
 
 - Normal trunk, extension, and group reports are read-only against CDR.
 - AJAX commands use a fixed command allowlist rather than arbitrary method dispatch.
+- Every AJAX command requires the module CSRF token, an authenticated FreePBX session, and `allowremote = false`.
 - User-entered modes, dates, engines, demo sizes, seeds, row counts, and email addresses are validated before use.
 - SQL uses prepared statements for user-supplied values.
 - The default engine is always `original`; experimental engines must be selected explicitly.
@@ -78,30 +80,200 @@ The expected demo calculation deliberately does not share engine code. That keep
 
 Current limitation: demo mode is not yet protected by a dedicated FreePBX permission or feature flag. Treat it as an administrator/test-PBX workflow until that gate exists.
 
-## Modes
+## What concurrent means
 
-**Trunk:** maximum concurrent calls per PJSIP trunk. Trunk names must contain alphabetic characters; numeric trunk names are counted as extensions.
+Concurrency Count works from completed CDR records rather than live Asterisk channels. For an included CDR, the occupied interval runs from `calldate` through `calldate + duration`, including both boundary seconds. If one included call ends at exactly the second another begins, they overlap for that second.
 
-**Extension:** maximum concurrent calls per PJSIP extension.
+Only CDRs with an `ANSWERED` disposition and a start time inside the selected range are included. A call that starts before the range is not included even if it continues into the range. Never-answered calls are excluded, but an answered CDR is counted using its full recorded duration, not `billsec`; setup, ringing or queue time contained in that ultimately answered CDR can therefore contribute.
 
-**Group:** overall maximum concurrent calls across all extensions, counting both legs of each call.
+## Reporting modes
 
-**Demo:** built-in synthetic fixture. It temporarily writes tagged rows to the live CDR table, runs the normal CDR-backed report path against those rows, verifies the result, then removes them.
+### Trunk Concurrency
+
+**What it measures:** Trunks reports the busiest simultaneous use of each discovered non-numeric PJSIP trunk endpoint. It counts matching trunk legs from both `channel` and `dstchannel`. A peak of 4 for a trunk means that, at the busiest instant in the selected period, four included CDR legs were occupying that trunk simultaneously. It is a trunk-capacity measure, not necessarily four answered conversations at that instant.
+
+**How calls are identified:** The module discovers PJSIP endpoints from Asterisk and treats non-numeric endpoint names as trunks. It then accepts only CDR legs whose channel name exactly belongs to one of those discovered trunks. Purely numeric trunk names are treated as extensions by the established matching rules and should be avoided. If the same trunk appears on both sides of one CDR, both matching legs can count.
+
+**What concurrent means here:** Matching legs for the same trunk have overlapping inclusive CDR intervals. Trunks are evaluated separately; activity on another trunk does not add to this trunk's peak.
+
+**What the result means:** The table gives a separate maximum for every discovered trunk, including trunks with no matching calls. The global maximum is the largest of those per-trunk peaks. For example, suppose a trunk carries three inbound calls and two outbound calls during a day. At 14:32, two inbound and two outbound trunk legs overlap, while the fifth call occurs later. That trunk's peak is 4.
+
+**Peak drill-down:** Each trunk has its own peak occurrences. One uninterrupted period at the trunk's maximum is one occurrence, not one row per second. If the peak is reached, drops, and is reached again, those are separate occurrences. Expanding an occurrence lazily loads the CDRs whose trunk legs overlap it. Direction is based on the actual trunk-leg position: trunk in `channel` is inbound, trunk in `dstchannel` is outbound, and ambiguous placement is shown as unknown rather than guessed from telephone numbers.
+
+A peak of 4 always means four trunk legs were active at each instant represented as peak. The complete occurrence can nevertheless show five distinct CDR records: one call may end while another starts at the same boundary second, replacing it without the concurrency falling below 4. This is participation across the continuous occurrence, not a claim that all five were active together.
+
+Where a CDR proves a FreePBX object, the drill-down links to its native administration page. **View in CDR Reports** opens the native CDR report narrowed to the call minute, caller number, destination and DID. Unresolved values remain ordinary text.
+
+### Extension Concurrency
+
+**What it measures:** Extensions reports a separate maximum for each numeric PJSIP extension selected from CDR data. A peak of 2 for extension 203 means two included CDR records assigned to extension 203 overlap at their busiest instant.
+
+**How calls are identified:** Each answered CDR contributes to at most one extension. The destination PJSIP leg is preferred when it is numeric; otherwise the source PJSIP leg is used when numeric. This allows inbound, outbound and internal CDRs to contribute, but an internal CDR with numeric extensions at both ends is assigned only to its destination extension in this mode. The established query also excludes CDR destinations beginning with `1` or `9`.
+
+**What concurrent means here:** CDR intervals assigned to the same extension overlap under the shared inclusive rule. Records assigned to different extensions are not added together in the per-extension peak.
+
+**What the result means:** The table reports each selected extension separately; the global maximum is the highest peak reached by any one extension, not the total across the PBX. For example, extension 203 may have one inbound CDR and one outbound CDR whose recorded intervals overlap for 20 seconds. Extension 203 then has a peak of 2. Extension mode does not currently provide the trunk occurrence/CDR drill-down.
+
+### Group Concurrency
+
+**What it measures:** The internal mode name is `group`, but it does not mean a configured FreePBX Ring Group, queue, department or chosen member list. It is a PBX-wide total of all numeric PJSIP extension legs found in the selected answered CDRs.
+
+**How calls are identified:** Every numeric PJSIP side in `channel` and `dstchannel` contributes independently. One CDR can therefore add two to the total when both sides are numeric extensions, as with an internal call. There is no configurable membership and no per-member result in this mode. To limit anomalously long data, each CDR contributes for at most 24 hours.
+
+**What concurrent means here:** All overlapping numeric PJSIP legs are added into one PBX-wide total using the shared inclusive boundary rule. This is the only current mode that aggregates different extensions into one peak.
+
+**What the result means:** The single reported maximum is the largest number of numeric extension legs active across the PBX at the same instant. Peak time ranges show when that overall maximum was sustained. For example, an internal call from 201 to 202 contributes two legs; at the same time extension 203 is on an external call and contributes one leg. Group Concurrency is 3, even though there are only two CDR conversations. This mode does not currently provide contributing-call drill-down.
+
+### Trunk capacity versus overall extension activity
+
+Trunk Concurrency and Group Concurrency are different views of activity and should not be added together. An inbound call may contribute a trunk leg to the selected trunk's external-capacity result and a numeric PJSIP extension leg to the PBX-wide extension-side result. Trunk mode asks how much external SIP capacity was in use; Group mode asks how much numeric extension-side activity was occurring. The exact CDR topology determines which legs appear in each view.
+
+### Demo and engine comparison
+
+Demo is an accuracy and performance test, not a fourth live reporting scope. It creates isolated synthetic CDRs, runs the chosen Trunk, Extension or Group-total calculation through the normal CDR path, compares the result with an independently calculated expectation, and removes the synthetic rows. In the GUI, selecting more than one demo engine enables **Compare Engines**, which shows accuracy, wall time, peak memory and throughput for each selected engine. Comparison does not change what the selected reporting mode measures.
 
 ## Engines
 
-**Original** is the default and recommended engine. It preserves the original per-second occupancy calculation used by the bash tool.
+Engines are calculation strategies, not reporting modes. Choosing an engine does not change which CDRs Trunk, Extension or Group mode measures or what its peak means.
 
-**Sweep** is experimental. It calculates concurrency from call start/end events rather than walking every occupied second. It is intended to be faster on large demo fixtures, but should be treated as experimental unless its demo accuracy check passes.
+**Original** is the default, recommended reference implementation. It walks every included second of every selected CDR leg. Administrators should normally leave Original selected because it is the established behaviour against which alternatives are checked.
 
-## Wizard flow (mirrors the CLI)
+**Sweep** is experimental. It processes start and end events instead of visiting every occupied second, while preserving the same inclusive boundaries and intended result. It can be faster and use less memory, but should be treated as experimental and checked through Demo comparison before operational use.
 
-1. **Mode.** Accepts trunks/extensions/group, plus abbreviations (t, ext, g, etc.). Demo runs use the separate **Run Demo** button.
-2. **Date range.** Type a month name, `today`, `yesterday`, or leave blank for a custom range.
-3a. **Year** if a month was given. Accepts YYYY, YY, or Y.
-3b. **Start date** then **end date** if blank was given. Each accepts YYYY-MM-DD HH:MM:SS, YYYY-MM-DD, YYYY-MM, YYYY, YY, Y, or blank.
+## Live Command Centre
 
-Three attempts per step before the session aborts. If estimated runtime exceeds 3600 seconds, a warning modal asks whether to continue.
+The Live Command Centre is a separate current-state view backed by Asterisk Manager Interface channel data. It does not derive live values from CDRs and does not store browser samples as historical records.
+
+The **Live Command Centre** / **Historical Reports** controls at the top of the page are workspace tabs, not enable/disable switches. Selecting one only changes which view is shown and whether the browser polls for live updates; it has no effect on backend AMI monitoring, threshold alerts, or the supervised PM2 worker, which continue running regardless of which tab is open. There is currently no separate "live monitoring enabled/disabled" setting — the only persistent settings are the threshold and alert-notification switches described below.
+
+**Overall Live Concurrency** counts active PJSIP call legs which Concurrency Count can reliably attribute to something it monitors: every current `PJSIP/<trunk>-<channel-id>` channel matching a configured trunk, plus every current numeric `PJSIP/<extension>-<channel-id>` channel. It is leg-based, consistent with how Trunk Concurrency and historical Group counting already work:
+
+- a call using only a monitored trunk (no concurrent extension leg) counts as **1**;
+- an inbound or outbound call with both a trunk leg and an extension leg counts as **2**;
+- an internal call between two extensions counts as **2** (both extension legs);
+- Local channels, other non-PJSIP technologies, and PJSIP endpoints which are neither a configured trunk nor a numeric extension are excluded and never inflate the total.
+
+It is not a total of every Asterisk channel — only monitored PJSIP trunk and extension legs are included.
+
+**Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
+
+Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to the new Live "Overall Live Concurrency" metric, which deliberately includes monitored trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+
+"Recent peak" shown under each Live metric is a rolling maximum kept only in the current browser session's in-memory series (the same series drawn on that metric's chart); it is not the backend threshold-episode peak and resets when the page is reloaded. A value recorded for a single browser sample can appear as a very narrow spike on the chart rather than a visibly sustained rise.
+
+The browser refresh interval can be 1, 5, 10, 15, 30 or 60 seconds, with 5 seconds as the default. Requests never overlap and pause while the tab is hidden. The 1-second option is labelled aggressive and still requires the live-PBX load validation listed below. Browser refresh does not control unattended alerts.
+
+## Unattended threshold alerts
+
+Alerts are evaluated by one persistent PHP worker supervised by the standard FreePBX Process Management (`pm2`) module. This follows the same PM2 and AMI event-loop pattern used by FreePBX Core on releases 16 and 17.
+
+The worker bootstraps FreePBX once, keeps one AMI connection open, and reacts to `Newchannel`, `Newstate`, `Hangup`, `Rename` and `Masquerade` lifecycle events. Relevant events trigger an immediate full channel reconciliation. A full reconciliation also runs every 5 seconds to protect against missed or reordered events. Every snapshot uses a unique AMI ActionID and is accepted only after its matching `CoreShowChannelsComplete`; incomplete or interrupted responses are unavailable, never an empty PBX. Detection is normally limited by AMI event delivery and otherwise by the approximately 5-second reconciliation interval. It does not launch a new `fwconsole` process every few seconds.
+
+PM2 supervises two workers: the AMI event/reconciliation worker and a separate mail-delivery worker. It starts them at module installation and after Asterisk starts, stops them before Asterisk stops, restarts them after process failure, and provides status/restart operations in both GUI and CLI. Installation removes the obsolete once-per-minute cron line if it exists from an earlier development build. Monitor health is degraded when PM2 is online but no complete successful AMI snapshot has been recorded recently.
+
+Threshold comparison remains `current >= threshold`; zero disables that threshold. Master alert enablement, per-scope alert enablement, visual thresholds and recovery notification preference remain separate settings. Alert state and a stable notification outbox record are persisted atomically before delivery, suppressing duplicates during a sustained crossing and after worker restart while tracking the episode peak. The AMI worker never blocks on SMTP. The mail worker retries failures with bounded exponential backoff.
+
+Email delivery is **at least once**. Stable event IDs prevent duplicate queue records, but SMTP/local-mailer acceptance cannot be made atomic with the module database. A process failure in the narrow interval after mail acceptance but before outbox removal can result in a duplicate delivery; it cannot cause the threshold episode itself to be forgotten.
+
+Version 1 does not add hidden hysteresis: dropping below the threshold completes an episode, and a later `>=` crossing starts a new one. Rapid oscillation can therefore produce one alert/recovery pair per genuine episode, but never repeated alerts while a scope remains continuously above threshold.
+
+AMI loss is never interpreted as zero concurrency. The worker retains persisted alert state, sends no false recovery, reconnects with exponential backoff up to 30 seconds, reseeds from a successful snapshot, and resumes evaluation only after live data is available again.
+
+## GUI and CLI parity
+
+The GUI and `fwconsole concurrencycount` call the same live snapshot, settings, validation, threshold and monitor lifecycle methods. Existing historical CLI syntax remains valid. New operations are additive:
+
+| GUI capability | CLI equivalent |
+| --- | --- |
+| Current live snapshot and active channels | `fwconsole concurrencycount --live` |
+| Machine-readable live snapshot | `fwconsole concurrencycount --live --json` |
+| View settings and thresholds | `fwconsole concurrencycount --settings` |
+| Browser refresh interval | `fwconsole concurrencycount --set-refresh=5` |
+| Overall threshold value | `fwconsole concurrencycount --set-overall-threshold=30` |
+| Overall visual threshold enabled | `fwconsole concurrencycount --overall-threshold=on` |
+| Trunk threshold value | `fwconsole concurrencycount --set-trunk-threshold='gamma=8'` |
+| Trunk visual threshold enabled | `fwconsole concurrencycount --trunk-threshold='gamma=on'` |
+| Master alerts enabled | `fwconsole concurrencycount --alerts=on` |
+| Overall alert enabled | `fwconsole concurrencycount --overall-alert=on` |
+| Per-trunk alert enabled | `fwconsole concurrencycount --trunk-alert='gamma=on'` |
+| Recovery notifications | `fwconsole concurrencycount --recovery=on` |
+| Alert email | `fwconsole concurrencycount --alert-email=admin@example.com` |
+| Alert monitor status | `fwconsole concurrencycount --monitor-status` |
+| Restart alert monitor | `fwconsole concurrencycount --restart-monitor` |
+| One manual threshold evaluation for diagnostics | `fwconsole concurrencycount --monitor` |
+| Historical graph data | `fwconsole concurrencycount --historical-graph=trunk --graph-trunk=gamma --start='...' --end='...' --json` |
+| List persisted historical report tabs | `fwconsole concurrencycount --list-historical-reports` |
+| Show one persisted historical report tab | `fwconsole concurrencycount --show-historical-report=2` |
+| Close/delete one persisted historical report tab | `fwconsole concurrencycount --delete-historical-report=2` |
+
+Ordinary live CLI queries take one snapshot and exit. They do not poll continuously and do not replace the unattended PM2 monitor.
+
+## GUI report flow
+
+1. Choose Trunk Concurrency, Extension Concurrency or Group Concurrency, then choose an engine. Demo runs use the separate **Run Demo** button.
+2. Choose a range preset:
+	- **Today:** midnight through the current time.
+	- **Yesterday:** the complete previous calendar day.
+	- **Last 7 days:** today and the previous six calendar days.
+	- **Last 30 days:** today and the previous 29 calendar days.
+	- **This month:** the first day of the current month through now.
+	- **Custom:** user-selected From and To dates.
+3. Custom exposes native From/To date inputs. **Include time** optionally exposes From/To time inputs.
+4. Previous/next moves by the displayed inclusive day span. Month ranges move by calendar month.
+5. The browser resolves these controls to canonical `YYYY-MM-DD HH:MM:SS` start/end values before calling the existing report path. Date-only ranges start at `00:00:00`; past dates end at `23:59:59`; today ends at the current time.
+
+The three reporting questions are presented as native radio choices with concise scope, use and peak examples. Trunk Concurrency remains the first and default choice because external capacity is the clearest operational starting point and Trunk mode provides the richest peak occurrence and CDR drill-down. Original remains the default calculation engine independently of that reporting choice.
+
+If estimated runtime exceeds 3600 seconds, a warning modal asks whether to continue.
+
+## Historical report tabs
+
+Historical Reports supports up to five open report tabs (Historic Report 1-5) inside the workspace, each with its own mode, engine, date preset/range, Include time setting and generated result. Clicking **Start Historical Report** allocates the lowest free slot number, opens the shared wizard for that new tab, and running the wizard renders into that tab only; other tabs are unaffected. Closing a tab (its `x` button) removes only that report; the freed slot number is reused by the next new report rather than counting upward forever. A sixth attempt shows "Maximum of 5 historical reports can be open at once." and does not replace an existing tab; the limit is enforced both in the GUI and, atomically, in the backend, so a double-click or a direct AJAX call cannot exceed it either.
+
+**Persistence.** Each tab's *definition* - mode, engine, date preset identity, resolved/custom dates, Include time, and any selected trunk/extension filter - is saved in Concurrency Count's existing settings table (the same key/value store used for Live thresholds), not in browser storage, so tabs survive reload, logout and FreePBX navigation. CDR results and graph points are never persisted: reopening the module recreates the tab headers immediately and regenerates each report's data on demand (the previously active tab first, others when you switch to them), so a page load never fires five CDR queries at once. A relative preset such as **Last 7 days** is stored as that preset identity and is re-resolved against the current date on every restore; **Custom** stores and reuses its exact chosen dates. If a saved report's trunk/extension filter no longer matches current configuration it is marked in its tab rather than silently retargeted or discarded.
+
+**Demo** is unaffected by report tabs: it remains a synthetic accuracy/performance check that renders into the same shared results view but never reads or writes a saved report tab's state, so it can never overwrite one of your open reports.
+
+Saved report tabs are inspectable and manageable from the CLI: `--list-historical-reports`, `--show-historical-report=<number-or-id>` and `--delete-historical-report=<number-or-id>` (numbers 1-5, or the stable internal id). These are additive management operations; they do not run a report or replace existing CLI syntax.
+
+
+
+For each trunk, the initial result contains only peak occurrence metadata. An occurrence is one continuous period where concurrency equals that trunk's maximum. Calls occupy the inclusive interval from `calldate` through `calldate + duration`, matching both existing engines; removal occurs at the following second. A call ending exactly when another begins therefore overlaps at that timestamp.
+
+Expanding an occurrence reruns a bounded, prepared CDR query for the selected trunk and report range, reconstructs the occurrence server-side, and rejects the request if its boundaries are no longer present. Direction comes from the actual selected trunk leg: trunk in `channel` is inbound, trunk in `dstchannel` is outbound, and ambiguous placement is shown as unknown. A continuous peak can include more distinct CDRs than the instantaneous peak when one call replaces another without the count dropping.
+
+The call path is deliberately conservative. CDR alone proves the selected trunk leg, DID, source/destination, and directly recorded opposite PJSIP extension. Concurrency Count asks FreePBX's installed `*_getdestinfo` providers for labels and native `edit_url` values and accepts only local `config.php` links. This generic provider layer supports installed destination families including extensions/users, trunks, inbound routes, outbound routes, ring groups, queues, IVRs, announcements, time conditions/groups, conferences, Follow Me, call flow control, miscellaneous/custom applications and destinations, voicemail, and termination destinations when a proven destination string is available. Unresolved or malformed values remain plain text.
+
+This version does not use CEL and does not infer a historic IVR/queue/announcement chain from the PBX's current configuration. CDR does not reliably prove those intermediate stages. Optional CEL enrichment remains a future enhancement and Concurrency Count continues to work from CDR alone.
+
+**View in CDR Reports** uses the native report form shared by FreePBX CDR releases 16 and 17. There is no supported common single-CDR route: `action=cel_show&uid=...` is CEL-specific and only available when CEL is enabled. The module therefore POSTs `need_html=true`, the exact call minute, and exact standard caller-number/destination/DID filters to `config.php?display=cdr`. It does not invent a `uniqueid` query parameter.
+
+## Reporting limitations
+
+- Reports are reconstructed from stored CDR data, not a live channel counter. Missing, incomplete or unusual CDR records can change the result.
+- Only answered CDRs whose start time is inside the requested range are selected. A call already in progress at the range start is not included.
+- The module uses recorded `calldate` and `duration`. It does not claim that every counted second was billable or connected speech.
+- CDR alone does not prove every intermediate IVR, announcement, queue or routing stage. The module shows only observed objects it can identify reliably and does not reconstruct a historical path from today's configuration.
+- Native FreePBX links are emitted only when the destination provider resolves a known local object and safe administration route. Otherwise the value remains plain text.
+- Trunk direction can be **unknown** when the CDR leg placement is ambiguous.
+- CEL is neither required nor used. It may be considered later as optional enrichment, but current reports continue to work from CDR alone.
+- Extension and Group-total modes do not currently provide the peak CDR drill-down available for trunks.
+
+## Required live-PBX validation
+
+Before production use, perform these checks on both FreePBX 16 and 17:
+
+1. Confirm `fwconsole concurrencycount --monitor-status` reports `ONLINE` after install, `fwconsole restart`, Asterisk restart and module upgrade.
+2. With the browser closed, hold an overall or trunk threshold above its boundary for less than one minute, then for less than 30 seconds. Confirm one alert is accepted by the local mailer.
+3. Hold a threshold above for several minutes. Confirm only one initial alert, correct peak tracking and one optional recovery.
+4. Restart the monitor while still above threshold. Confirm persisted state prevents a duplicate initial alert.
+5. Interrupt AMI or restart Asterisk while an alert episode is active. Confirm no false recovery, then confirm normal reconciliation after reconnect.
+6. Exercise multiple trunks, similarly named trunks and simultaneous overall/trunk threshold crossings.
+7. Verify idle, inbound, outbound, mixed inbound/outbound and internal extension calls against `fwconsole concurrencycount --live --json` and the GUI.
+8. Leave the dashboard open for an extended period and verify bounded browser history, stale timestamps, hidden-tab pause and clean resume.
+9. Test 1-second browser polling with idle, light and heavy channel counts, several trunks, one dashboard, and multiple tabs. Observe AJAX/AMI latency, PHP and Asterisk CPU, request overlap and browser responsiveness. Retain it only if operational load is acceptable.
+10. Verify alert email content and local-mailer acceptance; do not treat that as proof of external delivery.
+11. Verify desktop, tablet and approximately 320px layouts.
 
 ## Output
 
@@ -124,7 +296,7 @@ fwconsole concurrencycount --mode=demo --engine=sweep
 fwconsole concurrencycount --mode=demo --compare=original,sweep
 ```
 
-Same mode abbreviations and shorthand dates as the wizard.
+The CLI keeps its existing option names, accepted date syntax, textual output, engine behavior, and exit behavior. GUI date controls do not change CLI parsing, and drill-down output is not added to fwconsole.
 
 ## Demo mode
 
@@ -145,11 +317,7 @@ These are intentionally not hidden:
 - Add a dedicated FreePBX permission or module setting that must be enabled before demo mode can write CDR rows.
 - Add an orphan cleanup command for old `CCDEMO*` rows, with a dry-run preview.
 - Consider wrapping demo insert/query/cleanup in a transaction if it proves safe with the deployed CDR engine and FreePBX environment.
-- Add integration tests on a real FreePBX 17 system for email delivery, CDR schema variation, and module-page permissions.
-
-## AI disclosure
-
-This module has been developed with AI assistance for code generation, review, testing, and documentation. Changes should still be reviewed, tested, and accepted by a human maintainer before deployment.
+- Add integration tests on real FreePBX 16 and 17 systems for email delivery, CDR schema variation, and module-page permissions.
 
 ## Tests
 
@@ -157,6 +325,10 @@ The engine parity harness can be run without a FreePBX install:
 
 ```
 php -d xdebug.mode=off tests/EngineParityTest.php
+php tests/PeakDetailAnalyserTest.php
+php tests/FreepbxEntityResolverTest.php
+php tests/concurrencycount_console_contract.php
+node tests/DateRangeTest.js
 ```
 
 If PHPUnit is available, run the full test directory:
@@ -167,7 +339,7 @@ If PHPUnit is available, run the full test directory:
 
 ## Notes
 
-Only answered calls (`disposition = 'ANSWERED'`) are counted. A ringing call is not a concurrent call.
+Only CDRs with `disposition = 'ANSWERED'` are selected. Their full recorded `duration` is counted from `calldate`, so setup, ringing or queue time inside an ultimately answered CDR may contribute; a never-answered CDR does not.
 
 The standalone CLI tool (`concurrency-count` via IN1CLICK) remains the recommended option for SSH-based use. It has interactive prompts at the terminal, real-time progress reporting, and pause-on-overrun confirmation.
 
@@ -175,6 +347,18 @@ The standalone CLI tool (`concurrency-count` via IN1CLICK) remains the recommend
 
 GPLv3+. See LICENSE.
 
+## AI-Assisted Contributions and Disclosure
+
+This module has been developed with AI assistance for code generation, review, testing, and documentation. From 26 August 2026, generative AI assistance must be disclosed in every commit containing AI-assisted changes:
+
+```text
+Assisted-by: AGENT_NAME:MODEL_VERSION
+```
+
+For example: `Assisted-by: GitHub-Copilot:gpt-5.6-sol`
+
+The human contributor remains solely responsible for the contribution. AI tools must not be listed as co-authors.
+
 ## Author
 
-@kierknoby, Kieran Byrne // FreePBX UK
+[@kierknoby](https://github.com/kierknoby), Kieran Knowles-Byrne // [FreePBX UK](https://github.com/freepbxUK)

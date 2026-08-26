@@ -32,7 +32,28 @@ class Concurrencycount extends Command {
 			->addOption('demo-seed', null, InputOption::VALUE_REQUIRED, 'Demo random seed', '0')
 			->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Engine: original (default), sweep, ...', 'original')
 			->addOption('compare', null, InputOption::VALUE_REQUIRED, 'Demo mode only: comma-separated engine list to compare')
-			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text');
+			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text')
+			->addOption('live', null, InputOption::VALUE_NONE, 'Show one current AMI live-status snapshot and exit')
+			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live Command Centre and threshold settings')
+			->addOption('set-refresh', null, InputOption::VALUE_REQUIRED, 'Set browser refresh interval: 1, 5, 10, 15, 30 or 60 seconds')
+			->addOption('set-overall-threshold', null, InputOption::VALUE_REQUIRED, 'Set overall threshold; 0 disables it')
+			->addOption('overall-threshold', null, InputOption::VALUE_REQUIRED, 'Enable or disable the configured overall threshold: on|off')
+			->addOption('set-trunk-threshold', null, InputOption::VALUE_REQUIRED, 'Set trunk threshold as TRUNK=VALUE; 0 disables it')
+			->addOption('trunk-threshold', null, InputOption::VALUE_REQUIRED, 'Enable or disable a trunk threshold as TRUNK=on|off')
+			->addOption('alerts', null, InputOption::VALUE_REQUIRED, 'Enable or disable threshold notifications globally: on|off')
+			->addOption('overall-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable overall threshold notifications: on|off')
+			->addOption('trunk-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable trunk notifications as TRUNK=on|off')
+			->addOption('recovery', null, InputOption::VALUE_REQUIRED, 'Enable or disable recovery notifications: on|off')
+			->addOption('alert-email', null, InputOption::VALUE_REQUIRED, 'Set threshold notification email address')
+			->addOption('historical-graph', null, InputOption::VALUE_REQUIRED, 'Return historical graph data for trunk or group mode')
+			->addOption('graph-trunk', null, InputOption::VALUE_REQUIRED, 'Limit a trunk historical graph to one trunk')
+			->addOption('json', null, InputOption::VALUE_NONE, 'Use machine-readable JSON for live, settings, monitor or graph output')
+			->addOption('monitor', null, InputOption::VALUE_NONE, 'Run one threshold evaluation snapshot and exit (diagnostic)')
+			->addOption('monitor-status', null, InputOption::VALUE_NONE, 'Show the supervised threshold-alert monitor status')
+			->addOption('restart-monitor', null, InputOption::VALUE_NONE, 'Restart the supervised threshold-alert monitor')
+			->addOption('list-historical-reports', null, InputOption::VALUE_NONE, 'List persisted Historical Reports GUI tabs')
+			->addOption('show-historical-report', null, InputOption::VALUE_REQUIRED, 'Show one persisted historical report tab by number (1-5) or id')
+			->addOption('delete-historical-report', null, InputOption::VALUE_REQUIRED, 'Close/delete one persisted historical report tab by number (1-5) or id');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output) {
@@ -47,6 +68,8 @@ class Concurrencycount extends Command {
 		$csv = $input->getOption('csv');
 
 		$cc = \FreePBX::Concurrencycount();
+		$managementResult = $this->handleManagementOperation($input, $output, $cc);
+		if ($managementResult !== null) return $managementResult;
 
 		$mode = $cc->normaliseMode($mode_raw);
 		if ($mode === null) {
@@ -168,6 +191,246 @@ class Concurrencycount extends Command {
 		$output->writeln('<comment>' . $results['warning'] . '</comment>');
 		$output->writeln('');
 		return 0;
+	}
+
+	private function handleManagementOperation(InputInterface $input, OutputInterface $output, $cc): ?int {
+		$json = (bool)$input->getOption('json');
+		$managementOptions = [
+			'live', 'settings', 'set-refresh', 'set-overall-threshold', 'overall-threshold',
+			'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert',
+			'recovery', 'alert-email', 'historical-graph', 'monitor',
+			'monitor-status', 'restart-monitor',
+			'list-historical-reports', 'show-historical-report', 'delete-historical-report',
+		];
+		$requested = false;
+		foreach ($managementOptions as $option) {
+			if ($input->getOption($option) !== null && $input->getOption($option) !== false) {
+				$requested = true;
+				break;
+			}
+		}
+		if (!$requested) return null;
+		if ($input->getOption('monitor')) {
+			$result = $cc->runThresholdMonitor();
+			$this->writeStructured($output, $result, $json, 'Threshold monitor');
+			return empty($result['errors']) ? 0 : 1;
+		}
+		if ($input->getOption('monitor-status')) {
+			$result = $cc->getAlertMonitorStatus();
+			$this->writeMonitorStatus($output, $result, $json);
+			return !empty($result['available']) && $result['status'] === 'online' ? 0 : 1;
+		}
+		if ($input->getOption('restart-monitor')) {
+			$result = $cc->restartAlertMonitor();
+			$this->writeMonitorStatus($output, $result, $json);
+			return !empty($result['available']) && isset($result['pm2_status']) && $result['pm2_status'] === 'online' ? 0 : 1;
+		}
+		if ($input->getOption('list-historical-reports')) {
+			$result = $cc->getHistoricalReports();
+			$this->writeHistoricalReports($output, $result['reports'], $result['active_id'], $json);
+			return 0;
+		}
+		if ($input->getOption('show-historical-report') !== null) {
+			$report = $this->findHistoricalReport($cc, (string)$input->getOption('show-historical-report'));
+			if ($report === null) {
+				$output->writeln('<error>No persisted historical report matches that number or id.</error>');
+				return 1;
+			}
+			$this->writeStructured($output, $report, $json, 'Historical report');
+			return 0;
+		}
+		if ($input->getOption('delete-historical-report') !== null) {
+			$report = $this->findHistoricalReport($cc, (string)$input->getOption('delete-historical-report'));
+			if ($report === null) {
+				$output->writeln('<error>No persisted historical report matches that number or id.</error>');
+				return 1;
+			}
+			$result = $cc->closeHistoricalReport($report['id']);
+			if (empty($result['status'])) {
+				$output->writeln('<error>' . (isset($result['message']) ? $result['message'] : 'Unable to close historical report.') . '</error>');
+				return 1;
+			}
+			$output->writeln('<info>Closed ' . $report['title'] . '.</info>');
+			return 0;
+		}
+
+		$settings = $cc->getLiveSettings();
+		$changed = false;
+		try {
+			if ($input->getOption('set-refresh') !== null) {
+				$settings['refresh_interval'] = $input->getOption('set-refresh');
+				$changed = true;
+			}
+			if ($input->getOption('set-overall-threshold') !== null) {
+				$value = $input->getOption('set-overall-threshold');
+				$settings['overall']['threshold'] = $value;
+				$settings['overall']['enabled'] = ((int)$value > 0);
+				$changed = true;
+			}
+			if ($input->getOption('overall-threshold') !== null) {
+				$settings['overall']['enabled'] = $input->getOption('overall-threshold');
+				$changed = true;
+			}
+			if ($input->getOption('set-trunk-threshold') !== null) {
+				list($trunk, $value) = $this->parseAssignment($input->getOption('set-trunk-threshold'));
+				if (!isset($settings['trunks'][$trunk])) throw new \InvalidArgumentException('Unknown PJSIP trunk: ' . $trunk);
+				$settings['trunks'][$trunk]['threshold'] = $value;
+				$settings['trunks'][$trunk]['enabled'] = ((int)$value > 0);
+				$changed = true;
+			}
+			if ($input->getOption('trunk-threshold') !== null) {
+				list($trunk, $value) = $this->parseAssignment($input->getOption('trunk-threshold'));
+				if (!isset($settings['trunks'][$trunk])) throw new \InvalidArgumentException('Unknown PJSIP trunk: ' . $trunk);
+				$settings['trunks'][$trunk]['enabled'] = $value;
+				$changed = true;
+			}
+			if ($input->getOption('alerts') !== null) {
+				$settings['alerts_enabled'] = $input->getOption('alerts');
+				$changed = true;
+			}
+			if ($input->getOption('overall-alert') !== null) {
+				$settings['overall']['alert_enabled'] = $input->getOption('overall-alert');
+				$changed = true;
+			}
+			if ($input->getOption('trunk-alert') !== null) {
+				list($trunk, $value) = $this->parseAssignment($input->getOption('trunk-alert'));
+				if (!isset($settings['trunks'][$trunk])) throw new \InvalidArgumentException('Unknown PJSIP trunk: ' . $trunk);
+				$settings['trunks'][$trunk]['alert_enabled'] = $value;
+				$changed = true;
+			}
+			if ($input->getOption('recovery') !== null) {
+				$settings['recovery_enabled'] = $input->getOption('recovery');
+				$changed = true;
+			}
+			if ($input->getOption('alert-email') !== null) {
+				$settings['alert_email'] = $input->getOption('alert-email');
+				$changed = true;
+			}
+			if ($changed) $settings = $cc->saveLiveSettings($settings);
+		} catch (\Exception $exception) {
+			$output->writeln('<error>' . $exception->getMessage() . '</error>');
+			return 1;
+		}
+
+		if ($input->getOption('live')) {
+			$result = $cc->getLiveStatus();
+			$this->writeLive($output, $result, $json);
+			return !empty($result['available']) ? 0 : 1;
+		}
+		if ($input->getOption('historical-graph') !== null) {
+			$start = $cc->normaliseStartDate($input->getOption('start'));
+			$end = $cc->normaliseEndDate($input->getOption('end'));
+			if ($start === null || $end === null) {
+				$output->writeln('<error>Historical graph requires valid --start and --end values.</error>');
+				return 1;
+			}
+			try {
+				$result = $cc->getHistoricalGraph($input->getOption('historical-graph'), $start, $end, (string)$input->getOption('graph-trunk'));
+				$this->writeStructured($output, $result, $json, 'Historical graph');
+				return 0;
+			} catch (\Exception $exception) {
+				$output->writeln('<error>' . $exception->getMessage() . '</error>');
+				return 1;
+			}
+		}
+		if ($changed || $input->getOption('settings')) {
+			$this->writeSettings($output, $settings, $json);
+			return 0;
+		}
+		return null;
+	}
+
+	private function parseAssignment($value): array {
+		$parts = explode('=', (string)$value, 2);
+		if (count($parts) !== 2 || trim($parts[0]) === '' || trim($parts[1]) === '') {
+			throw new \InvalidArgumentException('Expected TRUNK=VALUE.');
+		}
+		return [trim($parts[0]), trim($parts[1])];
+	}
+
+	private function writeLive(OutputInterface $output, array $snapshot, bool $json): void {
+		if ($json) {
+			$output->writeln(json_encode($snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		$output->writeln('Live status: ' . (!empty($snapshot['available']) ? 'AVAILABLE' : 'UNAVAILABLE'));
+		$output->writeln('Updated:     ' . $snapshot['generated_at']);
+		if (empty($snapshot['available'])) {
+			$output->writeln('Message:     ' . $snapshot['message']);
+			return;
+		}
+		$output->writeln('Overall Live Concurrency (active monitored PJSIP legs): ' . $snapshot['overall']['current']);
+		foreach ($snapshot['overall']['calls'] as $call) $output->writeln('  ' . $call['channel'] . ' ' . $call['state'] . ' ' . $call['duration_seconds'] . 's');
+		foreach ($snapshot['trunks'] as $trunk => $result) {
+			$output->writeln(sprintf('%-24s %d (%d inbound, %d outbound, %d unknown)', $trunk, $result['current'], $result['direction_counts']['inbound'], $result['direction_counts']['outbound'], $result['direction_counts']['unknown']));
+			foreach ($result['calls'] as $call) $output->writeln('  ' . $call['channel'] . ' ' . $call['state'] . ' ' . $call['duration_seconds'] . 's');
+		}
+	}
+
+	private function writeSettings(OutputInterface $output, array $settings, bool $json): void {
+		if ($json) {
+			$output->writeln(json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		$output->writeln('Live refresh interval: ' . $settings['refresh_interval'] . ' seconds');
+		$output->writeln('Threshold alerts:      ' . ($settings['alerts_enabled'] ? 'enabled' : 'disabled'));
+		$output->writeln('Recovery notifications:' . ($settings['recovery_enabled'] ? ' enabled' : ' disabled'));
+		$output->writeln('Alert email:           ' . ($settings['alert_email'] !== '' ? $settings['alert_email'] : '(not configured)'));
+		$output->writeln(sprintf('Overall threshold:     %s %d; alert %s', $settings['overall']['enabled'] ? 'enabled' : 'disabled', $settings['overall']['threshold'], $settings['overall']['alert_enabled'] ? 'enabled' : 'disabled'));
+		foreach ($settings['trunks'] as $trunk => $scope) {
+			$output->writeln(sprintf('%-24s threshold %s %d; alert %s', $trunk, $scope['enabled'] ? 'enabled' : 'disabled', $scope['threshold'], $scope['alert_enabled'] ? 'enabled' : 'disabled'));
+		}
+	}
+
+	private function writeMonitorStatus(OutputInterface $output, array $status, bool $json): void {
+		if ($json) {
+			$output->writeln(json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		$output->writeln('Alert monitor: ' . strtoupper(isset($status['status']) ? $status['status'] : 'unknown'));
+		if (!empty($status['pid'])) $output->writeln('PID:           ' . (int)$status['pid']);
+		if (isset($status['restarts'])) $output->writeln('PM2 restarts:  ' . (int)$status['restarts']);
+		if (isset($status['ami_status'])) $output->writeln('AMI:           ' . $status['ami_status']);
+		if (isset($status['mailer_status'])) $output->writeln('Mail worker:   ' . $status['mailer_status']);
+		if (!empty($status['last_successful_snapshot_at'])) $output->writeln('Last snapshot: ' . date('Y-m-d H:i:s', (int)$status['last_successful_snapshot_at']));
+		if (!empty($status['message'])) $output->writeln('Message:       ' . $status['message']);
+	}
+
+	private function writeStructured(OutputInterface $output, array $result, bool $json, string $label): void {
+		if ($json) {
+			$output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		$output->writeln($label . ':');
+		$output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+	}
+
+	private function findHistoricalReport($cc, string $needle): ?array {
+		$reports = $cc->getHistoricalReports()['reports'];
+		foreach ($reports as $report) {
+			if ($needle === $report['id'] || $needle === (string)$report['number']) return $report;
+		}
+		return null;
+	}
+
+	private function writeHistoricalReports(OutputInterface $output, array $reports, $activeId, bool $json): void {
+		if ($json) {
+			$output->writeln(json_encode(['reports' => $reports, 'active_id' => $activeId], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+			return;
+		}
+		if (empty($reports)) {
+			$output->writeln('No historical report tabs are currently persisted.');
+			return;
+		}
+		foreach ($reports as $report) {
+			$active = ($report['id'] === $activeId) ? ' (active)' : '';
+			$missing = !empty($report['missing_reference']) ? ' [missing reference]' : '';
+			$output->writeln(sprintf(
+				'%s%s: mode=%s engine=%s preset=%s range=%s..%s%s',
+				$report['title'], $active, $report['mode'], $report['engine'], $report['preset'],
+				$report['range_from'], $report['range_to'], $missing
+			));
+		}
 	}
 
 	private function demoPlan(int $seed, string $size): array {

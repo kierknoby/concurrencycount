@@ -1,3 +1,7 @@
 <?php
 
-// Concurrency Count install hook. No database changes required.
+if (!defined('FREEPBX_IS_AUTH')) {
+	die('No direct script access allowed');
+}
+
+\FreePBX::Concurrencycount()->install();
