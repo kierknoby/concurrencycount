@@ -114,6 +114,8 @@ $_ccAssetVer = max(
 						</div>
 					</section>
 
+				</div>
+			</div>
 		</div>
 	</div>
 </div>

@@ -148,6 +148,24 @@ foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length
 	admin_contract_assert(strpos($liveJavascript, $pollingContract) !== false, 'Safe live polling contract missing: ' . $pollingContract);
 }
 admin_contract_assert(strpos($liveJavascript, "trigger('click')") !== false && strpos($liveJavascript, 'cc-occurrence-section') !== false, 'Historical graph does not reuse occurrence drill-down');
+
+// Workspace ownership: exactly one Live workspace and one Historical workspace, each a real sibling container.
+admin_contract_assert(substr_count($view, 'id="cc-live-section"') === 1, 'Exactly one Live workspace container must exist');
+admin_contract_assert(substr_count($view, 'id="cc-historical-section"') === 1, 'Exactly one Historical workspace container must exist');
+admin_contract_assert(preg_match('/<section id="cc-historical-section"[^>]*class="cc-workspace"[^>]*role="tabpanel"[^>]*aria-labelledby="cc-tab-historical"[^>]*style="display:none;"/', $view) === 1, 'Historical workspace must be a proper tabpanel section, hidden only via its own inline style');
+foreach (['id="cc-launch"', 'id="cc-demo-launch"', 'id="cc-historical-graph"', 'id="cc-results"', 'id="cc-results-body"', 'id="cc-download"'] as $historicalControlId) {
+	admin_contract_assert(strpos($view, $historicalControlId) !== false, 'Historical workspace must retain existing control: ' . $historicalControlId);
+}
+$liveSectionStart = strpos($view, '<section id="cc-live-section"');
+$historicalSectionStart = strpos($view, '<section id="cc-historical-section"');
+admin_contract_assert($liveSectionStart !== false && $historicalSectionStart !== false && $historicalSectionStart > $liveSectionStart, 'Historical workspace must follow Live workspace as a sibling, not be nested inside it');
+$betweenSections = substr($view, $liveSectionStart, $historicalSectionStart - $liveSectionStart);
+admin_contract_assert(substr_count($betweenSections, '<section') === substr_count($betweenSections, '</section>'), 'Live workspace section must close before the Historical workspace section opens (no accidental nesting)');
+// Reject the previously-shipped defect where the outer row/col-sm-12 wrapper never closed, silently swallowing
+// every modal that follows the workspaces into the still-open .concurrencycount container.
+$openDivs = substr_count($view, '<div') - substr_count($view, '</div>');
+admin_contract_assert($openDivs === 0, 'views/main.php has unbalanced <div> tags (' . $openDivs . ' unclosed) - modals after the workspaces would be nested in the wrong container');
+admin_contract_assert(preg_match('/<\/section>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<div class="modal fade concurrencycount" id="cc-live-settings-modal"/', $view) === 1, 'The outer row/col-sm-12/concurrencycount wrapper must close before the first modal, keeping modals as top-level siblings');
 admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && strpos($chartJavascript, 'onSelect') !== false, 'Chart threshold/interaction support missing');
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
