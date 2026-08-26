@@ -31,6 +31,11 @@
 		if (kind === 'last7') return {kind: kind, from: dateOnly(addDays(today, -6)), to: dateOnly(today)};
 		if (kind === 'last30') return {kind: kind, from: dateOnly(addDays(today, -29)), to: dateOnly(today)};
 		if (kind === 'month') return {kind: kind, from: dateOnly(new Date(today.getFullYear(), today.getMonth(), 1)), to: dateOnly(today)};
+		if (kind === 'year') return {kind: kind, from: dateOnly(new Date(today.getFullYear(), 0, 1)), to: dateOnly(today)};
+		if (kind === 'lastyear') {
+			var lastYear = today.getFullYear() - 1;
+			return {kind: kind, from: dateOnly(new Date(lastYear, 0, 1)), to: dateOnly(new Date(lastYear, 11, 31))};
+		}
 		return {kind: 'today', from: dateOnly(today), to: dateOnly(today)};
 	}
 
@@ -66,6 +71,9 @@
 		if (range.kind === 'month') {
 			shiftedFrom = new Date(from.getFullYear(), from.getMonth() + direction, 1);
 			shiftedTo = new Date(shiftedFrom.getFullYear(), shiftedFrom.getMonth() + 1, 0);
+		} else if (range.kind === 'year' || range.kind === 'lastyear') {
+			shiftedFrom = new Date(from.getFullYear() + direction, 0, 1);
+			shiftedTo = new Date(shiftedFrom.getFullYear(), 11, 31);
 		} else {
 			var span = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
 			shiftedFrom = addDays(from, span * direction);
@@ -73,7 +81,7 @@
 		}
 		var today = atMidnight(now);
 		if (shiftedTo.getTime() > today.getTime()) {
-			if (range.kind !== 'month') {
+			if (range.kind !== 'month' && range.kind !== 'year' && range.kind !== 'lastyear') {
 				var daysPast = Math.round((shiftedTo.getTime() - today.getTime()) / 86400000);
 				shiftedFrom = addDays(shiftedFrom, -daysPast);
 			}

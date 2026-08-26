@@ -260,6 +260,8 @@ $_ccAssetVer = max(
 						<button type="button" class="btn btn-default cc-date-preset" data-preset="last7"><?php echo _('Last 7 days'); ?></button>
 						<button type="button" class="btn btn-default cc-date-preset" data-preset="last30"><?php echo _('Last 30 days'); ?></button>
 						<button type="button" class="btn btn-default cc-date-preset" data-preset="month"><?php echo _('This month'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="year"><?php echo _('This year'); ?></button>
+						<button type="button" class="btn btn-default cc-date-preset" data-preset="lastyear"><?php echo _('Last year'); ?></button>
 						<button type="button" class="btn btn-default cc-date-preset" data-preset="custom"><?php echo _('Custom'); ?></button>
 					</div>
 					<div class="cc-range-nav">

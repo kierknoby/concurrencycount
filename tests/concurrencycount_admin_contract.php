@@ -82,7 +82,7 @@ foreach (['### Trunk Concurrency', '### Extension Concurrency', '### Overall Ext
 foreach (['including both boundary seconds', 'not mean a configured FreePBX Ring Group', 'Compare Engines', 'CLI keeps its existing option names'] as $concept) {
 	admin_contract_assert(strpos($readme, $concept) !== false, 'README reporting contract missing: ' . $concept);
 }
-foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'custom'] as $preset) {
+foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 'custom'] as $preset) {
 	admin_contract_assert(strpos($view, 'data-preset="' . $preset . '"') !== false, 'Date preset missing: ' . $preset);
 }
 admin_contract_assert(strpos($view, 'type="date"') !== false && strpos($view, 'cc-include-time') !== false, 'Native custom date/time controls missing');
