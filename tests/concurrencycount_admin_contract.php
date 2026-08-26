@@ -9,6 +9,8 @@ $class = file_get_contents($root . '/Concurrencycount.class.php');
 $view = file_get_contents($root . '/views/main.php');
 $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
+$readme = file_get_contents($root . '/README.md');
+$registry = file_get_contents($root . '/Engines/Registry.php');
 $module = simplexml_load_file($root . '/module.xml');
 
 function admin_contract_assert($condition, $message) {
@@ -43,11 +45,45 @@ admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download,
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');
 admin_contract_assert(strpos($view, 'Demo writes to CDR.') !== false, 'Demo warning missing');
 admin_contract_assert(strpos($view, 'cc-download') !== false && strpos($view, 'cc-email-send') !== false, 'Download/email controls missing');
+foreach (['trunk', 'extension', 'group'] as $mode) {
+	admin_contract_assert(preg_match('/<input[^>]+type="radio"[^>]+name="cc-wizard-mode"[^>]+id="cc-mode-' . $mode . '"[^>]+value="' . $mode . '"/', $view) === 1, 'GUI reporting radio missing or remapped: ' . $mode);
+	admin_contract_assert(strpos($view, 'for="cc-mode-' . $mode . '"') !== false, 'GUI reporting label missing: ' . $mode);
+	admin_contract_assert(strpos($javascript, $mode . ':') !== false, 'GUI mode description missing: ' . $mode);
+}
+foreach (['Trunk Concurrency', 'Extension Concurrency', 'Overall Extension Concurrency'] as $label) {
+	admin_contract_assert(strpos($view, $label) !== false, 'User-facing mode label missing: ' . $label);
+}
+admin_contract_assert(substr_count($view, 'type="radio" name="cc-wizard-mode"') === 3, 'Reporting modes must use three native radio controls');
+admin_contract_assert(preg_match('/id="cc-mode-trunk"[^>]+value="trunk"[^>]+checked/', $view) === 1, 'Trunk must remain the default GUI mode');
+admin_contract_assert(strpos($view, '<fieldset') !== false && strpos($view, '<legend') !== false, 'Reporting mode controls need an accessible fieldset and legend');
+admin_contract_assert(strpos($view, 'aria-describedby="cc-mode-description"') !== false, 'Mode controls are not associated with contextual help');
+admin_contract_assert(strpos($view, 'not a Ring Group') === false, 'Ring Group warning belongs in concise help, not as an ambiguous mode label');
+admin_contract_assert(strpos($view, 'cc-mode-description') !== false, 'Dynamic mode help is missing');
+admin_contract_assert(strpos($javascript, 'not a Ring Group or selected member list') !== false, 'Overall mode must explicitly reject Ring Group interpretation');
+admin_contract_assert(strpos($view, 'Calculation engine') !== false, 'Engine control is not separated from reporting scope');
+admin_contract_assert(strpos($view, 'id="cc-engine-group"') !== false && strpos($view, 'id="cc-engine"') !== false, 'Engine control hierarchy missing');
+admin_contract_assert(strpos($css, '.cc-mode-options') !== false && strpos($css, 'grid-template-columns: repeat(3') !== false, 'Desktop mode selector layout missing');
+admin_contract_assert(strpos($css, '.cc-mode-option.is-selected') !== false && strpos($css, ':focus-within') !== false, 'Selected and keyboard focus states missing');
+admin_contract_assert(strpos($css, 'grid-template-columns: 1fr') !== false, 'Mobile mode selector stacking missing');
+admin_contract_assert(strpos($registry, "'original'") !== false && strpos($registry, "'experimental' => false") !== false, 'Original engine status changed');
+admin_contract_assert(strpos($registry, "'sweep'") !== false && strpos($registry, "'experimental' => true") !== false, 'Sweep engine status changed');
+foreach (['### Trunk Concurrency', '### Extension Concurrency', '### Overall Extension Concurrency', '### Demo and engine comparison'] as $heading) {
+	admin_contract_assert(strpos($readme, $heading) !== false, 'README reporting section missing: ' . $heading);
+}
+foreach (['including both boundary seconds', 'not mean a configured FreePBX Ring Group', 'Compare Engines', 'CLI keeps its existing option names'] as $concept) {
+	admin_contract_assert(strpos($readme, $concept) !== false, 'README reporting contract missing: ' . $concept);
+}
 foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'custom'] as $preset) {
 	admin_contract_assert(strpos($view, 'data-preset="' . $preset . '"') !== false, 'Date preset missing: ' . $preset);
 }
 admin_contract_assert(strpos($view, 'type="date"') !== false && strpos($view, 'cc-include-time') !== false, 'Native custom date/time controls missing');
 admin_contract_assert(strpos($javascript, "command: 'peakdetails'") !== false, 'Peak detail AJAX wiring missing');
+foreach (['cc-show-occurrences', 'cc-occurrence-toggle', 'loadOccurrence'] as $drilldown) {
+	admin_contract_assert(strpos($javascript, $drilldown) !== false, 'Trunk drill-down wiring missing: ' . $drilldown);
+}
+foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak overall extension concurrency'] as $resultTerm) {
+	admin_contract_assert(strpos($javascript, $resultTerm) !== false, 'Mode-specific result terminology missing: ' . $resultTerm);
+}
 admin_contract_assert(strpos($javascript, 'config.php?display=') === false, 'Frontend must not construct FreePBX administrative URLs');
 admin_contract_assert(strpos($class, "'need_html' => 'true'") !== false, 'Native CDR report action must submit an HTML search');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');

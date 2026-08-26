@@ -53,6 +53,101 @@ body:has(.concurrencycount) #page_body {
 	min-height: 44px;
 }
 
+.concurrencycount #cc-wizard-mode-group {
+	padding: 0;
+	border: 0;
+}
+
+.concurrencycount #cc-wizard-mode-group > legend {
+	width: auto;
+	margin: 0 0 8px;
+	padding: 0;
+	border: 0;
+	font-size: 14px;
+	font-weight: 700;
+}
+
+.concurrencycount .cc-mode-options {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.concurrencycount .cc-mode-option {
+	position: relative;
+	display: block;
+	min-width: 0;
+	min-height: 178px;
+	margin: 0;
+	padding: 14px 14px 12px 42px;
+	border: 1px solid #bbb;
+	border-radius: 4px;
+	background: #fff;
+	color: #333;
+	cursor: pointer;
+	font-weight: 400;
+}
+
+.concurrencycount .cc-mode-option:hover {
+	border-color: #337ab7;
+	background: #f7fbff;
+}
+
+.concurrencycount .cc-mode-option.is-selected {
+	border-color: #337ab7;
+	box-shadow: inset 4px 0 0 #337ab7;
+	background: #f5f9ff;
+}
+
+.concurrencycount .cc-mode-option input[type="radio"] {
+	position: absolute;
+	top: 13px;
+	left: 13px;
+	width: 20px;
+	height: 20px;
+	min-height: 20px;
+	margin: 0;
+}
+
+.concurrencycount .cc-mode-option:focus-within {
+	outline: 3px solid rgba(51, 122, 183, 0.4);
+	outline-offset: 2px;
+}
+
+.concurrencycount .cc-mode-copy,
+.concurrencycount .cc-mode-copy > span,
+.concurrencycount .cc-mode-copy > strong,
+.concurrencycount .cc-mode-copy > small {
+	display: block;
+}
+
+.concurrencycount .cc-mode-copy strong {
+	margin: 3px 0 7px;
+	font-size: 16px;
+	line-height: 1.25;
+}
+
+.concurrencycount .cc-mode-copy > span:not(.cc-mode-scope) {
+	line-height: 1.35;
+}
+
+.concurrencycount .cc-mode-copy small {
+	margin-top: 9px;
+	color: #555;
+	line-height: 1.35;
+}
+
+.concurrencycount .cc-mode-scope {
+	color: #555;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+}
+
+.concurrencycount #cc-mode-description {
+	margin-top: 9px;
+}
+
 .concurrencycount .cc-date-presets {
 	display: flex;
 	flex-wrap: wrap;
@@ -172,6 +267,14 @@ body:has(.concurrencycount) #page_body {
 
 	.concurrencycount .cc-date-presets > .btn {
 		flex: 1 1 calc(50% - 4px);
+	}
+
+	.concurrencycount .cc-mode-options {
+		grid-template-columns: 1fr;
+	}
+
+	.concurrencycount .cc-mode-option {
+		min-height: 0;
 	}
 
 	.concurrencycount .cc-occurrence-toggle {

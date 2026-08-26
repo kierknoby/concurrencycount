@@ -47,6 +47,27 @@ window._ccLoaded = true;
 	var demoMoves = 0;
 	var demoPlan = null;
 	var guiRange = null;
+	var modeDescriptions = {
+		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
+		extension: 'Extensions measure overlapping CDRs assigned to each individual numeric PJSIP extension.',
+		group: 'Overall measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
+	};
+	var modeLabels = {
+		trunk: 'Trunk Concurrency',
+		extension: 'Extension Concurrency',
+		group: 'Overall Extension Concurrency'
+	};
+
+	function selectedMode() {
+		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
+	}
+
+	function selectMode(mode) {
+		var input = $('input[name="cc-wizard-mode"][value="' + mode + '"]');
+		if (!input.length) input = $('#cc-mode-trunk');
+		input.prop('checked', true);
+		updateModeDescription();
+	}
 
 	/**
 	 * Use jQuery's DOM round-trip for HTML escaping. Cheaper than chained
@@ -276,8 +297,8 @@ window._ccLoaded = true;
 		finalEngine = r.engine || 'original';
 		finalDemoEngines = r.engines ? Object.keys(r.engines) : [r.engine || 'original'];
 
-		var modeLabel = r.mode.charAt(0).toUpperCase() + r.mode.slice(1);
-		$('#cc-results-title').text('Results: ' + modeLabel + ' mode');
+		var modeLabel = modeLabels[r.mode] || (r.mode.charAt(0).toUpperCase() + r.mode.slice(1));
+		$('#cc-results-title').text(modeLabel + ' results');
 
 		$('#cc-results-meta').html(
 			'<dt>From</dt><dd>' + escapeHtml(r.start) + '</dd>' +
@@ -356,7 +377,7 @@ window._ccLoaded = true;
 		var average = parseFloat(overview.average_concurrency) || 0;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
-		var text = 'The highest total number of simultaneous extension calls in this date range was ' + max + '.';
+		var text = 'The highest total number of simultaneous numeric PJSIP extension legs in this date range was ' + max + '. Both numeric sides of one internal CDR can count.';
 		if (average > 0) {
 			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
@@ -379,7 +400,9 @@ window._ccLoaded = true;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var namesWithPeak = parseInt(overview.names_with_peak, 10) || 0;
 		var namesSeen = parseInt(overview.names_seen, 10) || 0;
-		var text = 'The highest simultaneous call count seen on any ' + label + ' in this date range was ' + max + '.';
+		var text = r.mode === 'trunk'
+			? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
+			: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.';
 		if (average > 0) {
 			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
@@ -395,7 +418,8 @@ window._ccLoaded = true;
 	function renderGroup(el, r) {
 		var html = renderExplanation(r);
 		html += '<div class="cc-peak-summary">' +
-			'Maximum concurrent calls overall: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
+			'Peak overall extension concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
+			'<br><span>' + escapeHtml(r.max_concurrency) + ' numeric PJSIP extension legs active simultaneously across the PBX.</span>' +
 			'</div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
 			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
@@ -419,9 +443,10 @@ window._ccLoaded = true;
 			return;
 		}
 		var html = renderExplanation(r);
+		var peakColumn = r.mode === 'trunk' ? 'Peak trunk concurrency' : 'Peak assigned CDR concurrency';
 		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>' + escapeHtml(label) + '</th>' +
-			'<th>Max concurrent</th>' +
+			'<th>' + escapeHtml(peakColumn) + '</th>' +
 			'</tr></thead><tbody>';
 		names.forEach(function (n) {
 			var count = r.per_name[n];
@@ -440,7 +465,11 @@ window._ccLoaded = true;
 		if (r.mode === 'trunk') {
 			html += renderOccurrenceSections(names, r);
 		}
-		html += '<div class="cc-peak-summary">Global maximum: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
+		var peakDetail = r.mode === 'trunk'
+			? r.global_max + ' trunk legs active simultaneously at the busiest point.'
+			: r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
+		html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong>' +
+			'<br><span>' + escapeHtml(peakDetail) + '</span></div>';
 		el.html(html);
 	}
 
@@ -454,7 +483,7 @@ window._ccLoaded = true;
 			occurrences.forEach(function (occurrence, occurrenceIndex) {
 				html += '<div class="panel panel-default cc-occurrence">' +
 					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false">' +
-					'<span><strong>Peak ' + escapeHtml(occurrence.peak) + ' calls</strong> &middot; ' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + ' &middot; lasted ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</span>' +
+					'<span><strong>Peak ' + escapeHtml(occurrence.peak) + ' trunk legs</strong> &middot; ' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + ' &middot; lasted ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</span>' +
 					'<i class="fa fa-chevron-down" aria-hidden="true"></i></button></div>' +
 					'<div class="panel-body cc-occurrence-detail" style="display:none"></div>' +
 					'</div>';
@@ -572,9 +601,10 @@ window._ccLoaded = true;
 	function renderDemo(el, r) {
 		var html = renderExplanation(r);
 		html += '<h4>Demo profile</h4>';
+		var demoReportLabel = modeLabels[r.demo_report] || r.demo_report || '';
 		html += '<dl class="dl-horizontal">' +
 			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
-			'<dt>Report</dt><dd>' + escapeHtml(r.demo_report || '') + '</dd>' +
+			'<dt>Report</dt><dd>' + escapeHtml(demoReportLabel) + '</dd>' +
 			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
 			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
 			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
@@ -597,16 +627,17 @@ window._ccLoaded = true;
 			html += renderEngineComparison(r.engines);
 		}
 		if (r.demo_report === 'group') {
-			html += '<h4>Group accuracy</h4>';
+			html += '<h4>Overall extension-leg accuracy</h4>';
 			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
-			html += '<tr><td>Maximum concurrent calls overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
+			html += '<tr><td>Peak simultaneous extension legs overall</td><td>' + escapeHtml(r.expected_max_concurrency) + '</td><td>' + escapeHtml(r.max_concurrency) + '</td></tr>';
 			html += '<tr><td>Peak ranges</td><td>' + escapeHtml(formatRanges(r.expected_peak_ranges)) + '</td><td>' + escapeHtml(formatRanges(r.peak_ranges)) + '</td></tr>';
 			html += '</tbody></table></div>';
 		} else {
 			var label = (r.demo_report === 'trunk') ? 'Trunk' : 'Extension';
+			var demoUnit = r.demo_report === 'trunk' ? 'trunk-leg peak' : 'assigned-CDR peak';
 			var expected = r.expected_per_name || {};
 			html += '<h4>' + escapeHtml(label) + ' accuracy</h4>';
-			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
+			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected ' + escapeHtml(demoUnit) + '</th><th>Actual ' + escapeHtml(demoUnit) + '</th></tr></thead><tbody>';
 			Object.keys(expected).forEach(function (n) {
 				html += '<tr>' +
 					'<td>' + escapeHtml(n) + '</td>' +
@@ -615,7 +646,7 @@ window._ccLoaded = true;
 					'</tr>';
 			});
 			html += '</tbody></table></div>';
-			html += '<div class="cc-peak-summary">Expected global maximum: <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
+			html += '<div class="cc-peak-summary">Expected highest ' + escapeHtml(demoUnit) + ': <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
 		el.html(html);
 	}
@@ -669,12 +700,20 @@ window._ccLoaded = true;
 	function newWizard() {
 		wizardState = {mode: 'trunk', engine: 'original'};
 		$('#cc-engine').val('original');
-		$('#cc-wizard-mode').val('trunk');
+		selectMode('trunk');
 		$('#cc-engine-group, #cc-wizard-mode-group').show();
 		$('#cc-results').hide();
 		setStatus('', null);
+		updateModeDescription();
 		applyDatePreset('last7');
 		showWizard();
+	}
+
+	function updateModeDescription() {
+		var mode = selectedMode();
+		$('.cc-mode-option').removeClass('is-selected');
+		$('input[name="cc-wizard-mode"]:checked').closest('.cc-mode-option').addClass('is-selected');
+		$('#cc-mode-description').text(modeDescriptions[mode] || 'Choose what the report should measure.');
 	}
 
 	function applyDatePreset(kind) {
@@ -726,9 +765,9 @@ window._ccLoaded = true;
 		wizardState.attempts = 0;
 		$('#cc-wizard-value').closest('.form-group').hide();
 		$('#cc-wizard-mode-group').show();
-		$('#cc-wizard-mode').val('trunk');
+		selectMode('trunk');
 		clearError();
-		setTimeout(function () { $('#cc-wizard-mode').focus(); }, 100);
+		setTimeout(function () { $('#cc-mode-trunk').focus(); }, 100);
 	}
 
 	function askMonth() {
@@ -778,7 +817,7 @@ window._ccLoaded = true;
 		guiRange.toTime = $('#cc-time-to').val() || '23:59';
 		try {
 			var canonical = window.CCDateRange.resolve(guiRange, new Date());
-			wizardState.mode = $('#cc-wizard-mode').val();
+			wizardState.mode = selectedMode();
 			hideWizard();
 			executeRun(wizardState.mode, canonical.start, canonical.end);
 		} catch (error) {
@@ -1070,6 +1109,7 @@ window._ccLoaded = true;
 		// re-runs DOM-ready handlers) doesn't double-bind clicks. Lifted from
 		// Frogman's defensive style.
 		$('#cc-launch').off('click').on('click', newWizard);
+		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
 		$('.cc-demo-run-mode').off('click').on('click', function () {
 			runDemo($(this).data('report'));

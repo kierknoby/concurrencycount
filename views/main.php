@@ -47,7 +47,7 @@ $_ccAssetVer = max(
 			<div class="row">
 				<div class="col-sm-12">
 					<p>
-						<?php echo _('Maximum concurrent calls per trunk, extension, or group, within a specified date range. PJSIP only (no chan_sip support).'); ?>
+						<?php echo _('Report peak simultaneous PJSIP trunk legs, individual extension records, or all numeric extension legs across the PBX.'); ?>
 					</p>
 				</div>
 			</div>
@@ -156,7 +156,7 @@ $_ccAssetVer = max(
 					<i class="fa fa-play"></i> <?php echo _('Run Extensions'); ?>
 				</button>
 				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group">
-					<i class="fa fa-play"></i> <?php echo _('Run Group'); ?>
+					<i class="fa fa-play"></i> <?php echo _('Run Overall Extensions'); ?>
 				</button>
 			</div>
 		</div>
@@ -164,25 +164,49 @@ $_ccAssetVer = max(
 </div>
 
 <!-- GUI report controls. CLI parsing remains independent. -->
-<div class="modal fade" id="cc-wizard" tabindex="-1" role="dialog" aria-labelledby="cc-wizard-title">
-	<div class="modal-dialog" role="document">
+<div class="modal fade concurrencycount" id="cc-wizard" tabindex="-1" role="dialog" aria-labelledby="cc-wizard-title">
+	<div class="modal-dialog modal-lg" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
 				<h4 class="modal-title" id="cc-wizard-title"><?php echo _('Concurrency Count'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<div class="form-group" id="cc-wizard-mode-group">
-					<label for="cc-wizard-mode" class="control-label"><?php echo _('Summarise concurrency by'); ?></label>
-					<select id="cc-wizard-mode" class="form-control">
-						<option value="trunk"><?php echo _('Trunks'); ?></option>
-						<option value="extension"><?php echo _('Extensions'); ?></option>
-						<option value="group"><?php echo _('Group'); ?></option>
-					</select>
-					<span class="help-block fpbx-help-block"><?php echo _('Choose what the report should count. Use Run Demo for synthetic accuracy tests.'); ?></span>
-				</div>
+				<fieldset class="form-group" id="cc-wizard-mode-group" aria-describedby="cc-mode-description">
+					<legend class="control-label"><?php echo _('What do you want to measure?'); ?></legend>
+					<div class="cc-mode-options">
+						<label class="cc-mode-option" for="cc-mode-trunk">
+							<input type="radio" name="cc-wizard-mode" id="cc-mode-trunk" value="trunk" checked>
+							<span class="cc-mode-copy">
+								<span class="cc-mode-scope"><?php echo _('External capacity'); ?></span>
+								<strong><?php echo _('Trunk Concurrency'); ?></strong>
+								<span><?php echo _('Choose this for SIP channel sizing, carrier capacity, trunk licensing and peak external usage.'); ?></span>
+								<small><?php echo _('Example: Peak 4 means four trunk legs were using that trunk simultaneously.'); ?></small>
+							</span>
+						</label>
+						<label class="cc-mode-option" for="cc-mode-extension">
+							<input type="radio" name="cc-wizard-mode" id="cc-mode-extension" value="extension">
+							<span class="cc-mode-copy">
+								<span class="cc-mode-scope"><?php echo _('Individual endpoints'); ?></span>
+								<strong><?php echo _('Extension Concurrency'); ?></strong>
+								<span><?php echo _('Choose this to find individual extensions with overlapping qualifying CDRs.'); ?></span>
+								<small><?php echo _('Example: Peak 2 for extension 203 means two assigned CDRs overlapped.'); ?></small>
+							</span>
+						</label>
+						<label class="cc-mode-option" for="cc-mode-group">
+							<input type="radio" name="cc-wizard-mode" id="cc-mode-group" value="group">
+							<span class="cc-mode-copy">
+								<span class="cc-mode-scope"><?php echo _('PBX extension-side load'); ?></span>
+								<strong><?php echo _('Overall Extension Concurrency'); ?></strong>
+								<span><?php echo _('Choose this for one PBX-wide view of simultaneous numeric PJSIP extension legs.'); ?></span>
+								<small><?php echo _('Example: Peak 12 means 12 extension legs were active across the PBX at once.'); ?></small>
+							</span>
+						</label>
+					</div>
+					<span id="cc-mode-description" class="help-block fpbx-help-block" aria-live="polite"><?php echo _('Trunks measure external capacity. Peak details can show when and which CDRs reached it.'); ?></span>
+				</fieldset>
 				<div class="form-group" id="cc-engine-group">
-					<label for="cc-engine" class="control-label"><?php echo _('Engine (experimental)'); ?></label>
+					<label for="cc-engine" class="control-label"><?php echo _('Calculation engine'); ?></label>
 					<select id="cc-engine" class="form-control">
 						<?php foreach ($availableEngines as $id => $engine): ?>
 							<option value="<?php echo htmlspecialchars($id, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $id === 'original' ? 'selected' : ''; ?>>
@@ -190,6 +214,7 @@ $_ccAssetVer = max(
 							</option>
 						<?php endforeach; ?>
 					</select>
+					<span class="help-block fpbx-help-block"><?php echo _('The engine changes how concurrency is calculated, not what the selected report measures. Original is recommended; Sweep is experimental.'); ?></span>
 				</div>
 				<div class="form-group cc-date-range">
 					<label class="control-label"><?php echo _('Date range'); ?></label>
