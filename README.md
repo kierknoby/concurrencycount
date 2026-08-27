@@ -1,10 +1,12 @@
-# Concurrency Count for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.0.1 for FreePBX/PBXact 16 and 17
 
-Supports FreePBX/PBXact 16 and 17.
+**NOT CURRENTLY SUITABLE FOR PRODUCTION.**
 
-Report peak PJSIP trunk use, overlapping CDRs assigned to individual extensions, or PBX-wide numeric extension-leg activity across a date range. Normal report runs are read-only against `asteriskcdrdb`; demo mode temporarily writes tagged synthetic rows to CDR and removes them after the run.
+Concurrency Count provides live and historical visibility into PJSIP concurrency on FreePBX and PBXact. It can monitor current trunk and extension-side activity from Asterisk, track Overall Live Concurrency, apply per-trunk and global thresholds with unattended alerting and recovery notifications, and reconstruct historical concurrency from CDR data for trunks, individual extensions, or PBX-wide extension-leg activity.
 
-This is the FreePBX module companion to the Concurrency Count CLI tool (`concurrency-count`) - NOT CURRENTLY SUITABLE FOR PRODUCTION. The web interface provides presets, native custom date controls, optional time selection, and previous/next range navigation. Demo mode is launched separately through **Run Demo** because it writes temporary synthetic CDR rows.
+Historical reporting includes persistent report workspaces, flexible date and time ranges, concurrency graphs, inline trunk peak occurrences, lazy contributing-call drill-down, FreePBX entity resolution, and CDR Reports integration. Normal reporting is read-only against `asteriskcdrdb`; the separate Demo mode temporarily writes tagged synthetic CDR rows, validates calculated results, and removes the test data after the run.
+
+Concurrency Count is the FreePBX module companion to the `concurrency-count` CLI tool and provides both GUI and CLI access to its reporting and operational features. It supports FreePBX/PBXact 16 and 17 and includes supervised background workers for live threshold monitoring and notification delivery.
 
 ## Requirements
 
