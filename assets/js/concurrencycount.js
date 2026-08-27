@@ -455,6 +455,18 @@ window._ccLoaded = true;
 			return;
 		}
 		var html = renderExplanation(r);
+		if (r.mode === 'trunk') {
+			html += '<div class="cc-trunk-results">';
+			names.forEach(function (trunk, nameIndex) {
+				var count = r.per_name[trunk];
+				var isPeak = count === r.global_max && r.global_max > 0;
+				html += '<section class="panel panel-default cc-trunk-result' + (isPeak ? ' cc-peak-row' : '') + '" data-name-index="' + nameIndex + '">' +
+					'<div class="panel-heading cc-trunk-summary"><h4>' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>' +
+					'<p>Peak trunk concurrency: <strong>' + escapeHtml(count) + '</strong></p></div>' +
+					renderOccurrenceSection(trunk, nameIndex, r) + '</section>';
+			});
+			html += '</div>';
+		} else {
 		var peakColumn = r.mode === 'trunk' ? 'Peak trunk concurrency' : 'Peak assigned CDR concurrency';
 		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
 			'<th>' + escapeHtml(label) + '</th>' +
@@ -464,18 +476,12 @@ window._ccLoaded = true;
 			var count = r.per_name[n];
 			var isPeak = (count === r.global_max && r.global_max > 0);
 			var nameIndex = names.indexOf(n);
-			var entity = r.mode === 'trunk' && r.trunk_entities ? r.trunk_entities[n] : null;
-			var occurrences = r.mode === 'trunk' && r.peak_occurrences && r.peak_occurrences[n] ? r.peak_occurrences[n] : [];
 			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + renderEntity(entity, n) + '</td>' +
-				'<td><strong>' + escapeHtml(count) + '</strong>' +
-				(r.mode === 'trunk' && occurrences.length ? '<br><button type="button" class="btn btn-link cc-show-occurrences" data-name-index="' + nameIndex + '">Peak occurred ' + escapeHtml(occurrences.length) + ' ' + (occurrences.length === 1 ? 'time' : 'times') + '</button>' : '') +
-				'</td>' +
+				'<td>' + escapeHtml(n) + '</td>' +
+				'<td><strong>' + escapeHtml(count) + '</strong></td>' +
 				'</tr>';
 		});
 		html += '</tbody></table></div>';
-		if (r.mode === 'trunk') {
-			html += renderOccurrenceSections(names, r);
 		}
 		var peakDetail = r.mode === 'trunk'
 			? r.global_max + ' trunk legs active simultaneously at the busiest point.'
@@ -485,24 +491,25 @@ window._ccLoaded = true;
 		el.html(html);
 	}
 
-	function renderOccurrenceSections(names, r) {
-		var html = '';
-		names.forEach(function (trunk, nameIndex) {
-			var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
-			if (!occurrences.length) return;
-			html += '<section class="cc-occurrence-section" data-name-index="' + nameIndex + '" style="display:none">';
-			html += '<h4>Simultaneous Call Details: ' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>';
-			occurrences.forEach(function (occurrence, occurrenceIndex) {
+	function renderOccurrenceSection(trunk, nameIndex, r) {
+		var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
+		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No peak occurrences in this range.</p>';
+		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>Peak occurrences</h5>';
+		occurrences.forEach(function (occurrence, occurrenceIndex) {
+				var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
 				html += '<div class="panel panel-default cc-occurrence">' +
-					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false">' +
-					'<span><strong>Peak ' + escapeHtml(occurrence.peak) + ' trunk legs</strong> &middot; ' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + ' &middot; lasted ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</span>' +
-					'<i class="fa fa-chevron-down" aria-hidden="true"></i></button></div>' +
-					'<div class="panel-body cc-occurrence-detail" style="display:none"></div>' +
+					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
+					'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + '</strong><small>' + escapeHtml(occurrence.peak) + ' simultaneous trunk legs &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
+					'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
 					'</div>';
-			});
-			html += '</section>';
 		});
+		html += '</div>';
 		return html;
+	}
+
+	function setOccurrenceExpanded(button, expanded) {
+		button.attr('aria-expanded', expanded ? 'true' : 'false');
+		button.find('.fa').toggleClass('fa-chevron-right', !expanded).toggleClass('fa-chevron-down', expanded);
 	}
 
 	function renderEntity(entity, fallback) {
@@ -544,7 +551,7 @@ window._ccLoaded = true;
 		if (detail.data('loaded')) {
 			detail.toggle();
 			var nowExpanded = detail.is(':visible');
-			button.attr('aria-expanded', nowExpanded ? 'true' : 'false');
+			setOccurrenceExpanded(button, nowExpanded);
 			if (report && report.occurrenceCache[cacheKey]) report.occurrenceCache[cacheKey].expanded = nowExpanded;
 			return;
 		}
@@ -552,20 +559,21 @@ window._ccLoaded = true;
 		detail.data('loading', true);
 		button.prop('disabled', true);
 		detail.html('<p class="text-muted"><span class="cc-spinner"></span>Loading contributing calls...</p>').show();
-		button.attr('aria-expanded', 'true');
+		setOccurrenceExpanded(button, true);
 		ajax({
 			command: 'peakdetails', trunk: trunk,
 			start_date: currentResults.start, end_date: currentResults.end,
 			occurrence_from: occurrence.from, occurrence_to: occurrence.to
 		}).done(function (response) {
 			if (!response.status) {
-				detail.html('<div class="alert alert-danger">' + escapeHtml(response.message || 'Unable to load call details.') + '</div>');
+				detail.html('<div class="alert alert-danger">' + escapeHtml(response.message || 'Unable to load call details.') + ' Select this occurrence to retry.</div>');
 				return;
 			}
 			detail.data('loaded', true).data('detail', response.detail).html(renderPeakCalls(response.detail));
 			if (report) report.occurrenceCache[cacheKey] = {expanded: true, detail: response.detail};
 		}).fail(function () {
-			detail.html('<div class="alert alert-danger">' + escapeHtml(randomOops()) + '</div>');
+			detail.html('<div class="alert alert-danger">' + escapeHtml(randomOops()) + ' Select this occurrence to retry.</div>').show();
+			setOccurrenceExpanded(button, true);
 		}).always(function () {
 			detail.data('loading', false);
 			button.prop('disabled', false);
@@ -901,7 +909,7 @@ window._ccLoaded = true;
 			}
 			if (cached.expanded) {
 				detail.show();
-				button.attr('aria-expanded', 'true');
+				setOccurrenceExpanded(button, true);
 			}
 		});
 	}
@@ -1412,10 +1420,7 @@ window._ccLoaded = true;
 		$('#cc-download-cdr').off('click').on('click', onDownloadCdr);
 		$('#cc-email-toggle').off('click').on('click', onEmailToggle);
 		$('#cc-email-send').off('click').on('click', onEmailSend);
-		$('#cc-results-body').off('click', '.cc-show-occurrences').on('click', '.cc-show-occurrences', function () {
-			var nameIndex = parseInt($(this).data('name-index'), 10);
-			$('.cc-occurrence-section[data-name-index="' + nameIndex + '"]').toggle();
-		}).off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
+		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
 		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
 			openCdrSearch($(this));

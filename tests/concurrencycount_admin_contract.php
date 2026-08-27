@@ -94,9 +94,17 @@ foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 
 }
 admin_contract_assert(strpos($view, 'type="date"') !== false && strpos($view, 'cc-include-time') !== false, 'Native custom date/time controls missing');
 admin_contract_assert(strpos($javascript, "command: 'peakdetails'") !== false, 'Peak detail AJAX wiring missing');
-foreach (['cc-show-occurrences', 'cc-occurrence-toggle', 'loadOccurrence'] as $drilldown) {
+foreach (['cc-trunk-result', 'cc-occurrence-section', 'cc-occurrence-toggle', 'loadOccurrence'] as $drilldown) {
 	admin_contract_assert(strpos($javascript, $drilldown) !== false, 'Trunk drill-down wiring missing: ' . $drilldown);
 }
+admin_contract_assert(strpos($javascript, 'cc-show-occurrences') === false, 'Obsolete separate occurrence reveal control remains');
+admin_contract_assert(strpos($javascript, 'style="display:none"><h5>Peak occurrences') === false, 'Compact peak occurrences must render immediately');
+admin_contract_assert(strpos($javascript, "renderOccurrenceSection(trunk, nameIndex, r) + '</section>'") !== false, 'Each occurrence list must be contained by its own trunk result');
+admin_contract_assert(strpos($javascript, "if (detail.data('loading')) return;") !== false, 'Rapid expansion must not duplicate an in-flight detail request');
+admin_contract_assert(strpos($javascript, 'Select this occurrence to retry.') !== false, 'Failed occurrence detail requests must remain retryable');
+admin_contract_assert(strpos($javascript, 'setOccurrenceExpanded') !== false && strpos($javascript, "aria-expanded=\"false\"") !== false && strpos($javascript, 'aria-controls=') !== false, 'Occurrence disclosure accessibility wiring missing');
+admin_contract_assert(strpos($javascript, "detail.toggle()") !== false, 'Loaded occurrences must support independent expand and collapse');
+admin_contract_assert(strpos($javascript, 'report.occurrenceCache[cacheKey]') !== false && strpos($javascript, 'restoreOccurrenceState(report)') !== false, 'Occurrence detail and expansion state must remain cached per Historic Report instance');
 foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak group concurrency'] as $resultTerm) {
 	admin_contract_assert(strpos($javascript, $resultTerm) !== false, 'Mode-specific result terminology missing: ' . $resultTerm);
 }
@@ -154,7 +162,7 @@ admin_contract_assert(strpos($liveJavascript, "command: 'monitorstatus'") !== fa
 foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length > 900', "command: 'livestatus'", "command: 'savesettings'", "command: 'historicalgraph'"] as $pollingContract) {
 	admin_contract_assert(strpos($liveJavascript, $pollingContract) !== false, 'Safe live polling contract missing: ' . $pollingContract);
 }
-admin_contract_assert(strpos($liveJavascript, "trigger('click')") !== false && strpos($liveJavascript, 'cc-occurrence-section') !== false, 'Historical graph does not reuse occurrence drill-down');
+admin_contract_assert(strpos($liveJavascript, "trigger('click')") !== false && strpos($liveJavascript, '.cc-trunk-result[data-name-index=') !== false, 'Historical graph does not target the inline trunk occurrence');
 
 // Workspace ownership: exactly one Live workspace and one Historical workspace, each a real sibling container.
 admin_contract_assert(substr_count($view, 'id="cc-live-section"') === 1, 'Exactly one Live workspace container must exist');
@@ -177,7 +185,7 @@ admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && st
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.0.0', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.0.1', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');

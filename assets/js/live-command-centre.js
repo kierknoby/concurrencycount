@@ -355,10 +355,12 @@ window._ccLiveLoaded = true;
 			if (point.ts >= from && point.ts <= to) {
 				var names = Object.keys(historicalResult.per_name || {});
 				var nameIndex = names.indexOf(name);
-				var section = $('.cc-occurrence-section[data-name-index="' + nameIndex + '"]').show();
+				var section = $('.cc-trunk-result[data-name-index="' + nameIndex + '"] .cc-occurrence-section');
 				var toggle = section.find('.cc-occurrence-toggle').eq(index);
 				if (toggle.attr('aria-expanded') !== 'true') toggle.trigger('click');
-				$('html, body').animate({scrollTop: section.offset().top - 20}, 250);
+				toggle.closest('.cc-occurrence').addClass('cc-occurrence-focused');
+				setTimeout(function () { toggle.closest('.cc-occurrence').removeClass('cc-occurrence-focused'); }, 1800);
+				$('html, body').animate({scrollTop: toggle.offset().top - 20}, 250);
 				break;
 			}
 		}
