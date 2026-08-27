@@ -199,6 +199,19 @@ class Concurrencycount extends Command {
 
 	private function handleManagementOperation(InputInterface $input, OutputInterface $output, $cc): ?int {
 		$json = (bool)$input->getOption('json');
+		$mutations = ['set-refresh', 'set-overall-threshold', 'overall-threshold', 'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert', 'start-monitoring', 'stop-monitoring', 'recovery', 'alert-email'];
+		$operations = ['live', 'monitor', 'monitor-status', 'restart-monitor', 'historical-graph', 'list-historical-reports', 'show-historical-report', 'delete-historical-report'];
+		$selectedOperations = [];
+		foreach ($operations as $option) if ($input->getOption($option) !== null && $input->getOption($option) !== false) $selectedOperations[] = '--' . $option;
+		$selectedMutations = [];
+		foreach ($mutations as $option) if ($input->getOption($option) !== null && $input->getOption($option) !== false) $selectedMutations[] = '--' . $option;
+		$settingsRequested = (bool)$input->getOption('settings');
+		if (count($selectedOperations) > 1 || (!empty($selectedOperations) && (!empty($selectedMutations) || $settingsRequested))) {
+			$conflicts = array_merge($selectedOperations, $selectedMutations);
+			if ($settingsRequested) $conflicts[] = '--settings';
+			$output->writeln('<error>Conflicting management options: ' . implode(', ', $conflicts) . '. Run one operation at a time; --json is an output modifier and --settings may accompany settings mutations only.</error>');
+			return 1;
+		}
 		$managementOptions = [
 			'live', 'settings', 'set-refresh', 'set-overall-threshold', 'overall-threshold',
 			'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert',
@@ -228,7 +241,7 @@ class Concurrencycount extends Command {
 		if ($input->getOption('restart-monitor')) {
 			$result = $cc->restartAlertMonitor();
 			$this->writeMonitorStatus($output, $result, $json);
-			return !empty($result['available']) && isset($result['pm2_status']) && $result['pm2_status'] === 'online' ? 0 : 1;
+			return !empty($result['available']) && isset($result['status']) && $result['status'] === 'online' ? 0 : 1;
 		}
 		if ($input->getOption('list-historical-reports')) {
 			$result = $cc->getHistoricalReports();

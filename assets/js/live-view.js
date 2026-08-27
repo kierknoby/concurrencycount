@@ -649,7 +649,7 @@ window._ccLiveLoaded = true;
 			renderHistoricalSeries();
 			return;
 		}
-		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end}).done(function (response) {
+		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : ''}).done(function (response) {
 			if (!response.status) return;
 			historicalSeries = response.graph;
 			renderHistoricalSeries();

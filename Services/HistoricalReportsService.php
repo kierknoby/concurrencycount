@@ -153,7 +153,9 @@ class HistoricalReportsService {
 		$toTime = $this->normaliseClockTime(isset($definition['to_time']) ? $definition['to_time'] : '23:59');
 
 		$filter = isset($definition['filter']) ? substr((string)$definition['filter'], 0, 128) : '';
+		if ($mode === 'group') $filter = '';
 		$missingReference = !empty($definition['missing_reference']);
+		if ($rangeFrom > $rangeTo) throw new \InvalidArgumentException('Historical report start date must not be after its end date.');
 
 		return [
 			'name' => $name, 'mode' => $mode, 'engine' => $engine, 'preset' => $preset,
@@ -173,7 +175,11 @@ class HistoricalReportsService {
 	}
 
 	private function normaliseDateOnly(string $value): ?string {
-		return preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/', $value) ? $value : null;
+		if (!preg_match('/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/', $value)) return null;
+		$date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+		$errors = \DateTimeImmutable::getLastErrors();
+		if ($date === false || (is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) return null;
+		return $date->format('Y-m-d') === $value ? $value : null;
 	}
 
 	private function normaliseClockTime(string $value): string {

@@ -59,5 +59,8 @@ console_contract_assert(strpos($console, "['monitored'] = \$monitored") !== fals
 console_contract_assert(strpos($console, "!empty(\$scope['monitored']) ? 'active' : 'stopped'") !== false, 'Settings output must expose per-trunk monitoring state');
 console_contract_assert(strpos($console, "((int)\$results['max_concurrency'] === 1 ? 'Activity' : 'Peak') . ' time ranges:'") !== false, 'Group CLI must label peak-1 ranges as Activity and peak-2+ ranges as Peak');
 console_contract_assert(strpos($console, "Activity detected, no concurrency.") !== false, 'Group CLI peak-1 activity status missing');
+console_contract_assert(strpos($console, 'Conflicting management options:') !== false, 'CLI management conflicts are not rejected explicitly');
+console_contract_assert(strpos($console, "\$result['status'] === 'online'") !== false, 'Restart exit status must use combined monitor health');
+console_contract_assert(strpos($console, "\$result['pm2_status'] === 'online'") === false, 'Restart exit status must not report success from monitor PM2 state alone');
 
 echo "Console contract passed\n";

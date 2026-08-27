@@ -324,8 +324,14 @@ $_ccAssetVer = max(
 					<span id="cc-mode-description" class="help-block fpbx-help-block" aria-live="polite"><?php echo _('Trunks measure external capacity. Peak details can show when and which CDRs reached it.'); ?></span>
 				</fieldset>
 				<div class="form-group" id="cc-engine-group">
+					<section id="cc-engine-explanation" class="cc-engine-explanation" aria-labelledby="cc-engine-explanation-title">
+						<h4 id="cc-engine-explanation-title"><?php echo _('Calculation engines'); ?></h4>
+						<p><strong><?php echo _('Original — Recommended, default and reference implementation.'); ?></strong> <?php echo _('Original is the most established calculation path. It calculates concurrency by walking each occupied second of every eligible call. This is simple and easy to reason about, but it can use more CPU and memory on large date ranges.'); ?></p>
+						<p><strong><?php echo _('Sweep — Experimental, event-based calculation.'); ?></strong> <?php echo _('Sweep processes call start and end events instead of examining every occupied second. It is designed to return the same concurrency result more efficiently, but remains experimental while it receives broader real-world FreePBX and PBXact validation.'); ?></p>
+						<p class="cc-engine-example"><?php echo _('Example: If three calls overlap between 10:05:00 and 10:05:30, both engines should report a peak concurrency of 3. Original counts each occupied second; Sweep tracks the points where calls start and end.'); ?></p>
+					</section>
 					<label for="cc-engine" class="control-label"><?php echo _('Calculation engine'); ?></label>
-					<select id="cc-engine" class="form-control">
+					<select id="cc-engine" class="form-control" aria-describedby="cc-engine-explanation">
 						<?php foreach ($availableEngines as $id => $engine): ?>
 							<option value="<?php echo htmlspecialchars($id, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $id === 'original' ? 'selected' : ''; ?>>
 								<?php echo htmlspecialchars($engine['label'], ENT_QUOTES, 'UTF-8'); ?><?php echo !empty($engine['experimental']) ? ' ' . _('(experimental)') : ' ' . _('(recommended)'); ?>

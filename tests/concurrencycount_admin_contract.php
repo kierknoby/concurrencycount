@@ -79,6 +79,12 @@ admin_contract_assert(strpos($view, 'cc-mode-description') !== false, 'Dynamic m
 admin_contract_assert(strpos($javascript, 'not a Ring Group or selected member list') !== false, 'Group mode must explicitly reject Ring Group interpretation');
 admin_contract_assert(strpos($view, 'Calculation engine') !== false, 'Engine control is not separated from reporting scope');
 admin_contract_assert(strpos($view, 'id="cc-engine-group"') !== false && strpos($view, 'id="cc-engine"') !== false, 'Engine control hierarchy missing');
+admin_contract_assert(strpos($view, 'id="cc-engine-explanation"') !== false && strpos($view, 'Calculation engines') !== false, 'Visible Calculation engines explanation missing');
+admin_contract_assert(strpos($view, 'Recommended, default and reference implementation') !== false && strpos($view, 'most established calculation path') !== false, 'Original reference/default explanation missing');
+admin_contract_assert(strpos($view, 'Experimental, event-based calculation') !== false && strpos($view, 'designed to return the same concurrency result') !== false, 'Sweep experimental same-result explanation missing');
+admin_contract_assert(strpos($view, 'three calls overlap between 10:05:00 and 10:05:30') !== false && strpos($view, 'peak concurrency of 3') !== false, 'Engine overlap example missing');
+admin_contract_assert(strpos($view, 'aria-describedby="cc-engine-explanation"') !== false, 'Engine selector is not associated with its visible explanation');
+admin_contract_assert(strpos($css, '.cc-engine-explanation') !== false && strpos($css, 'overflow-wrap: anywhere') !== false, 'Engine explanation responsive styling missing');
 admin_contract_assert(strpos($css, '.cc-mode-options') !== false && strpos($css, 'grid-template-columns: repeat(3') !== false, 'Desktop mode selector layout missing');
 admin_contract_assert(strpos($css, '.cc-mode-option.is-selected') !== false && strpos($css, ':focus-within') !== false, 'Selected and keyboard focus states missing');
 admin_contract_assert(strpos($css, 'grid-template-columns: 1fr') !== false, 'Mobile mode selector stacking missing');
@@ -88,7 +94,7 @@ foreach (['### Trunk Concurrency', '### Extension Concurrency', '### Group Concu
 	admin_contract_assert(strpos($readme, $heading) !== false, 'README reporting section missing: ' . $heading);
 }
 admin_contract_assert(strpos($readme, 'Overall Extension Concurrency') === false, 'README must no longer describe historical Group mode as Overall Extension Concurrency');
-foreach (['including both boundary seconds', 'not mean a configured FreePBX Ring Group', 'Compare Engines', 'CLI keeps its existing option names'] as $concept) {
+foreach (['including both boundary seconds', 'not mean a configured FreePBX Ring Group', 'Compare Engines', 'CLI option names remain stable', 'explicit date aliases', 'stricter argument validation', 'safer operation/health exit behaviour'] as $concept) {
 	admin_contract_assert(strpos($readme, $concept) !== false, 'README reporting contract missing: ' . $concept);
 }
 foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 'custom'] as $preset) {

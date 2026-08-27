@@ -220,6 +220,8 @@ An activity-only Trunk retains the complete Trunk detail model. Its **Activity o
 
 For a concurrency result, an occurrence is one continuous period during which that trunk remains at its exact maximum. If the maximum is reached, drops and is reached again, those are separate occurrences. A continuous occurrence can include more distinct CDRs than its instantaneous peak when one CDR ends as another begins without the count dropping.
 
+Peak and Activity occurrence rows use a neutral white nested surface in both FreePBX and PBXact while the parent Trunk result retains its contextual highlighting. Occurrence headings use British-readable dates, repeat the ending date only for a cross-day range, and initially show at most five occurrences per Trunk. **Show N more** and **Show less** change presentation only: any contributing-call detail already loaded lazily remains available without being discarded or refetched.
+
 Direction comes from actual trunk-leg placement: a matching trunk in `channel` is inbound, a matching trunk in `dstchannel` is outbound, and ambiguous placement is unknown.
 
 ### Extension Concurrency
@@ -275,7 +277,11 @@ Persisted report-definition fields include:
 - Include time and its From/To values;
 - active report state where applicable.
 
-Relative presets remain relative: **Last 7 days** is re-resolved against the current date on restore. **Custom** retains exact dates. A missing saved endpoint filter is marked rather than silently retargeted.
+Relative presets remain relative: **Last 7 days** is re-resolved against the current date on restore. **Custom** retains exact, valid calendar dates; impossible dates and reversed ranges are rejected.
+
+Endpoint filtering is part of the shared Historical calculation, not a browser-only display filter. A filtered Trunk report calculates only the selected authoritative trunk, and a filtered Extension report calculates only the selected authoritative extension. An empty filter calculates all eligible endpoints for that mode. Group does not support endpoint filtering and does not retain an endpoint filter. If a saved endpoint is no longer authoritative for its report mode, the report remains visibly missing/unresolved and returns no endpoint result rather than silently falling back to all endpoints.
+
+The same validated mode, engine, resolved range, endpoint filter, exclusions and endpoint classifications are used where applicable by initial GUI calculation, persisted regeneration, CSV, email, Historical graph, peak occurrence/detail and Excluded Calls relevance.
 
 Not persisted:
 
@@ -288,7 +294,7 @@ Reopening the module restores tab definitions, regenerates the previously active
 
 ### Graphs, call detail and output
 
-Historical graph points retain exact numeric counts, including 1. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+Historical graph points retain exact numeric counts, including 1. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
 
 The detail path is conservative. CDR can prove the selected trunk leg, DID, source/destination and a directly recorded opposite PJSIP extension. Concurrency Count asks installed FreePBX `*_getdestinfo` providers for labels and safe local `config.php` edit links. Unresolved values remain plain text. It does not infer a historic IVR, queue or announcement chain from current configuration.
 
@@ -296,7 +302,7 @@ Where the CDR provides a destination that an installed provider can prove, this 
 
 **View in CDR Reports** POSTs the supported `need_html=true` form fields with the call minute and standard caller-number, destination and DID filters. It does not invent a `uniqueid` query parameter or depend on the CEL-specific `action=cel_show` route.
 
-Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment. Raw values retain exact peaks; human-readable GUI, email and CLI wording distinguishes Activity only from concurrency. The CLI keeps its existing option names, accepted date syntax, engine behaviour and exit behaviour.
+Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment. Raw values retain exact peaks; human-readable GUI, email and CLI wording distinguishes Activity only from concurrency. CLI option names remain stable, with 2.1.0 adding explicit date aliases, stricter argument validation and safer operation/health exit behaviour.
 
 ### Excluded Calls
 
@@ -376,7 +382,7 @@ Refresh can be 1, 5, 10, 15, 30 or 60 seconds; default is 5. Requests do not ove
 
 A persistent PHP worker supervised by FreePBX Process Management (`pm2`) keeps one AMI connection and reacts to `Newchannel`, `Newstate`, `Hangup`, `Rename` and `Masquerade`. Events trigger reconciliation; a full reconciliation also runs every five seconds. Each snapshot has a unique AMI ActionID and is accepted only after its matching `CoreShowChannelsComplete`. An incomplete snapshot is unavailable, never an empty PBX.
 
-PM2 supervises this worker and a separate mail worker. Lifecycle hooks start, stop and restart them with FreePBX/Asterisk. Installation removes the obsolete minute cron line. Health degrades when no recent complete snapshot exists.
+PM2 supervises this worker and a separate mail worker. Lifecycle hooks start, stop and restart them with FreePBX/Asterisk. Installation removes the obsolete minute cron line. Health degrades when no recent complete snapshot exists. CLI monitor status distinguishes combined health from the main PM2 process state, and `--restart-monitor` succeeds only when the combined monitor result is healthy rather than merely when the main monitor process is online.
 
 Threshold comparison is `current >= threshold`; zero disables it. Master alerts, per-scope alerts, threshold enablement and recovery preference are distinct. Alert state and a stable outbox entry are persisted atomically before delivery, suppressing repeats through one episode and worker restart while retaining its peak. Stable event IDs prevent duplicate queue records. The mail worker retries with bounded exponential backoff.
 
@@ -404,7 +410,11 @@ The GUI and `fwconsole concurrencycount` use the same calculations/services wher
 | Historical graph | `--historical-graph=trunk --graph-trunk=gamma --start='...' --end='...' --json` |
 | Historic Report definitions | `--list-historical-reports`, `--show-historical-report=2`, `--delete-historical-report=2` |
 
-Prefix examples with `fwconsole concurrencycount`. Live queries take one snapshot and exit; they do not poll or replace the PM2 worker. The standalone IN1CLICK `concurrency-count` tool remains available for terminal interaction, progress reporting and pause-on-overrun behaviour. Neither interface is universally preferable.
+Prefix examples with `fwconsole concurrencycount`. CLI date boundaries use PBX/server local time: `--start=today` is today at `00:00:00`, `--end=today` is the current time, `--start=yesterday` is yesterday at `00:00:00`, and `--end=yesterday` is yesterday at `23:59:59`.
+
+Omitting `--engine` selects Original; explicit `original` and experimental `sweep` are valid. An explicitly unknown engine is rejected rather than silently falling back to Original. Incompatible management operation classes are rejected before mutation—for example, `--monitor-status --restart-monitor`, `--live --set-refresh=5` or `--list-historical-reports --alerts=off`. `--json` is a modifier, multiple supported settings mutations may be combined, and `--settings` may accompany settings mutations.
+
+Live queries take one snapshot and exit; they do not poll or replace the PM2 worker. The standalone IN1CLICK `concurrency-count` tool remains available for terminal interaction, progress reporting and pause-on-overrun behaviour. Neither interface is universally preferable.
 
 ## Demo
 
@@ -416,6 +426,8 @@ fwconsole concurrencycount --mode=demo --compare=original,sweep
 ```
 
 Demo temporarily inserts deterministic CDR rows tagged with a unique `CCDEMO*` accountcode. It calculates an independent expectation, runs the normal CDR-backed path against those rows, compares results and removes them. It reports rows inserted, removed and remaining.
+
+Omitted Demo arguments retain their documented defaults. Explicit invalid Demo report modes, sizes or comparison-engine values are rejected rather than silently replaced; Original remains the default comparison engine and Sweep remains experimental.
 
 Cleanup runs in `finally` and is verified after a normal run, but is best-effort: a fatal error, server kill, database interruption or host crash could leave tagged rows. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
 
@@ -518,7 +530,12 @@ These tests do not replace real PBX/browser validation.
 - Add a FreePBX permission or setting before Demo can write CDR rows.
 - Add a dry-run orphan-cleanup command for old `CCDEMO*` rows.
 - Consider a Demo transaction only if safe with deployed CDR engines and FreePBX environments.
+- Consider event-burst coalescing only with guarantees for prompt first-event and trailing reconciliation so short threshold crossings cannot be missed.
+- Bound or replace Original's per-second memory growth without changing its reference result contract.
+- Define an automation-safe CLI runtime-overrun confirmation or `--force` policy and a consistent JSON success/error envelope.
+- Add FreePBX backup/restore integration for module-owned persisted state.
 - Add real FreePBX 16/17 integration coverage for mail, CDR schema variation, permissions and browsers.
+- Decompose the main module class in a future minor release rather than during 2.1.0 release hardening.
 
 ## Uninstalling
 

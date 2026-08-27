@@ -274,9 +274,11 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertSame('2025-04-01 00:00:00', $this->cc->normaliseStartDate('2025-04'));
 	}
 
-	public function testStartDateRejectsTodayKeyword(): void {
-		$this->assertNull($this->cc->normaliseStartDate('today'));
-		$this->assertNull($this->cc->normaliseStartDate('yesterday'));
+	public function testStartAndEndDateAliases(): void {
+		$this->assertSame(date('Y-m-d 00:00:00'), $this->cc->normaliseStartDate('today'));
+		$this->assertSame(date('Y-m-d 00:00:00', strtotime('yesterday')), $this->cc->normaliseStartDate('yesterday'));
+		$this->assertSame(date('Y-m-d'), substr($this->cc->normaliseEndDate('today'), 0, 10));
+		$this->assertSame(date('Y-m-d 23:59:59', strtotime('yesterday')), $this->cc->normaliseEndDate('yesterday'));
 	}
 
 	public function testStartDateRejects3DigitYear(): void {
@@ -288,6 +290,17 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertNull($this->cc->normaliseStartDate('2025-13'));
 		$this->assertNull($this->cc->normaliseEndDate('2025-04-31'));
 		$this->assertNull($this->cc->normaliseEndDate('2025-00'));
+	}
+
+	public function testExplicitEngineAndDemoOptionsAreStrict(): void {
+		$this->assertSame('original', $this->invokePrivate('normaliseEngineId', ['']));
+		$this->assertSame('original', $this->invokePrivate('normaliseEngineId', ['original']));
+		$this->assertSame('sweep', $this->invokePrivate('normaliseEngineId', ['sweep']));
+		foreach ([['normaliseEngineId', ['sweeep']], ['normaliseDemoReport', ['invalid']], ['normaliseDemoSize', ['huge']], ['normaliseDemoEngines', [['original', 'invalid']]]] as $case) {
+			$rejected = false;
+			try { $this->invokePrivate($case[0], $case[1]); } catch (InvalidArgumentException $exception) { $rejected = true; }
+			$this->assertTrue($rejected);
+		}
 	}
 
 	public function testAjaxRequestsRequireAuthenticationAndDisallowRemoteAccess(): void {

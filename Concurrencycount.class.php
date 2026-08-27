@@ -715,8 +715,14 @@ class Concurrencycount implements \BMO {
 			return $definition;
 		}
 		$mode = isset($definition['mode']) ? (string)$definition['mode'] : '';
-		if ($mode === 'trunk') {
-			$definition['missing_reference'] = !in_array($filter, $this->getTrunks(), true);
+		if ($mode === 'group') {
+			$definition['filter'] = '';
+			$definition['missing_reference'] = false;
+			return $definition;
+		}
+		if (in_array($mode, ['trunk', 'extension'], true)) {
+			$classification = $this->getPjsipIdentityService()->classify($filter);
+			$definition['missing_reference'] = $classification['type'] !== $mode;
 		}
 		return $definition;
 	}
@@ -1105,9 +1111,8 @@ class Concurrencycount implements \BMO {
 			return '2000-01-01 00:00:00';
 		}
 
-		if ($this->isTodayShorthand($s) || $this->isYesterdayShorthand($s)) {
-			return null;
-		}
+		if ($this->isTodayShorthand($s)) return date('Y-m-d 00:00:00');
+		if ($this->isYesterdayShorthand($s)) return date('Y-m-d 00:00:00', strtotime('yesterday'));
 
 		if (preg_match('/^[0-9]{3}$/', $s)) return null;
 
@@ -1164,9 +1169,8 @@ class Concurrencycount implements \BMO {
 			return date('Y-m-d H:i:s');
 		}
 
-		if ($this->isTodayShorthand($s) || $this->isYesterdayShorthand($s)) {
-			return null;
-		}
+		if ($this->isTodayShorthand($s)) return date('Y-m-d H:i:s');
+		if ($this->isYesterdayShorthand($s)) return date('Y-m-d 23:59:59', strtotime('yesterday'));
 
 		if (preg_match('/^[0-9]{3}$/', $s)) return null;
 
@@ -1341,6 +1345,7 @@ class Concurrencycount implements \BMO {
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
 		$confirm_overrun = !empty($_REQUEST['confirm_overrun']);
 		$options = $this->requestDemoOptions();
+		$options['filter'] = isset($_REQUEST['filter']) ? trim((string)$_REQUEST['filter']) : '';
 
 		if ($mode === null) {
 			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
@@ -1596,14 +1601,16 @@ class Concurrencycount implements \BMO {
 		set_time_limit(self::MAX_RUNTIME + 60);
 		$started_at = time();
 		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
+		$filter = isset($options['filter']) ? trim((string)$options['filter']) : '';
 
 		if ($mode === 'demo') {
 			return $this->calculateDemo($start, $end, $started_at, $options);
 		}
 		if ($mode === 'group') {
+			if ($filter !== '') throw new \InvalidArgumentException(_('Group reports do not support an endpoint filter.'));
 			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id);
 		}
-		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id);
+		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id, $filter);
 	}
 
 	public function getAvailableEngines(): array {
@@ -1616,16 +1623,8 @@ class Concurrencycount implements \BMO {
 		if (isset($engines[$engine_id])) {
 			return $engine_id;
 		}
-		if ($engine_id !== '') {
-			try {
-				if (class_exists('\FreePBX') && method_exists('\FreePBX', 'Logger')) {
-					\FreePBX::Logger()->warning('Concurrency Count unknown engine "' . $engine_id . '", falling back to original.');
-				}
-			} catch (\Exception $e) {
-				// Fall back silently if logging is unavailable.
-			}
-		}
-		return 'original';
+		if ($engine_id === '') return 'original';
+		throw new \InvalidArgumentException(sprintf('Unknown calculation engine: %s', $engine_id));
 	}
 
 	private function buildEngine(string $engine_id, array $options = []): \FreePBX\modules\Concurrencycount\Engines\EngineInterface {
@@ -1792,7 +1791,8 @@ class Concurrencycount implements \BMO {
 				$out[] = $engine_id;
 			}
 		}
-		return empty($out) ? ['original'] : $out;
+		if (empty($out)) throw new \InvalidArgumentException('At least one valid Demo engine is required.');
+		return $out;
 	}
 
 	private function normaliseDemoReport($report): string {
@@ -1800,7 +1800,7 @@ class Concurrencycount implements \BMO {
 		if (in_array($report, ['trunk', 'extension', 'group'], true)) {
 			return $report;
 		}
-		return 'extension';
+		throw new \InvalidArgumentException('Demo report must be trunk, extension or group.');
 	}
 
 	private function normaliseDemoSize($size): string {
@@ -1808,7 +1808,7 @@ class Concurrencycount implements \BMO {
 		if (in_array($size, ['light', 'medium', 'heavy'], true)) {
 			return $size;
 		}
-		return 'light';
+		throw new \InvalidArgumentException('Demo size must be light, medium or heavy.');
 	}
 
 	private function normaliseDemoRows($rows, string $size): int {
@@ -2097,15 +2097,25 @@ class Concurrencycount implements \BMO {
 	 * Per-name (trunk or extension) concurrency.
 	 * Mirrors bash calculate_concurrency().
 	 */
-	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original'): array {
+	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original', string $filter = ''): array {
 		$identity = $this->identityForOperation($accountcode);
+		$filter = trim($filter);
 		$trunks = $mode === 'trunk' ? ($accountcode === '' ? $this->getTrunks() : array_keys($identity->configuredTrunks())) : [];
 		$classified = $this->classifyPerNameRows($this->fetchPjsipCdrRows($start, $end, $accountcode), $mode, $identity);
-		$rows = $classified['rows'];
+		$selection = (new \FreePBX\modules\Concurrencycount\Services\HistoricalEndpointFilterService())->apply($mode, $classified['rows'], $identity, $filter);
+		if ($selection['missing_reference']) {
+			$empty = $this->emptyResult($mode, $start, $end, _('The selected PJSIP endpoint is unavailable or no longer has the required classification.'), $engine_id);
+			$empty['filter'] = $filter;
+			$empty['missing_reference'] = true;
+			return $empty;
+		}
+		$rows = $selection['rows'];
+		if ($mode === 'trunk' && $filter !== '') $trunks = [$filter];
 
 		if (empty($rows)) {
 			$empty = $this->emptyResult($mode, $start, $end, _('No attributable calls found in the selected date range.'), $engine_id);
 			$empty['identity_anomalies'] = array_values($classified['anomalies']);
+			$empty['filter'] = $filter;
 			return $empty;
 		}
 
@@ -2124,6 +2134,7 @@ class Concurrencycount implements \BMO {
 			'rows_processed' => $calculated['rows_processed'],
 			'warning' => '',
 			'identity_anomalies' => array_values($classified['anomalies']),
+			'filter' => $filter,
 		];
 		if ($mode === 'trunk') {
 			$result['peak_occurrences'] = $this->buildTrunkPeakOccurrences($rows, $calculated['per_name']);
@@ -2528,6 +2539,7 @@ class Concurrencycount implements \BMO {
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
 		$options = $this->requestDemoOptions();
+		$options['filter'] = isset($_REQUEST['filter']) ? trim((string)$_REQUEST['filter']) : '';
 
 		if ($mode === null) {
 			http_response_code(400);
@@ -2644,6 +2656,7 @@ class Concurrencycount implements \BMO {
 		$start = isset($_REQUEST['start_date']) ? $_REQUEST['start_date'] : '';
 		$end = isset($_REQUEST['end_date']) ? $_REQUEST['end_date'] : '';
 		$options = $this->requestDemoOptions();
+		$options['filter'] = isset($_REQUEST['filter']) ? trim((string)$_REQUEST['filter']) : '';
 		$to = isset($_REQUEST['email']) ? trim($_REQUEST['email']) : '';
 
 		// Defence in depth against header injection before validation.

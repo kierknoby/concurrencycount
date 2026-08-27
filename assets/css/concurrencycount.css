@@ -148,6 +148,35 @@ body:has(.concurrencycount) #page_body {
 	margin-top: 9px;
 }
 
+.concurrencycount .cc-engine-explanation {
+	max-width: 920px;
+	margin: 0 0 12px;
+	padding: 12px 14px;
+	border: 1px solid #d7dce0;
+	border-radius: 4px;
+	background: #fcfcfc;
+	overflow-wrap: anywhere;
+}
+
+.concurrencycount .cc-engine-explanation h4 {
+	margin: 0 0 8px;
+	font-size: 16px;
+}
+
+.concurrencycount .cc-engine-explanation p {
+	margin: 0 0 8px;
+	line-height: 1.4;
+}
+
+.concurrencycount .cc-engine-explanation p:last-child {
+	margin-bottom: 0;
+}
+
+.concurrencycount .cc-engine-explanation .cc-engine-example {
+	padding-top: 8px;
+	border-top: 1px solid #e3e6e8;
+}
+
 .concurrencycount .cc-date-presets {
 	display: flex;
 	flex-wrap: wrap;
@@ -266,8 +295,11 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default,
 .concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-heading,
 .concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-body {
-	background-color: #fff;
-	background-image: none;
+	/* FreePBX themes may mark contextual panel backgrounds !important. Keep
+	 * occurrence cards neutral in both FreePBX and PBXact without affecting
+	 * the coloured trunk summary immediately above them. */
+	background-color: #fff !important;
+	background-image: none !important;
 }
 
 .concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-heading {

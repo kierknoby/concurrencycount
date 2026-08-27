@@ -254,6 +254,21 @@ $overallGraph = $graphs->overallSeries([
 ], '2026-08-26 10:00:00', '2026-08-26 10:01:00');
 live_assert_same(3, $overallGraph['series']['overall']['exact_peak'], 'Historical overall counts both numeric PJSIP legs');
 
+$boundaryGraph = $graphs->trunkSeries([
+	['calldate' => '2026-08-26 09:59:50', 'duration' => 30, 'identity' => 'gamma'],
+], ['gamma'], '2026-08-26 10:00:00', '2026-08-26 10:00:10');
+live_assert_same(1, $boundaryGraph['series']['gamma']['exact_peak'], 'Interval spanning the entire graph range contributes at its boundaries');
+live_assert_same(1, $boundaryGraph['series']['gamma']['points'][0]['value'], 'Graph derives non-zero state explicitly at range start');
+$endBoundaryGraph = $graphs->trunkSeries([
+	['calldate' => '2026-08-26 10:00:10', 'duration' => 1, 'identity' => 'gamma'],
+], ['gamma'], '2026-08-26 10:00:00', '2026-08-26 10:00:10');
+live_assert_same(1, $endBoundaryGraph['series']['gamma']['exact_peak'], 'An interval starting exactly at range end contributes at that inclusive second');
+$adjacentBoundaryGraph = $graphs->trunkSeries([
+	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'identity' => 'gamma'],
+	['calldate' => '2026-08-26 10:00:10', 'duration' => 5, 'identity' => 'gamma'],
+], ['gamma'], '2026-08-26 10:00:00', '2026-08-26 10:00:20');
+live_assert_same(2, $adjacentBoundaryGraph['series']['gamma']['exact_peak'], 'Adjacent calls overlap at their shared inclusive boundary second');
+
 $manyRows = [];
 for ($index = 0; $index < 1300; $index++) {
 	$manyRows[] = [

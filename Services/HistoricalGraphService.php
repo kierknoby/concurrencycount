@@ -49,14 +49,19 @@ class HistoricalGraphService {
 		$end = strtotime($rangeEnd);
 		ksort($events, SORT_NUMERIC);
 		$current = 0;
-		$points = [['ts' => $start, 'value' => 0]];
+		foreach ($events as $timestamp => $delta) {
+			if ((int)$timestamp > $start) break;
+			$current += (int)$delta;
+		}
+		$points = [['ts' => $start, 'value' => max(0, $current)]];
 		foreach ($events as $timestamp => $delta) {
 			$timestamp = (int)$timestamp;
+			if ($timestamp <= $start) continue;
+			if ($timestamp > $end) break;
 			$current += (int)$delta;
-			if ($timestamp < $start || $timestamp > $end) continue;
 			$points[] = ['ts' => $timestamp, 'value' => max(0, $current)];
 		}
-		$points[] = ['ts' => $end, 'value' => !empty($points) ? $points[count($points) - 1]['value'] : 0];
+		$points[] = ['ts' => $end, 'value' => max(0, $current)];
 		return $this->deduplicate($points);
 	}
 

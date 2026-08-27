@@ -1404,6 +1404,7 @@ window._ccLoaded = true;
 		$('#cc-results').hide();
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end};
+		if (targetReportId && historicalReports[targetReportId]) params.filter = historicalReports[targetReportId].filter || '';
 		if (mode !== 'demo') {
 			params.engine = selectedEngine;
 		}
@@ -1478,6 +1479,7 @@ window._ccLoaded = true;
 			modal.modal('hide');
 			setStatus('Continuing despite estimated overrun...', 'running');
 			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
+			if (targetReportId && historicalReports[targetReportId]) params.filter = historicalReports[targetReportId].filter || '';
 			if (mode !== 'demo') {
 				params.engine = selectedEngine || $('#cc-engine').val() || 'original';
 			}
@@ -1544,6 +1546,7 @@ window._ccLoaded = true;
 		var params = {
 			module: 'concurrencycount', command: 'download',
 			mode: finalMode, start_date: finalStart, end_date: finalEnd,
+			filter: activeReportId && historicalReports[activeReportId] ? (historicalReports[activeReportId].filter || '') : '',
 			token: $('.concurrencycount').attr('data-csrf-token') || ''
 		};
 		if (finalMode === 'demo') {
@@ -1588,6 +1591,7 @@ window._ccLoaded = true;
 			command: 'email', mode: finalMode,
 			start_date: finalStart, end_date: finalEnd, email: to
 		};
+		params.filter = activeReportId && historicalReports[activeReportId] ? (historicalReports[activeReportId].filter || '') : '';
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
