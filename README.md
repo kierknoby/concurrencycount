@@ -26,15 +26,16 @@ The module also provides Live thresholds and unattended notifications, persisten
 - PJSIP channel driver; there is no chan_sip support
 - Asterisk CDR enabled and writing to `asteriskcdrdb`
 
-## Installation
+## Installing
 
-The module is currently unsigned and unsupported.
+Concurrency Count is currently unsigned and is not available from the normal FreePBX online module repository. Its module path is `/var/www/html/admin/modules/concurrencycount/`.
 
-### Existing module directory
+### Option 1: Install from pre-staged module files
 
-Place `concurrencycount` in `/var/www/html/admin/modules/`, then run:
+If the module files already exist at `/var/www/html/admin/modules/concurrencycount/`, run the FreePBX commands from a neutral directory:
 
 ```bash
+cd ~
 fwconsole ma install concurrencycount
 fwconsole chown
 fwconsole reload
@@ -42,26 +43,128 @@ fwconsole reload
 
 The module appears under **Reports > Concurrency Count**.
 
-### Developer install from a local copy
+### Option 2: Install from GitHub
+
+Git must be installed before cloning the module.
+
+On FreePBX 16 or PBXact 16 with CentOS 7, check for Git:
 
 ```bash
-cd /var/www/html/admin/modules/concurrencycount
-fwconsole ma installlocal
+rpm -q git
+```
+
+If it is missing:
+
+```bash
+yum install -y git
+```
+
+On FreePBX 17 or PBXact 17 with Debian 12, check for Git:
+
+```bash
+dpkg -l git
+```
+
+If it is missing:
+
+```bash
+apt update
+apt install -y git
+```
+
+Clone the 2.1.0 development branch, then leave the Git repository before running `fwconsole`:
+
+```bash
+cd /var/www/html/admin/modules
+git clone --branch 2-1-0_Dev --single-branch https://github.com/kierknoby/concurrencycount.git concurrencycount
+cd ~
+fwconsole ma install concurrencycount
 fwconsole chown
 fwconsole reload
 ```
 
-### Clean install from GitHub
+### Option 3: Install from a local copy
+
+Copy or link a local `concurrencycount` directory so that the complete module is available at `/var/www/html/admin/modules/concurrencycount/`. Then use the normal module installation path from a neutral directory:
 
 ```bash
-cd /root && rm -rf /var/www/html/admin/modules/concurrencycount && git clone https://github.com/kierknoby/concurrencycount.git /var/www/html/admin/modules/concurrencycount && fwconsole ma install concurrencycount; fwconsole ma list | grep -q "concurrencycount.*Not Installed" && rm -rf /var/www/html/admin/modules/concurrencycount; fwconsole chown && fwconsole reload
+cd ~
+fwconsole ma install concurrencycount
+fwconsole chown
+fwconsole reload
 ```
 
-### Clean reinstall from GitHub
+## Updating Concurrency Count
+
+Do not uninstall during a normal update. Uninstalling stops and removes the module workers and deletes module-owned configuration and state; it is not an update mechanism.
+
+Check the installed and staged versions before and after updating:
 
 ```bash
-cd /var/www/html/admin/modules && fwconsole ma uninstall concurrencycount && rm -rf concurrencycount && git clone https://github.com/kierknoby/concurrencycount.git && fwconsole ma install concurrencycount && fwconsole chown && fwconsole reload
+fwconsole ma list | grep -i concurrencycount
+grep "<version>" /var/www/html/admin/modules/concurrencycount/module.xml
 ```
+
+### Update from pre-staged files
+
+After replacing the files under `/var/www/html/admin/modules/concurrencycount/`, run:
+
+```bash
+cd ~
+fwconsole ma install concurrencycount
+fwconsole chown
+fwconsole reload
+```
+
+Run the version checks again after the update.
+
+### Update from GitHub
+
+After `fwconsole chown`, Git may report `detected dubious ownership` when root next accesses the repository because FreePBX has assigned the module directory to its web user. Explicitly trust this one repository for the current user:
+
+```bash
+git config --global --add safe.directory /var/www/html/admin/modules/concurrencycount
+```
+
+This changes Git's trust configuration only; it does not change module directory ownership. Do not use a wildcard safe-directory rule or recursively change the FreePBX-owned directory back to root.
+
+The supported development-branch deployment replaces tracked files with branch `2-1-0_Dev` and removes untracked files. Back up any intentional local changes first: `git reset --hard` discards tracked modifications, and `git clean -fd` deletes untracked files and directories inside the module repository.
+
+```bash
+cd /var/www/html/admin/modules/concurrencycount
+git fetch origin 2-1-0_Dev
+git reset --hard FETCH_HEAD
+git clean -fd
+cd ~
+fwconsole ma install concurrencycount
+fwconsole chown
+fwconsole reload
+```
+
+Run the version checks again after the update.
+
+### Update from a local copy
+
+Replace the module files from the local copy, preserving any deployment-specific changes deliberately, then run:
+
+```bash
+cd ~
+fwconsole ma install concurrencycount
+fwconsole chown
+fwconsole reload
+```
+
+Run the version checks again after the update.
+
+### Git dubious-ownership troubleshooting
+
+If Git reports `detected dubious ownership` for the module repository after `fwconsole chown`, explicitly trust only that repository for the current user:
+
+```bash
+git config --global --add safe.directory /var/www/html/admin/modules/concurrencycount
+```
+
+This changes Git's trust configuration only; it does not change module directory ownership.
 
 ## How the module thinks about concurrency
 
@@ -416,6 +519,24 @@ These tests do not replace real PBX/browser validation.
 - Add a dry-run orphan-cleanup command for old `CCDEMO*` rows.
 - Consider a Demo transaction only if safe with deployed CDR engines and FreePBX environments.
 - Add real FreePBX 16/17 integration coverage for mail, CDR schema variation, permissions and browsers.
+
+## Uninstalling
+
+Uninstalling is destructive to Concurrency Count's module-owned state. It stops and removes the alert-monitor and mail-worker processes, removes the legacy monitor cron entry, and drops the module settings table. This deletes saved thresholds and alert settings, Live presentation and monitoring preferences, Historic Report definitions, remembered endpoint classifications, global Historical call exclusions, and module worker state.
+
+There is currently no built-in export for this configuration. Before uninstalling, record any settings, Historic Report definitions, classifications or exclusions that may be needed later. Report CSV output can be retained separately where useful.
+
+Uninstalling does not delete or update source CDR rows. Historical exclusions are module records only; removing them does not remove calls from `asteriskcdrdb`.
+
+When the loss of module-owned state is understood and intended, uninstall the module from a neutral directory and remove its files by absolute path:
+
+```bash
+cd ~
+fwconsole ma uninstall concurrencycount --force
+rm -rf /var/www/html/admin/modules/concurrencycount
+fwconsole chown
+fwconsole reload
+```
 
 ## Licence
 

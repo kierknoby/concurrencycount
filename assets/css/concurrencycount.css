@@ -263,13 +263,15 @@ body:has(.concurrencycount) #page_body {
 	margin-top: 6px;
 }
 
-.concurrencycount .cc-occurrence {
-	background: #fff;
+.concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default,
+.concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-heading,
+.concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-body {
+	background-color: #fff;
+	background-image: none;
 }
 
-.concurrencycount .cc-occurrence > .panel-heading {
+.concurrencycount .cc-trunk-result > .cc-occurrence-section .cc-occurrence.panel.panel-default > .panel-heading {
 	border-color: #ddd;
-	background: #fff;
 	color: #333;
 }
 
