@@ -270,6 +270,27 @@ admin_contract_assert(strpos($javascript, 'CCLiveWorkspace.switchSection') !== f
 admin_contract_assert(strpos($javascript, 'runTargetReportId') !== false && strpos($javascript, 'targetReportId') !== false, 'Report results must be attached to the report instance captured at request time, not read live at response time');
 admin_contract_assert(strpos($javascript, 'occurrenceCache') !== false, 'Occurrence drill-down state must be scoped per report instance');
 admin_contract_assert(strpos($javascript, 'runTargetReportId = null;') !== false, 'Demo must not silently attach its result to a persisted report tab');
+$landingStart = strpos($view, 'id="cc-report-landing"');
+$activeStart = strpos($view, 'id="cc-report-active"');
+admin_contract_assert($landingStart !== false && $activeStart > $landingStart && strpos(substr($view, $landingStart, $activeStart - $landingStart), 'id="cc-demo-launch"') !== false, 'Run Demo must remain available from the Historical landing');
+admin_contract_assert(strpos($javascript, ".cc-demo-run-mode').off('click').on('click'") !== false && strpos($javascript, "runDemo(\$(this).data('report'))") !== false, 'Demo mode buttons must invoke the transient runDemo path');
+$runDemoStart = strpos($javascript, 'function runDemo(report)');
+$runDemoEnd = strpos($javascript, 'function selectedDemoEngines', $runDemoStart);
+$runDemoBody = substr($javascript, $runDemoStart, $runDemoEnd - $runDemoStart);
+admin_contract_assert(strpos($runDemoBody, 'runTargetReportId = null;') !== false, 'Demo must retain a null persisted-report target');
+admin_contract_assert(strpos($runDemoBody, 'showTransientDemoResult();') !== false && strpos($runDemoBody, 'showTransientDemoResult();') < strpos($runDemoBody, "executeRun('demo'"), 'Demo must reveal its Historical result/status surface before starting the request');
+admin_contract_assert(strpos($runDemoBody, 'createhistoricalreport') === false && strpos($runDemoBody, 'historicalReports[') === false, 'Demo must not create a Historic Report, consume a slot or mutate a report cache');
+$demoSurfaceStart = strpos($javascript, 'function showTransientDemoResult()');
+$demoSurfaceEnd = strpos($javascript, '/**', $demoSurfaceStart);
+$demoSurfaceBody = substr($javascript, $demoSurfaceStart, $demoSurfaceEnd - $demoSurfaceStart);
+admin_contract_assert(strpos($demoSurfaceBody, "$('#cc-report-landing').hide()") !== false && strpos($demoSurfaceBody, "$('#cc-report-active').show()") !== false, 'Transient Demo must move from the landing to the visible shared result surface');
+admin_contract_assert(strpos($demoSurfaceBody, ".cc-report-global-actions').hide()") !== false, 'Transient Demo must hide persisted-report controls such as Excluded Calls');
+$landingFunctionStart = strpos($javascript, 'function showHistoricalLanding()');
+$landingFunctionEnd = strpos($javascript, 'function showTransientDemoResult()', $landingFunctionStart);
+$landingFunctionBody = substr($javascript, $landingFunctionStart, $landingFunctionEnd - $landingFunctionStart);
+admin_contract_assert(strpos($landingFunctionBody, "$('#cc-report-landing').show()") !== false && strpos($landingFunctionBody, "$('#cc-report-active').hide()") !== false, 'Returning to Historical Reports must restore the normal landing state');
+admin_contract_assert(strpos($javascript, "if (target === 'historical') {") !== false && strpos($javascript, 'showHistoricalLanding();') !== false, 'Historical tab navigation must provide the route back from transient Demo');
+admin_contract_assert(substr_count($view, 'id="cc-results"') === 1 && strpos($runDemoBody, 'renderResults') === false, 'Demo must use the one shared result renderer rather than duplicate result markup');
 
 /* Live View must retain its established polling and workspace contracts. */
 foreach (['function updateOverall', 'function pollLive', 'function startPolling'] as $liveFn) {

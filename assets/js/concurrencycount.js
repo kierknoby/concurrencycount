@@ -172,6 +172,7 @@ window._ccLoaded = true;
 		// (Option B): it paints the shared results surface transiently and
 		// never reads or writes any report instance's saved state.
 		runTargetReportId = null;
+		showTransientDemoResult();
 		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
 			demo_size: demoPlan.size,
@@ -930,6 +931,17 @@ window._ccLoaded = true;
 		activeReportId = null;
 		$('#cc-report-landing').show();
 		$('#cc-report-active').hide();
+		$('#cc-report-active .cc-report-global-actions').show();
+	}
+
+	function showTransientDemoResult() {
+		// Demo owns the shared Historical result surface only for this page
+		// state. It has no report id, tab, persisted definition or cache.
+		activeReportId = null;
+		$('#cc-report-landing').hide();
+		$('#cc-report-active').show();
+		$('#cc-report-active .cc-report-global-actions').hide();
+		$('#cc-report-loading, #cc-report-empty, #cc-historical-graph, #cc-email-row').hide();
 	}
 
 	/**
@@ -988,6 +1000,7 @@ window._ccLoaded = true;
 		ajax({command: 'activatehistoricalreport', id: id});
 		$('#cc-report-landing').hide();
 		$('#cc-report-active').show();
+		$('#cc-report-active .cc-report-global-actions').show();
 		if (report.firstRunPending) {
 			$('#cc-report-empty, #cc-results').hide();
 			$('#cc-report-loading-text').text('Running ' + report.name + '...');
