@@ -210,7 +210,24 @@ foreach (['id="cc-report-landing"', 'id="cc-report-active"'] as $needle) {
 }
 admin_contract_assert(substr_count($view, 'id="cc-results"') === 1 && substr_count($view, 'id="cc-results-body"') === 1, 'Results DOM must remain a single shared surface, not duplicated per report tab (avoids duplicate IDs)');
 admin_contract_assert(strpos($view, 'aria-label="Close ') === false, 'Close button accessible label is generated client-side per report, not hardcoded in markup');
-admin_contract_assert(strpos($javascript, "escapeHtml('Close ' + report.title)") !== false, 'Each report tab close control must expose an accessible "Close Historic Report N" label');
+admin_contract_assert(strpos($javascript, "escapeHtml('Close ' + report.name)") !== false, 'Each report tab close control must expose an accessible saved-name label');
+admin_contract_assert(strpos($view, 'id="cc-report-name"') !== false && strpos($view, 'maxlength="80"') !== false, 'Historical report modal must provide the bounded report-name field');
+admin_contract_assert(strpos($javascript, "$('#cc-launch').off('click').on('click', openNewReportWizard)") !== false, 'Start Historical Report must open only the unpersisted wizard');
+admin_contract_assert(strpos($javascript, "function openNewReportWizard()") !== false && strpos($javascript, "command: 'createhistoricalreport'") > strpos($javascript, 'function createAndRunReport'), 'Report creation must occur only in the validated Run Report path');
+admin_contract_assert(strpos($javascript, 'discardFailedFirstRun') !== false && strpos($javascript, 'firstRunPending') !== false, 'Failed first runs must clean up their newly allocated report slot');
+$cleanupStart = strpos($javascript, 'function discardFailedFirstRun');
+$cleanupEnd = strpos($javascript, 'function handleStepSuccess', $cleanupStart);
+$cleanup = substr($javascript, $cleanupStart, $cleanupEnd - $cleanupStart);
+admin_contract_assert(strpos($cleanup, "ajax({command: 'closehistoricalreport', id: targetReportId}).done") !== false, 'First-run cleanup must wait for the backend response');
+admin_contract_assert(strpos($cleanup, 'if (!response.status)') !== false && strpos($cleanup, 'failedFirstRunCleanup(report, message') !== false, 'Backend cleanup failure must retain and warn about the saved report');
+admin_contract_assert(strpos($cleanup, 'delete historicalReports[targetReportId]') > strpos($cleanup, 'if (!response.status)'), 'First-run report must be removed locally only after confirmed backend success');
+admin_contract_assert(strpos($cleanup, 'could not be cleaned up') !== false && strpos($cleanup, 'The unused report was removed.') !== false, 'Cleanup success and failure messages must not make the same claim');
+admin_contract_assert(strpos($cleanup, 'if (report.firstRunCleanupAttempted) return true;') !== false, 'Converging first-run failures must not duplicate cleanup requests');
+admin_contract_assert(strpos($javascript, 'generated_default_name') !== false, 'Generated default names must defer final slot naming to the server');
+admin_contract_assert(strpos($javascript, 'title="' . "' + escapeHtml(report.name)") !== false, 'Long report tabs must expose their complete saved name');
+admin_contract_assert(strpos($css, '.cc-workspace-tab.cc-report-tab-top:hover') !== false && strpos($css, '[aria-selected="true"]:hover') !== false, 'Report tabs need hover styling distinct from selected styling');
+admin_contract_assert(strpos($css, 'text-overflow: ellipsis') !== false && strpos($css, 'max-width: 240px') !== false, 'Long report names must be constrained and ellipsized');
+admin_contract_assert(strpos($console, "\$report['name']") !== false, 'CLI list/show/delete surfaces must expose the persisted report name');
 admin_contract_assert(strpos($javascript, 'role="tab"') !== false, 'Report tabs must use tab semantics');
 admin_contract_assert(strpos($javascript, "closest('.cc-report-tab-close')") !== false, 'Clicking the close (x) control must not also trigger tab selection');
 admin_contract_assert(strpos($javascript, 'function selectTopTab') !== false, 'A single top-level tab selection function must own Live/Historical/report-tab switching');

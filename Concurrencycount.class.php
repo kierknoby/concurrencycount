@@ -463,6 +463,8 @@ class Concurrencycount implements \BMO {
 
 	private function readHistoricalReportRequest(): array {
 		return [
+			'name' => isset($_REQUEST['name']) ? (string)$_REQUEST['name'] : '',
+			'generated_default_name' => !empty($_REQUEST['generated_default_name']),
 			'mode' => isset($_REQUEST['mode']) ? (string)$_REQUEST['mode'] : 'trunk',
 			'engine' => isset($_REQUEST['engine']) ? (string)$_REQUEST['engine'] : 'original',
 			'preset' => isset($_REQUEST['preset']) ? (string)$_REQUEST['preset'] : 'last7',

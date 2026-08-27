@@ -13,7 +13,7 @@ function hr_definition(array $overrides = []): array {
 		'mode' => 'trunk', 'engine' => 'original', 'preset' => 'last7',
 		'range_from' => '2026-08-20', 'range_to' => '2026-08-26',
 		'include_time' => false, 'from_time' => '00:00', 'to_time' => '23:59',
-		'filter' => '',
+		'filter' => '', 'name' => 'Historic Report 1',
 	], $overrides);
 }
 
@@ -23,10 +23,10 @@ $service = new HistoricalReportsService();
 $stored = $service->defaults();
 list($stored, $first) = $service->createReport($stored, hr_definition(), 'aaaa0000aaaa0000aaaa0000aaaa0000');
 hr_assert(1 === $first['number'], 'First report allocates number 1');
-hr_assert('Historic Report 1' === $first['title'], 'First report titled Historic Report 1');
-list($stored, $second) = $service->createReport($stored, hr_definition(['mode' => 'extension']), 'bbbb0000bbbb0000bbbb0000bbbb0000');
+hr_assert('Historic Report 1' === $first['name'], 'First report named Historic Report 1');
+list($stored, $second) = $service->createReport($stored, hr_definition(['mode' => 'extension', 'name' => 'Historic Report 2']), 'bbbb0000bbbb0000bbbb0000bbbb0000');
 hr_assert(2 === $second['number'], 'Second report allocates number 2');
-hr_assert('Historic Report 2' === $second['title'], 'Second report titled Historic Report 2');
+hr_assert('Historic Report 2' === $second['name'], 'Second report named Historic Report 2');
 hr_assert($first['id'] !== $second['id'], 'Stable internal IDs do not collide');
 hr_assert($stored['active_id'] === $second['id'], 'Newly created report becomes active');
 
@@ -60,9 +60,31 @@ $stored = $service->closeReport($stored, $fifth['id']);
 hr_assert(null === $stored['active_id'], 'Closing the active report clears active_id');
 $nextNumber = $service->nextNumber($stored);
 hr_assert(2 === $nextNumber, 'Freed number 2 is safely reused by the next new report');
-list($stored, $reused) = $service->createReport($stored, hr_definition(['preset' => 'custom', 'range_from' => '2026-01-01', 'range_to' => '2026-01-31']), 'aaaa1111aaaa1111aaaa1111aaaa1111');
+list($stored, $reused) = $service->createReport($stored, hr_definition(['preset' => 'custom', 'range_from' => '2026-01-01', 'range_to' => '2026-01-31', 'generated_default_name' => true]), 'aaaa1111aaaa1111aaaa1111aaaa1111');
 hr_assert(2 === $reused['number'], 'The reused slot is number 2');
-hr_assert('Historic Report 2' === $reused['title'], 'The reused slot is titled Historic Report 2');
+hr_assert('Historic Report 2' === $reused['name'], 'Server-authoritative reused slot updates an untouched generated default name');
+
+/* Custom names persist; legacy title-only definitions reconcile into the name field. */
+list($stored, $custom) = $service->updateReport($stored, $first['id'], hr_definition(['name' => 'August trunk peak']));
+hr_assert('August trunk peak' === $custom['name'], 'Custom report name persists through update');
+$legacyDefinition = array_merge(hr_definition(), ['number' => 4, 'title' => 'Historic Report 4']);
+unset($legacyDefinition['name']);
+$legacy = $service->reconcileStored(['reports' => [
+	'legacy00000000000000000000000000' => $legacyDefinition,
+]]);
+hr_assert('Historic Report 4' === $legacy['reports']['legacy00000000000000000000000000']['name'], 'Legacy title-only report reconciles to a display name');
+$legacyWithoutTitle = $legacyDefinition;
+unset($legacyWithoutTitle['title']);
+$legacyWithoutTitle['number'] = 3;
+$legacy = $service->reconcileStored(['reports' => ['legacy2' => $legacyWithoutTitle]]);
+hr_assert('Historic Report 3' === $legacy['reports']['legacy2']['name'], 'Legacy report without any name derives Historic Report plus its slot');
+
+foreach (['', str_repeat('x', 81), "bad\nname"] as $invalidName) {
+	$nameRejected = false;
+	try { $service->createReport($service->defaults(), hr_definition(['name' => $invalidName])); }
+	catch (InvalidArgumentException $exception) { $nameRejected = true; }
+	hr_assert($nameRejected, 'Invalid report name is rejected server-side');
+}
 
 /* Custom preset retains exact persisted dates; relative preset only stores the preset identity + last-known dates */
 hr_assert('custom' === $reused['preset'] && '2026-01-01' === $reused['range_from'] && '2026-01-31' === $reused['range_to'], 'Custom preset persists its exact chosen dates');

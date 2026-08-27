@@ -323,6 +323,17 @@ body:has(.concurrencycount) #page_body {
 	align-items: center;
 	gap: 0;
 	padding: 0 0 0 4px;
+	max-width: 240px;
+}
+
+.concurrencycount .cc-workspace-tab.cc-report-tab-top:hover {
+	border-color: #aab4bd;
+	background: #eef2f5;
+}
+
+.concurrencycount .cc-workspace-tab.cc-report-tab-top[aria-selected="true"]:hover {
+	border-bottom-color: #1f5f88;
+	background: #e7f1f8;
 }
 
 .concurrencycount .cc-report-tab-select {
@@ -333,6 +344,15 @@ body:has(.concurrencycount) #page_body {
 	font: inherit;
 	font-weight: inherit;
 	color: inherit;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.concurrencycount .cc-report-tab-select span {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .concurrencycount .cc-report-tab-close {
