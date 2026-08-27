@@ -6,7 +6,7 @@
 
 Concurrency Count shows how much PJSIP calling capacity is being used now and how much eligible activity was present historically.
 
-- **Live View** asks which attributable PJSIP channel legs are active now.
+- **Live View** asks how many attributable PJSIP trunk legs are active now.
 - **Historical Reports** ask which eligible answered CDR activity overlapped during a selected period.
 - **Live Wall** is a read-only large-screen presentation of the same current snapshot as Live View.
 
@@ -242,7 +242,7 @@ Each extension-classified side in CDR `channel` and `dstchannel` contributes ind
 
 A Group peak of 1 is activity detected with no concurrency, and its ranges use activity wording. A peak of 2 or more uses normal peak/concurrency wording. Group mode has no contributing-CDR drill-down.
 
-Historical Group Concurrency is not the historical equivalent of Overall Live Concurrency. Group counts classified extension-side CDR legs only; Overall includes attributable current trunk and extension PJSIP channel legs.
+Historical Group Concurrency is not the historical equivalent of Overall Live Concurrency. Group counts classified extension-side CDR legs only. Historical Trunk Concurrency is the closest historical equivalent because both measurements count trunk legs.
 
 ### Demo and engine comparison
 
@@ -339,13 +339,14 @@ Live View reads current Asterisk state through the backend; the browser does not
 
 ### Overall Live Concurrency
 
-Overall Live Concurrency counts active attributable PJSIP channel legs, not conversations. It includes configured or manually classified PJSIP trunk legs and configured or manually classified device/extension legs.
+Overall Live Concurrency counts current attributable configured or manually classified PJSIP trunk legs, not complete calls or conversations. Device/extension legs are not part of the Live product in 2.1.0.
 
-- a call with only an attributable trunk leg counts as 1;
-- a call with both a trunk leg and extension leg counts as 2;
-- an internal extension-to-extension call counts as 2.
+- an outbound external call counts as 1 trunk leg;
+- an inbound external call counts as 1 trunk leg;
+- a hairpin outbound plus inbound call counts as 2 trunk legs;
+- an internal extension-to-extension call counts as 0 trunk legs.
 
-Local and other non-PJSIP channels, unresolved endpoints, ignored endpoints and conflicts are excluded. Hidden and monitoring-stopped trunks still contribute. Presentation and per-trunk monitoring state do not change Overall.
+Local and other non-PJSIP channels, unresolved endpoints, ignored endpoints, conflicts and device/extension endpoints are excluded. Hidden, monitoring-stopped and unfeatured trunks still contribute. Presentation and per-trunk monitoring state do not change Overall. Existing Overall thresholds are retained; administrators should review them if they were testing a pre-release build where extension legs were included.
 
 ### Live control semantics
 

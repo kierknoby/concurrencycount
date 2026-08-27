@@ -8,6 +8,7 @@
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
 		*2.1.0 (27 August 2026)* Adds Live View and Live Wall, persistent presentation and monitoring controls, authoritative FreePBX PJSIP identity with reversible unknown-endpoint classifications, and global reversible Historical call exclusions that never alter source CDRs.
+		- Live View and Live Wall are explicitly trunk-only in 2.1.0: Overall Live Concurrency now counts current attributable PJSIP trunk legs only, matching the capacity meaning of Historical Trunk Concurrency.
 		- Historic Report endpoint filters now affect the shared calculation used by GUI regeneration, CSV, email, graphs and detail; missing saved endpoints remain unresolved and never fall back to an unfiltered report.
 		- CLI today/yesterday boundaries are defined, incompatible management operations are rejected before mutation, and explicit invalid engine or Demo arguments fail instead of silently selecting defaults.
 		- Persisted custom dates receive strict calendar/range validation, Historical graph boundary state is corrected, and restart-monitor success reflects combined worker health.

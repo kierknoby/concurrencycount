@@ -47,7 +47,7 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
-		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP activity (trunk + extension legs)', snapshot ? snapshot.overall.calls : []); });
+		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
@@ -166,7 +166,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-overall-peak').text('Recent peak ' + recentPeak(history.overall) + ' (this session)');
 		$('#cc-live-overall-status').text(statusLabel(overall.status));
 		$('.cc-live-overall').attr('data-status', overall.status);
-		if (!charts.overall) charts.overall = new window.ConcurrencyChart(document.getElementById('cc-live-overall-chart'), {onSelect: function () { showCalls('Current overall active PJSIP legs', snapshot.overall.calls); }});
+		if (!charts.overall) charts.overall = new window.ConcurrencyChart(document.getElementById('cc-live-overall-chart'), {onSelect: function () { showCalls('Current overall active PJSIP trunk legs', snapshot.overall.calls); }});
 		charts.overall.setData(history.overall, overall.threshold_enabled ? overall.threshold : 0);
 	}
 

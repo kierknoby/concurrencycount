@@ -59,7 +59,7 @@ $snapshot = $live->analyse([
 		'gamma-backup' => ['enabled' => true, 'threshold' => 1],
 	],
 ], 1787730000);
-live_assert_same(5, $snapshot['overall']['current'], 'Overall Live Concurrency counts configured trunk legs plus numeric extension legs');
+live_assert_same(3, $snapshot['overall']['current'], 'Overall Live Concurrency counts configured trunk legs only');
 live_assert_same('exceeded', $snapshot['overall']['status'], 'Overall threshold uses greater-than-or-equal');
 live_assert_same(2, $snapshot['trunks']['gamma']['current'], 'Exact trunk count');
 live_assert_same(1, $snapshot['trunks']['gamma']['direction_counts']['inbound'], 'Inbound trunk direction');
@@ -77,26 +77,52 @@ $trunkOnly = $live->analyse([
 live_assert_same(1, $trunkOnly['overall']['current'], 'A lone monitored trunk leg must count toward Overall Live Concurrency');
 live_assert_same(1, $trunkOnly['trunks']['MAGRATHEA-IN-2']['current'], 'The same leg is still reported on its trunk card');
 
-// Example B: inbound call with a trunk leg and an answered extension leg is two active PJSIP legs.
+// Example B: inbound call with a trunk leg and an answered extension leg is one trunk leg.
 $inbound = $live->analyse([
 	live_channel('PJSIP/gamma-10000001', 'from-trunk-gamma'),
 	live_channel('PJSIP/203-10000002', 'from-internal'),
 ], live_identity(['gamma'], ['203']), [], 1787730200);
-live_assert_same(2, $inbound['overall']['current'], 'Inbound trunk leg + extension leg counts as two active PJSIP legs');
+live_assert_same(1, $inbound['overall']['current'], 'Inbound trunk leg + extension leg counts as one trunk leg');
 
-// Example D: outbound call with an extension leg and a trunk leg is also two active PJSIP legs.
+// Example A: outbound call with an extension leg and a trunk leg is one trunk leg.
 $outbound = $live->analyse([
 	live_channel('PJSIP/204-10000003', 'from-internal'),
 	live_channel('PJSIP/gamma-10000004', 'macro-dialout-trunk'),
 ], live_identity(['gamma'], ['204']), [], 1787730300);
-live_assert_same(2, $outbound['overall']['current'], 'Outbound extension leg + trunk leg counts as two active PJSIP legs');
+live_assert_same(1, $outbound['overall']['current'], 'Outbound extension leg + trunk leg counts as one trunk leg');
 
-// Example C: an internal call between two extensions is two extension legs (unchanged historical-style leg counting).
+// Examples C and D: hairpin calls count both trunk legs, regardless of the destination.
+$hairpinVoicemail = $live->analyse([
+	live_channel('PJSIP/204-10000010', 'from-internal'),
+	live_channel('PJSIP/gamma-10000011', 'macro-dialout-trunk'),
+	live_channel('PJSIP/gamma-10000012', 'from-trunk-gamma'),
+], live_identity(['gamma'], ['204']), [], 1787730350);
+live_assert_same(2, $hairpinVoicemail['overall']['current'], 'Hairpin to voicemail counts two trunk legs');
+live_assert_same(2, $hairpinVoicemail['trunks']['gamma']['current'], 'Hairpin trunk card retains both trunk legs');
+
+$hairpinExtension = $live->analyse([
+	live_channel('PJSIP/204-10000013', 'from-internal'),
+	live_channel('PJSIP/gamma-10000014', 'macro-dialout-trunk'),
+	live_channel('PJSIP/gamma-10000015', 'from-trunk-gamma'),
+	live_channel('PJSIP/205-10000016', 'from-internal'),
+], live_identity(['gamma'], ['204', '205']), [], 1787730360);
+live_assert_same(2, $hairpinExtension['overall']['current'], 'Hairpin to another extension counts two trunk legs');
+
+// Example E: an internal call between extensions has no trunk legs.
 $internal = $live->analyse([
 	live_channel('PJSIP/201-10000005', 'from-internal'),
 	live_channel('PJSIP/202-10000006', 'from-internal'),
 ], live_identity([], ['201', '202']), [], 1787730400);
-live_assert_same(2, $internal['overall']['current'], 'Internal extension-to-extension call counts as two legs');
+live_assert_same(0, $internal['overall']['current'], 'Internal extension-to-extension call counts as zero trunk legs');
+
+// Example F: two simultaneous active trunks count independently.
+$twoTrunks = $live->analyse([
+	live_channel('PJSIP/gamma-10000017', 'macro-dialout-trunk'),
+	live_channel('PJSIP/gamma-backup-10000018', 'macro-dialout-trunk'),
+], live_identity(['gamma', 'gamma-backup']), [], 1787730370);
+live_assert_same(2, $twoTrunks['overall']['current'], 'Two active trunks count as two trunk legs');
+live_assert_same(1, $twoTrunks['trunks']['gamma']['current'], 'First trunk card remains unchanged');
+live_assert_same(1, $twoTrunks['trunks']['gamma-backup']['current'], 'Second trunk card remains unchanged');
 
 // Example E: Local/helper channels alongside a trunk leg must not inflate Overall.
 $withHelpers = $live->analyse([
@@ -120,7 +146,7 @@ $authoritativeShapes = $live->analyse([
 	live_channel('PJSIP/custom-gateway-1000000b', 'from-trunk'),
 	live_channel('PJSIP/ignored-peer-1000000c', 'from-trunk'),
 ], live_identity(['123456'], ['warehouse-phone'], ['custom-gateway' => 'trunk', 'ignored-peer' => 'ignore']), [], 1787730650);
-live_assert_same(3, $authoritativeShapes['overall']['current'], 'Numeric trunk, alphanumeric device and manual trunk are attributable');
+live_assert_same(2, $authoritativeShapes['overall']['current'], 'Numeric trunk and manual trunk are attributable while device is excluded');
 live_assert_same(1, $authoritativeShapes['trunks']['123456']['current'], 'Numeric authoritative trunk has a trunk result');
 live_assert_same(1, $authoritativeShapes['trunks']['custom-gateway']['current'], 'Manual custom trunk has a trunk result without fabricating FreePBX metadata');
 live_assert_same([], $authoritativeShapes['identity_anomalies'], 'Ignored endpoint is excluded without repeated anomaly');
@@ -202,10 +228,12 @@ live_assert_same(['one', 'two', 'three'], $malformedStored['live_wall_featured_t
 
 $presentationAndMonitoring = $live->analyse([
 	live_channel('PJSIP/gamma-20000001', 'from-trunk-gamma'),
-	live_channel('PJSIP/205-20000002', 'from-internal'),
-], live_identity(['gamma'], ['205']), ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'live_wall_featured_trunks' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
-live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall alongside numeric extension legs');
+	live_channel('PJSIP/gamma-backup-20000002', 'from-trunk-gamma-backup'),
+	live_channel('PJSIP/205-20000003', 'from-internal'),
+], live_identity(['gamma', 'gamma-backup'], ['205']), ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma', 'gamma-backup'], 'live_wall_featured_trunks' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false], 'gamma-backup' => ['monitored' => false]]], 1787730700);
+live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall without extension legs');
 live_assert_same(1, $presentationAndMonitoring['trunks']['gamma']['current'], 'Presentation and monitoring preferences do not alter underlying trunk counts');
+live_assert_same(1, $presentationAndMonitoring['trunks']['gamma-backup']['current'], 'Unfeatured trunk card count remains available to Overall');
 
 $state = [];
 $first = $thresholds->evaluate('overall', 2, $config['overall'], $state, true, true, 1000);

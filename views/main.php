@@ -82,7 +82,7 @@ $_ccAssetVer = max(
 								<div class="cc-live-metric-copy">
 									<span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span>
 									<button type="button" id="cc-live-overall-value" class="cc-live-value" aria-controls="cc-live-call-detail">0</button>
-									<span><?php echo _('active attributable PJSIP call legs now (trunk + extension legs)'); ?></span>
+									<span><?php echo _('active attributable PJSIP trunk legs now'); ?></span>
 									<div class="cc-live-meta"><span id="cc-live-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-live-overall-peak"><?php echo _('Recent peak 0 (this session)'); ?></span><span id="cc-live-overall-status"><?php echo _('Normal'); ?></span></div>
 								</div>
 								<canvas id="cc-live-overall-chart" class="cc-live-chart" height="150"></canvas>

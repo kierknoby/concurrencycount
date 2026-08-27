@@ -389,7 +389,7 @@ class Concurrencycount extends Command {
 			$output->writeln('Message:     ' . $snapshot['message']);
 			return;
 		}
-		$output->writeln('Overall Live Concurrency (active attributable PJSIP legs): ' . $snapshot['overall']['current']);
+		$output->writeln('Overall Live Concurrency (active attributable PJSIP trunk legs): ' . $snapshot['overall']['current']);
 		foreach ($snapshot['overall']['calls'] as $call) $output->writeln('  ' . $call['channel'] . ' ' . $call['state'] . ' ' . $call['duration_seconds'] . 's');
 		foreach ($snapshot['trunks'] as $trunk => $result) {
 			$output->writeln(sprintf('%-24s %d (%d inbound, %d outbound, %d unknown)', $trunk, $result['current'], $result['direction_counts']['inbound'], $result['direction_counts']['outbound'], $result['direction_counts']['unknown']));

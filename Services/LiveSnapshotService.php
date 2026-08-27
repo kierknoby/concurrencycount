@@ -24,9 +24,6 @@ class LiveSnapshotService {
 			$endpoint = $channel['endpoint'];
 			$classification = $identity->classify($endpoint);
 			if ($classification['type'] === 'extension') {
-				$channel['scope'] = 'overall';
-				$channel['extension'] = $endpoint;
-				$overallCalls[] = $channel;
 				continue;
 			}
 			if ($classification['type'] === 'unknown' || $classification['type'] === 'conflict') {
@@ -43,7 +40,7 @@ class LiveSnapshotService {
 			$trunkResults[$endpoint]['current']++;
 			$trunkResults[$endpoint]['direction_counts'][$channel['direction']]++;
 			$trunkResults[$endpoint]['calls'][] = $channel;
-			// A monitored trunk leg is itself a relevant PJSIP leg, so it also counts toward Overall Live Concurrency.
+			// Overall Live Concurrency is the total current attributable trunk legs.
 			$overallCalls[] = $channel;
 		}
 

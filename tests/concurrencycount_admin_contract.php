@@ -191,11 +191,12 @@ admin_contract_assert(strpos($liveJavascript, "removeClass('active btn-primary')
 admin_contract_assert(strpos($javascript, "attr('aria-selected', 'true')") !== false && strpos($javascript, "attr('aria-selected', 'false')") !== false, 'Top-level tab selection must use aria-selected semantics');
 admin_contract_assert(strpos($view, 'do not enable or disable live monitoring') !== false, 'Workspace tabs must be explicitly labelled as navigation only');
 admin_contract_assert(strpos($view, 'cc-settings-button') !== false, 'Thresholds & alerts control must use a neutral settings affordance, not an enable/disable button style');
-foreach (['OVERALL LIVE CONCURRENCY', 'active attributable PJSIP call legs now'] as $overallLabel) {
+foreach (['OVERALL LIVE CONCURRENCY', 'active attributable PJSIP trunk legs now'] as $overallLabel) {
 	admin_contract_assert(strpos($view, $overallLabel) !== false, 'Overall Live Concurrency wording missing: ' . $overallLabel);
 }
-admin_contract_assert(strpos($view, 'OVERALL EXTENSION CONCURRENCY') === false, 'Live Overall metric must not be labelled as extension-only now that trunk legs are included');
-admin_contract_assert(strpos($liveSnapshotService, '$classification[\'type\'] === \'extension\'') !== false && strpos($liveSnapshotService, '$classification[\'type\'] !== \'trunk\'') !== false, 'Live Overall must attribute both classifier-approved extension and trunk legs');
+admin_contract_assert(strpos($view, 'OVERALL EXTENSION CONCURRENCY') === false, 'Live Overall metric must not be labelled as extension-only');
+admin_contract_assert(strpos($liveSnapshotService, '$classification[\'type\'] === \'extension\'') !== false && strpos($liveSnapshotService, '$overallCalls[] = $channel;') !== false, 'Live snapshot must retain extension classification while aggregating trunk-only Overall');
+admin_contract_assert(strpos($liveSnapshotService, "if (\$classification['type'] === 'extension') {\n\t\t\t\tcontinue;") !== false, 'Live Overall must exclude classifier-approved extension legs');
 foreach (['freepbx-trunk', 'freepbx-device', 'manual-override', 'unresolved', 'freepbx-conflict'] as $source) admin_contract_assert(strpos($identityService, $source) !== false, 'Identity provenance missing: ' . $source);
 admin_contract_assert(strpos($class, "SELECT id FROM devices WHERE LOWER(tech) = 'pjsip' AND id <> ''") !== false, 'Authoritative FreePBX PJSIP device query missing');
 admin_contract_assert(strpos($class, 'pjsip show endpoints') === false && strpos($class, "NOT REGEXP '^[19]'") === false, 'Obsolete endpoint/destination heuristics remain in runtime code');
@@ -216,7 +217,7 @@ admin_contract_assert(strpos($excludedRenderer, 'cc-restore-excluded') !== false
 admin_contract_assert(strpos($css, '.cc-excluded-not-in-scope > td:not(:last-child)') !== false && strpos($css, '.cc-excluded-unknown .cc-excluded-relevance') !== false, 'Excluded Calls must mute only Not in scope content while presenting unknown relevance distinctly');
 admin_contract_assert(strpos($class, 'UPDATE cdr') === false, 'Historical exclusions must never update CDR rows');
 admin_contract_assert(strpos($view, 'Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.') !== false, 'GUI opening description must represent both Live and Historical functionality');
-admin_contract_assert(strpos($console, "'Overall Live Concurrency (active attributable PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
+admin_contract_assert(strpos($console, "'Overall Live Concurrency (active attributable PJSIP trunk legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same trunk-only Overall field the GUI reads, not a separately computed value');
 admin_contract_assert(strpos($liveJavascript, "appendPoint(history.overall, data.generated_ts, data.overall.current)") !== false && strpos($liveJavascript, 'function renderSnapshot(data)') !== false, 'Overall and trunk rolling series must be derived from the same live snapshot object');
 admin_contract_assert(strpos($liveJavascript, "command: 'monitorstatus'") !== false && strpos($liveJavascript, "command: 'restartmonitor'") !== false, 'GUI monitor status/restart parity missing');
 foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length > 900', "command: 'livestatus'", "command: 'savesettings'", "command: 'historicalgraph'"] as $pollingContract) {
