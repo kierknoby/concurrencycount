@@ -31,7 +31,7 @@ class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.0.0';
+	const VERSION = '2.0.1';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
@@ -463,6 +463,8 @@ class Concurrencycount implements \BMO {
 
 	private function readHistoricalReportRequest(): array {
 		return [
+			'name' => isset($_REQUEST['name']) ? (string)$_REQUEST['name'] : '',
+			'generated_default_name' => !empty($_REQUEST['generated_default_name']),
 			'mode' => isset($_REQUEST['mode']) ? (string)$_REQUEST['mode'] : 'trunk',
 			'engine' => isset($_REQUEST['engine']) ? (string)$_REQUEST['engine'] : 'original',
 			'preset' => isset($_REQUEST['preset']) ? (string)$_REQUEST['preset'] : 'last7',

@@ -250,7 +250,7 @@ class Concurrencycount extends Command {
 				$output->writeln('<error>' . (isset($result['message']) ? $result['message'] : 'Unable to close historical report.') . '</error>');
 				return 1;
 			}
-			$output->writeln('<info>Closed ' . $report['title'] . '.</info>');
+			$output->writeln('<info>Closed ' . $report['name'] . '.</info>');
 			return 0;
 		}
 
@@ -427,7 +427,7 @@ class Concurrencycount extends Command {
 			$missing = !empty($report['missing_reference']) ? ' [missing reference]' : '';
 			$output->writeln(sprintf(
 				'%s%s: mode=%s engine=%s preset=%s range=%s..%s%s',
-				$report['title'], $active, $report['mode'], $report['engine'], $report['preset'],
+				$report['name'], $active, $report['mode'], $report['engine'], $report['preset'],
 				$report['range_from'], $report['range_to'], $missing
 			));
 		}

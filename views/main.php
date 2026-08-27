@@ -215,6 +215,10 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-wizard-title"><?php echo _('Concurrency Count'); ?></h4>
 			</div>
 			<div class="modal-body">
+				<div class="form-group">
+					<label for="cc-report-name" class="control-label"><?php echo _('Report name'); ?></label>
+					<input type="text" id="cc-report-name" class="form-control" maxlength="80" autocomplete="off">
+				</div>
 				<fieldset class="form-group" id="cc-wizard-mode-group" aria-describedby="cc-mode-description">
 					<legend class="control-label"><?php echo _('What do you want to measure?'); ?></legend>
 					<div class="cc-mode-options">

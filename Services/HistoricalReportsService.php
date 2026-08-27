@@ -13,6 +13,7 @@ class HistoricalReportsService {
 	const ALLOWED_MODES = ['trunk', 'extension', 'group'];
 	const ALLOWED_ENGINES = ['original', 'sweep'];
 	const ALLOWED_PRESETS = ['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 'custom'];
+	const MAX_NAME_LENGTH = 80;
 
 	public function defaults(): array {
 		return ['version' => 1, 'active_id' => null, 'reports' => []];
@@ -34,13 +35,14 @@ class HistoricalReportsService {
 			if (!is_string($id) || $id === '' || !is_array($report)) continue;
 			$number = isset($report['number']) ? (int)$report['number'] : 0;
 			if ($number < 1 || $number > self::MAX_REPORTS || isset($usedNumbers[$number])) continue;
+			$report['name'] = isset($report['name']) ? $report['name'] : (isset($report['title']) ? $report['title'] : ('Historic Report ' . $number));
 			$normalised = $this->normaliseDefinitionSafely($report);
 			if ($normalised === null) continue;
 			$usedNumbers[$number] = true;
 			$reports[$id] = array_merge($normalised, [
 				'id' => $id,
 				'number' => $number,
-				'title' => isset($report['title']) && is_string($report['title']) && $report['title'] !== '' ? $report['title'] : ('Historic Report ' . $number),
+				'name' => $normalised['name'],
 				'created_at' => isset($report['created_at']) ? (int)$report['created_at'] : time(),
 				'updated_at' => isset($report['updated_at']) ? (int)$report['updated_at'] : time(),
 			]);
@@ -85,12 +87,12 @@ class HistoricalReportsService {
 			throw new \RuntimeException('Maximum of 5 historical reports can be open at once.');
 		}
 		$normalised = $this->normaliseDefinition($definition);
+		if (!empty($definition['generated_default_name'])) $normalised['name'] = 'Historic Report ' . $number;
 		$id = $id !== null ? $id : bin2hex(random_bytes(16));
 		$now = time();
 		$report = array_merge($normalised, [
 			'id' => $id,
 			'number' => $number,
-			'title' => 'Historic Report ' . $number,
 			'created_at' => $now,
 			'updated_at' => $now,
 		]);
@@ -132,6 +134,7 @@ class HistoricalReportsService {
 	}
 
 	public function normaliseDefinition(array $definition): array {
+		$name = $this->normaliseName(isset($definition['name']) ? $definition['name'] : '');
 		$mode = isset($definition['mode']) ? (string)$definition['mode'] : 'trunk';
 		if (!in_array($mode, self::ALLOWED_MODES, true)) throw new \InvalidArgumentException('Invalid historical report mode.');
 
@@ -153,11 +156,20 @@ class HistoricalReportsService {
 		$missingReference = !empty($definition['missing_reference']);
 
 		return [
-			'mode' => $mode, 'engine' => $engine, 'preset' => $preset,
+			'name' => $name, 'mode' => $mode, 'engine' => $engine, 'preset' => $preset,
 			'range_from' => $rangeFrom, 'range_to' => $rangeTo,
 			'include_time' => $includeTime, 'from_time' => $fromTime, 'to_time' => $toTime,
 			'filter' => $filter, 'missing_reference' => $missingReference,
 		];
+	}
+
+	private function normaliseName($value): string {
+		$name = trim((string)$value);
+		$length = function_exists('mb_strlen') ? mb_strlen($name, 'UTF-8') : strlen($name);
+		if ($name === '') throw new \InvalidArgumentException('Report name cannot be empty.');
+		if ($length > self::MAX_NAME_LENGTH) throw new \InvalidArgumentException('Report name must be 80 characters or fewer.');
+		if (preg_match('/[\x00-\x1F\x7F]/', $name)) throw new \InvalidArgumentException('Report name must contain plain text only.');
+		return $name;
 	}
 
 	private function normaliseDateOnly(string $value): ?string {

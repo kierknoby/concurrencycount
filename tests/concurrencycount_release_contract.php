@@ -12,7 +12,8 @@ function contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
 
-contract_assert((string)$module->version === '2.0.0', 'Unexpected module version');
+contract_assert((string)$module->version === '2.0.1', 'Unexpected module version');
+contract_assert(strpos((string)$module->changelog, '*2.0.1 (27 August 2026)*') !== false, '2.0.1 release date missing');
 $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');
@@ -32,6 +33,7 @@ $runtimeFiles = [
 	'Analyzers/PeakDetailAnalyser.php', 'Resolvers/FreepbxEntityResolver.php',
 	'Services/LiveSnapshotService.php', 'Services/ThresholdService.php',
 	'Services/SettingsRepository.php', 'Services/HistoricalGraphService.php',
+	'Services/HistoricalReportsService.php',
 	'Services/AlertMonitorCoordinator.php', 'Services/AmiChannelSource.php',
 	'Services/AlertOutboxService.php', 'alert-monitor.php', 'alert-mailer.php', 'install.php', 'uninstall.php',
 ];
