@@ -72,11 +72,11 @@ apt update
 apt install -y git
 ```
 
-Clone the 2.1.0 development branch, then leave the Git repository before running `fwconsole`:
+Clone the repository's default branch, then leave the Git repository before running `fwconsole`:
 
 ```bash
 cd /var/www/html/admin/modules
-git clone --branch 2-1-0_Dev --single-branch https://github.com/kierknoby/concurrencycount.git concurrencycount
+git clone https://github.com/kierknoby/concurrencycount.git concurrencycount
 cd ~
 fwconsole ma install concurrencycount
 fwconsole chown
@@ -128,12 +128,12 @@ git config --global --add safe.directory /var/www/html/admin/modules/concurrency
 
 This changes Git's trust configuration only; it does not change module directory ownership. Do not use a wildcard safe-directory rule or recursively change the FreePBX-owned directory back to root.
 
-The supported development-branch deployment replaces tracked files with branch `2-1-0_Dev` and removes untracked files. Back up any intentional local changes first: `git reset --hard` discards tracked modifications, and `git clean -fd` deletes untracked files and directories inside the module repository.
+The supported GitHub update workflow replaces tracked files with the current `main` branch and removes untracked files. Back up any intentional local changes first: `git reset --hard` discards tracked modifications, and `git clean -fd` deletes untracked files and directories inside the module repository.
 
 ```bash
 cd /var/www/html/admin/modules/concurrencycount
-git fetch origin 2-1-0_Dev
-git reset --hard FETCH_HEAD
+git fetch origin main
+git reset --hard origin/main
 git clean -fd
 cd ~
 fwconsole ma install concurrencycount
@@ -503,6 +503,7 @@ php tests/AmiChannelSourceTest.php
 php tests/EngineParityTest.php
 php tests/FreepbxEntityResolverTest.php
 php tests/HistoricalCallExclusionServiceTest.php
+php tests/HistoricalEndpointFilterServiceTest.php
 php tests/HistoricalReportsServiceTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
@@ -520,6 +521,8 @@ Source checks include:
 ```bash
 node --check assets/js/concurrencycount.js
 node --check assets/js/live-view.js
+node --check assets/js/date-range.js
+node --check assets/js/concurrency-charts.js
 find . -path './.git' -prune -o -type f -name '*.php' -print | while IFS= read -r file; do php -l "$file"; done
 git diff --check
 ```
