@@ -31,7 +31,7 @@ $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
-	@filemtime(__DIR__ . '/../assets/js/live-command-centre.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
 ?>
@@ -49,7 +49,7 @@ $_ccAssetVer = max(
 			<div class="row">
 				<div class="col-sm-12">
 					<p>
-						<?php echo _('Report peak simultaneous PJSIP trunk legs, individual extension records, or all numeric extension legs across the PBX.'); ?>
+						<?php echo _('Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.'); ?>
 					</p>
 				</div>
 			</div>
@@ -57,7 +57,7 @@ $_ccAssetVer = max(
 			<div class="row">
 				<div class="col-sm-12">
 					<div class="cc-workspace-tabs" id="cc-workspace-tabs" role="tablist" aria-label="<?php echo _('Concurrency views'); ?>">
-						<button type="button" class="cc-workspace-tab" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live Command Centre'); ?></button>
+						<button type="button" class="cc-workspace-tab" id="cc-tab-live" data-target="live" role="tab" aria-selected="true"><i class="fa fa-circle"></i> <?php echo _('Live View'); ?></button>
 						<button type="button" class="cc-workspace-tab" id="cc-tab-historical" data-target="historical" role="tab" aria-selected="false"><i class="fa fa-history"></i> <?php echo _('Historical Reports'); ?></button>
 					</div>
 					<p class="text-muted cc-workspace-hint"><?php echo _('These select which view is shown. They do not enable or disable live monitoring.'); ?></p>
@@ -66,6 +66,7 @@ $_ccAssetVer = max(
 						<div class="cc-section-heading">
 							<div><span class="cc-section-kicker"><?php echo _('LIVE'); ?></span><h2><?php echo _('Current Asterisk state'); ?></h2></div>
 							<div class="cc-live-actions">
+								<button type="button" id="cc-live-wall-launch" class="btn btn-default" title="<?php echo _('Open the read-only Live Wall'); ?>"><i class="fa fa-television"></i> <?php echo _('Live Wall'); ?></button>
 								<label for="cc-live-refresh"><?php echo _('Refresh'); ?></label>
 								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
 									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
@@ -80,7 +81,7 @@ $_ccAssetVer = max(
 								<div class="cc-live-metric-copy">
 									<span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span>
 									<button type="button" id="cc-live-overall-value" class="cc-live-value" aria-controls="cc-live-call-detail">0</button>
-									<span><?php echo _('active monitored PJSIP call legs now (trunk + extension legs)'); ?></span>
+									<span><?php echo _('active attributable PJSIP call legs now (trunk + extension legs)'); ?></span>
 									<div class="cc-live-meta"><span id="cc-live-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-live-overall-peak"><?php echo _('Recent peak 0 (this session)'); ?></span><span id="cc-live-overall-status"><?php echo _('Normal'); ?></span></div>
 								</div>
 								<canvas id="cc-live-overall-chart" class="cc-live-chart" height="150"></canvas>
@@ -88,6 +89,11 @@ $_ccAssetVer = max(
 							<div class="cc-live-updated"><strong><?php echo _('Last successful update:'); ?></strong> <time id="cc-live-updated-time">--</time></div>
 							<h3><?php echo _('Live trunk activity'); ?></h3>
 							<div id="cc-live-trunks" class="cc-live-trunk-grid"></div>
+							<section id="cc-hidden-trunks" class="cc-hidden-trunks" style="display:none;" aria-labelledby="cc-hidden-trunks-title">
+								<h3 id="cc-hidden-trunks-title"><?php echo _('Hidden trunks'); ?></h3>
+								<p class="text-muted"><?php echo _('Hidden here means dashboard visibility only. It does not disable the SIP trunk or stop monitoring.'); ?></p>
+								<div id="cc-hidden-trunk-list"></div>
+							</section>
 							<section id="cc-live-call-detail" class="cc-live-call-detail" style="display:none;" aria-live="polite"></section>
 						</div>
 					</section>
@@ -127,6 +133,21 @@ $_ccAssetVer = max(
 	</div>
 </div>
 
+<section id="cc-live-wall" class="cc-live-wall" style="display:none;" aria-labelledby="cc-live-wall-title">
+	<header class="cc-wall-header">
+		<div><span class="cc-section-kicker"><?php echo _('READ-ONLY LIVE DASHBOARD'); ?></span><h1 id="cc-live-wall-title"><?php echo _('Live Wall'); ?></h1></div>
+		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress"></i> <?php echo _('Exit Live Wall'); ?></button></div>
+	</header>
+	<div id="cc-wall-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
+	<div id="cc-wall-content" style="display:none;">
+		<article class="cc-wall-overall cc-status-panel" data-status="normal">
+			<div><span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span><strong id="cc-wall-overall-value">0</strong><span id="cc-wall-overall-status"><?php echo _('Normal'); ?></span><span id="cc-wall-overall-peak"><?php echo _('Recent peak 0'); ?></span></div>
+			<canvas id="cc-wall-overall-chart" height="180"></canvas>
+		</article>
+		<div id="cc-wall-trunks" class="cc-wall-trunk-grid"></div>
+	</div>
+</section>
+
 <div class="modal fade concurrencycount" id="cc-live-settings-modal" tabindex="-1" role="dialog" aria-labelledby="cc-live-settings-title">
 	<div class="modal-dialog modal-lg" role="document">
 		<div class="modal-content">
@@ -145,7 +166,7 @@ $_ccAssetVer = max(
 					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
 					<button type="button" id="cc-monitor-restart" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> <?php echo _('Restart monitor'); ?></button>
 				</div>
-				<p class="help-block"><?php echo _('Thresholds remain visible when alerts are disabled. A value of 0 disables that threshold. The supervised monitor reacts to AMI channel events and reconciles every 5 seconds, independently of browser refresh.'); ?></p>
+				<p class="help-block"><?php echo _('Start/Stop Monitoring controls whether Concurrency Count operationally evaluates a trunk. Threshold enabled controls whether its configured threshold is active, and Alert enabled controls notifications. These settings are independent. The supervised monitor reconciles every 5 seconds without relying on the browser.'); ?></p>
 				<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th><?php echo _('Scope'); ?></th><th><?php echo _('Threshold enabled'); ?></th><th><?php echo _('Threshold'); ?></th><th><?php echo _('Alert enabled'); ?></th></tr></thead><tbody id="cc-threshold-rows"></tbody></table></div>
 				<div id="cc-settings-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
@@ -333,4 +354,4 @@ $_ccAssetVer = max(
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
-<script src="modules/concurrencycount/assets/js/live-command-centre.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

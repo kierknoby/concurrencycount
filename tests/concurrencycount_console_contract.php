@@ -29,6 +29,7 @@ $newOptions = [
 	['set-overall-threshold', 'VALUE_REQUIRED'], ['overall-threshold', 'VALUE_REQUIRED'],
 	['set-trunk-threshold', 'VALUE_REQUIRED'], ['trunk-threshold', 'VALUE_REQUIRED'],
 	['alerts', 'VALUE_REQUIRED'], ['overall-alert', 'VALUE_REQUIRED'], ['trunk-alert', 'VALUE_REQUIRED'],
+	['start-monitoring', 'VALUE_REQUIRED'], ['stop-monitoring', 'VALUE_REQUIRED'],
 	['recovery', 'VALUE_REQUIRED'], ['alert-email', 'VALUE_REQUIRED'],
 	['historical-graph', 'VALUE_REQUIRED'], ['graph-trunk', 'VALUE_REQUIRED'],
 	['json', 'VALUE_NONE'], ['monitor', 'VALUE_NONE'],
@@ -53,5 +54,8 @@ console_contract_assert(strpos($console, 'JSON_PRETTY_PRINT') !== false, 'Machin
 foreach (['Set browser refresh interval', 'Enable or disable threshold notifications globally', 'Show one current AMI live-status snapshot', 'Show the supervised threshold-alert monitor status', 'Restart the supervised threshold-alert monitor'] as $helpText) {
 	console_contract_assert(strpos($console, $helpText) !== false, 'CLI help does not document: ' . $helpText);
 }
+console_contract_assert(strpos($console, "['start-monitoring' => true, 'stop-monitoring' => false]") !== false, 'Start/Stop Monitoring must share one settings mutation path');
+console_contract_assert(strpos($console, "['monitored'] = \$monitored") !== false, 'CLI monitoring operations must update only the monitored field');
+console_contract_assert(strpos($console, "!empty(\$scope['monitored']) ? 'active' : 'stopped'") !== false, 'Settings output must expose per-trunk monitoring state');
 
 echo "Console contract passed\n";

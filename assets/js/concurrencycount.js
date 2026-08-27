@@ -63,7 +63,7 @@ window._ccLoaded = true;
 	var activeReportId = null;
 	var wizardTargetReportId = null; // which report the open wizard will run into
 	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
-	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-command-centre.js
+	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-view.js
 	var generatedReportName = '';
 
 	function selectedMode() {
@@ -722,7 +722,7 @@ window._ccLoaded = true;
 	}
 
 	/* ---------- Historical report tabs ----------
-	 * Historic Report tabs are peers of Live Command Centre / Historical
+	 * Historic Report tabs are peers of Live View / Historical
 	 * Reports on the one top-level tab strip (#cc-workspace-tabs), not a
 	 * second-level control nested inside the Historical section. One shared
 	 * wizard/results DOM subtree (unchanged) is repainted from whichever
@@ -753,7 +753,7 @@ window._ccLoaded = true;
 			});
 			renderTopReportTabs();
 			// Deliberately does not change which top-level tab is active on
-			// load: Live Command Centre remains the default landing tab, and
+			// load: Live View remains the default landing tab, and
 			// each report tab regenerates lazily only when actually selected.
 		});
 	}
@@ -782,10 +782,10 @@ window._ccLoaded = true;
 	}
 
 	/**
-	 * Single point of top-level tab selection: Live Command Centre,
+	 * Single point of top-level tab selection: Live View,
 	 * Historical Reports (landing), or a Historic Report tab. Owns
 	 * aria-selected for the whole shared strip; delegates section
-	 * show/hide + Live polling to live-command-centre.js.
+	 * show/hide + Live polling to live-view.js.
 	 */
 	function selectTopTab(target) {
 		$('#cc-workspace-tabs [data-target]').attr('aria-selected', 'false');

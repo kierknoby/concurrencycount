@@ -31,7 +31,7 @@ class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.0.1';
+	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
@@ -282,7 +282,18 @@ class Concurrencycount implements \BMO {
 	public function saveLiveSettings(array $settings): array {
 		$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
 		$normalised = $service->normalise($settings, $this->getConfiguredLiveTrunks());
-		$this->getSettingsRepository()->set(self::SETTINGS_KEY, $normalised);
+		$repository = $this->getSettingsRepository();
+		$states = $repository->get(self::ALERT_STATE_KEY, []);
+		if (!is_array($states)) $states = [];
+		// A stopped trunk resumes from the next real snapshot, never from an
+		// old above-threshold episode that could manufacture a stale recovery.
+		foreach ($normalised['trunks'] as $trunk => $scope) {
+			if (empty($scope['monitored'])) unset($states['trunk:' . $trunk]);
+		}
+		$repository->transaction(function ($repository) use ($normalised, $states): void {
+			$repository->set(self::SETTINGS_KEY, $normalised);
+			$repository->set(self::ALERT_STATE_KEY, $states);
+		});
 		return $normalised;
 	}
 
@@ -526,6 +537,12 @@ class Concurrencycount implements \BMO {
 			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
 			$scopes = ['overall' => ['value' => (int)$snapshot['overall']['current'], 'config' => $settings['overall'], 'split' => []]];
 			foreach ($snapshot['trunks'] as $trunk => $trunkResult) {
+				// Monitoring is an operational evaluation gate only. The snapshot
+				// and Overall count were already built from actual AMI channel legs.
+				if (isset($settings['trunks'][$trunk]) && empty($settings['trunks'][$trunk]['monitored'])) {
+					unset($states['trunk:' . $trunk]);
+					continue;
+				}
 				$scopes['trunk:' . $trunk] = [
 					'value' => (int)$trunkResult['current'],
 					'config' => isset($settings['trunks'][$trunk]) ? $settings['trunks'][$trunk] : [],

@@ -2,16 +2,17 @@
 	<rawname>concurrencycount</rawname>
 	<repo>unsupported</repo>
 	<name>Concurrency Count</name>
-	<version>2.0.1</version>
+	<version>2.1.0</version>
 	<publisher>20tele.com</publisher>
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
+	*2.1.0 (27 August 2026)* Renames the everyday dashboard to Live View, adds a read-only fullscreen-capable Live Wall, persistent trunk visibility and ordering, accessible card reordering, and independent per-trunk unattended monitoring controls with GUI and CLI parity.
 	*2.0.1 (27 August 2026)* Historical Trunk Concurrency results show compact peak occurrences inline beneath each trunk with accessible lazy call details. Historical Report tabs are now created only when a validated report is run, support persistent custom names, and provide clearer hover and long-name handling.
 	*2.0.0 (26 August 2026)* Initial release. UI module port of the Concurrency Count CLI tool. Calculates maximum concurrent calls per PJSIP trunk, extension, or group within a date range, with a Live Command Centre (AMI-backed current state, threshold alerts via a supervised PM2 worker), persistent Historic Report tabs (up to five, saved report definitions restored across sessions), an optional 'sweep' calculation engine alongside the original per-second occupancy algorithm, and email/download output.
 	</changelog>
 	<category>Reports</category>
-	<description>Calculates maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Companion to the Concurrency Count CLI tool (concurrency-count) shipped via IN1CLICK - NOT CURRENTLY SUITABLE FOR PRODUCTION. Read-only against asteriskcdrdb. Results can be viewed in the browser, downloaded as CSV, or emailed.</description>
+	<description>Live and historical PJSIP concurrency visibility with configurable Live View and read-only Live Wall dashboards, threshold monitoring and alerting, historical trunk, extension and PBX-wide group reporting, and GUI/CLI management. NOT CURRENTLY SUITABLE FOR PRODUCTION.</description>
 	<menuitems>
 		<concurrencycount>Concurrency Count</concurrencycount>
 	</menuitems>

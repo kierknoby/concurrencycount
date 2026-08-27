@@ -49,7 +49,7 @@ $snapshot = $live->analyse([
 		'gamma-backup' => ['enabled' => true, 'threshold' => 1],
 	],
 ], 1787730000);
-live_assert_same(5, $snapshot['overall']['current'], 'Overall Live Concurrency counts monitored trunk legs plus numeric extension legs');
+live_assert_same(5, $snapshot['overall']['current'], 'Overall Live Concurrency counts configured trunk legs plus numeric extension legs');
 live_assert_same('exceeded', $snapshot['overall']['status'], 'Overall threshold uses greater-than-or-equal');
 live_assert_same(2, $snapshot['trunks']['gamma']['current'], 'Exact trunk count');
 live_assert_same(1, $snapshot['trunks']['gamma']['direction_counts']['inbound'], 'Inbound trunk direction');
@@ -60,7 +60,7 @@ live_assert_same('exceeded', $snapshot['trunks']['gamma-backup']['status'], 'Per
 live_assert_same(10, $snapshot['overall']['calls'][0]['duration_seconds'], 'AMI duration parsed');
 live_assert_same('unavailable', $live->unavailable('AMI unavailable', 1787730000)['overall']['status'], 'Unavailable snapshot status');
 
-// Example A: a monitored PJSIP trunk leg alone must contribute to Overall Live Concurrency.
+// Example A: an attributable configured PJSIP trunk leg alone must contribute to Overall Live Concurrency.
 $trunkOnly = $live->analyse([
 	live_channel('PJSIP/MAGRATHEA-IN-2-00000123', 'from-trunk'),
 ], ['MAGRATHEA-IN-2'], [], 1787730100);
@@ -108,6 +108,8 @@ $defaults = $thresholds->defaults();
 live_assert_same(5, $defaults['refresh_interval'], 'Default browser refresh interval');
 live_assert_same(false, $defaults['alerts_enabled'], 'Alerts disabled by default');
 live_assert_same(true, $defaults['recovery_enabled'], 'Recovery enabled by default');
+live_assert_same([], $defaults['hidden_trunks'], 'Hidden trunks default empty');
+live_assert_same([], $defaults['trunk_order'], 'Trunk order defaults empty before inventory reconciliation');
 $config = $thresholds->normalise([
 	'refresh_interval' => 1,
 	'alerts_enabled' => 'on',
@@ -115,22 +117,47 @@ $config = $thresholds->normalise([
 	'alert_email' => 'admin@example.com',
 	'overall' => ['enabled' => true, 'threshold' => 2, 'alert_enabled' => true],
 	'trunks' => [
-		'gamma' => ['enabled' => true, 'threshold' => 3, 'alert_enabled' => true],
+		'gamma' => ['enabled' => true, 'threshold' => 3, 'alert_enabled' => true, 'monitored' => false],
 		'gamma-backup' => ['enabled' => true, 'threshold' => 0, 'alert_enabled' => true],
 	],
 ], ['gamma', 'gamma-backup']);
 live_assert_same(1, $config['refresh_interval'], 'One-second browser refresh accepted');
 live_assert_same(false, $config['trunks']['gamma-backup']['enabled'], 'Threshold zero explicitly disables visual threshold');
+live_assert_same(false, $config['trunks']['gamma']['monitored'], 'Monitoring state is independent of threshold enablement');
+live_assert_same(true, $config['trunks']['gamma-backup']['monitored'], 'Legacy/new trunk monitoring defaults active');
+live_assert_same(['gamma', 'gamma-backup'], $config['trunk_order'], 'New trunks append predictably to an empty saved order');
 $reconciled = $thresholds->reconcileStored([
 	'alerts_enabled' => true,
+	'hidden_trunks' => ['temporarily-absent', 'gamma', 'gamma'],
+	'trunk_order' => ['temporarily-absent', 'gamma', 'gamma'],
 	'overall' => ['enabled' => true, 'threshold' => 8, 'alert_enabled' => true],
 	'trunks' => ['removed-trunk' => ['enabled' => true, 'threshold' => 5, 'alert_enabled' => true]],
 ], ['gamma']);
 live_assert_same(false, isset($reconciled['trunks']['removed-trunk']), 'Removed persisted trunk is pruned without disabling settings');
 live_assert_same(8, $reconciled['overall']['threshold'], 'Overall settings survive stale trunk reconciliation');
+live_assert_same(true, $reconciled['trunks']['gamma']['monitored'], 'Legacy settings without monitored reconcile active');
+live_assert_same(['temporarily-absent', 'gamma'], $reconciled['hidden_trunks'], 'Preference reconciliation preserves stale identifiers and removes duplicates safely');
+live_assert_same(['temporarily-absent', 'gamma'], $reconciled['trunk_order'], 'Saved order preserves stale logical positions without duplicate entries');
 $unknownRejected = false;
 try { $thresholds->normalise(['trunks' => ['removed-trunk' => ['threshold' => 5]]], ['gamma']); } catch (InvalidArgumentException $exception) { $unknownRejected = true; }
 live_assert_same(true, $unknownRejected, 'New GUI/CLI writes still reject unknown trunks');
+$malformedPreferencesRejected = false;
+try { $thresholds->normalise(['hidden_trunks' => 'gamma'], ['gamma']); } catch (InvalidArgumentException $exception) { $malformedPreferencesRejected = true; }
+live_assert_same(true, $malformedPreferencesRejected, 'Malformed presentation preference lists are rejected');
+$malformedMonitoringRejected = false;
+try { $thresholds->normalise(['trunks' => ['gamma' => ['monitored' => 'perhaps']]], ['gamma']); } catch (InvalidArgumentException $exception) { $malformedMonitoringRejected = true; }
+live_assert_same(true, $malformedMonitoringRejected, 'Malformed monitored state is rejected');
+$malformedStored = $thresholds->reconcileStored(['hidden_trunks' => 'not-a-list', 'trunk_order' => [false, 'gamma'], 'trunks' => ['gamma' => ['monitored' => 'perhaps']]], ['gamma']);
+live_assert_same([], $malformedStored['hidden_trunks'], 'Malformed stored hidden preferences reconcile safely');
+live_assert_same(['gamma'], $malformedStored['trunk_order'], 'Malformed stored order entries are skipped and current trunks remain ordered');
+live_assert_same(true, $malformedStored['trunks']['gamma']['monitored'], 'Malformed stored monitoring state reconciles to active');
+
+$presentationAndMonitoring = $live->analyse([
+	live_channel('PJSIP/gamma-20000001', 'from-trunk-gamma'),
+	live_channel('PJSIP/205-20000002', 'from-internal'),
+], ['gamma'], ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
+live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall alongside numeric extension legs');
+live_assert_same(1, $presentationAndMonitoring['trunks']['gamma']['current'], 'Presentation and monitoring preferences do not alter underlying trunk counts');
 
 $state = [];
 $first = $thresholds->evaluate('overall', 2, $config['overall'], $state, true, true, 1000);

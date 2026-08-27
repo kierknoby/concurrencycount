@@ -34,7 +34,7 @@ class Concurrencycount extends Command {
 			->addOption('compare', null, InputOption::VALUE_REQUIRED, 'Demo mode only: comma-separated engine list to compare')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text')
 			->addOption('live', null, InputOption::VALUE_NONE, 'Show one current AMI live-status snapshot and exit')
-			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live Command Centre and threshold settings')
+			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live View, monitoring and threshold settings')
 			->addOption('set-refresh', null, InputOption::VALUE_REQUIRED, 'Set browser refresh interval: 1, 5, 10, 15, 30 or 60 seconds')
 			->addOption('set-overall-threshold', null, InputOption::VALUE_REQUIRED, 'Set overall threshold; 0 disables it')
 			->addOption('overall-threshold', null, InputOption::VALUE_REQUIRED, 'Enable or disable the configured overall threshold: on|off')
@@ -43,6 +43,8 @@ class Concurrencycount extends Command {
 			->addOption('alerts', null, InputOption::VALUE_REQUIRED, 'Enable or disable threshold notifications globally: on|off')
 			->addOption('overall-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable overall threshold notifications: on|off')
 			->addOption('trunk-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable trunk notifications as TRUNK=on|off')
+			->addOption('start-monitoring', null, InputOption::VALUE_REQUIRED, 'Start unattended threshold monitoring for PJSIP trunk CHANNELID')
+			->addOption('stop-monitoring', null, InputOption::VALUE_REQUIRED, 'Stop unattended threshold monitoring for PJSIP trunk CHANNELID')
 			->addOption('recovery', null, InputOption::VALUE_REQUIRED, 'Enable or disable recovery notifications: on|off')
 			->addOption('alert-email', null, InputOption::VALUE_REQUIRED, 'Set threshold notification email address')
 			->addOption('historical-graph', null, InputOption::VALUE_REQUIRED, 'Return historical graph data for trunk or group mode')
@@ -198,6 +200,7 @@ class Concurrencycount extends Command {
 		$managementOptions = [
 			'live', 'settings', 'set-refresh', 'set-overall-threshold', 'overall-threshold',
 			'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert',
+			'start-monitoring', 'stop-monitoring',
 			'recovery', 'alert-email', 'historical-graph', 'monitor',
 			'monitor-status', 'restart-monitor',
 			'list-historical-reports', 'show-historical-report', 'delete-historical-report',
@@ -298,6 +301,16 @@ class Concurrencycount extends Command {
 				$settings['trunks'][$trunk]['alert_enabled'] = $value;
 				$changed = true;
 			}
+			if ($input->getOption('start-monitoring') !== null && $input->getOption('stop-monitoring') !== null) {
+				throw new \InvalidArgumentException('Choose either --start-monitoring or --stop-monitoring, not both.');
+			}
+			foreach (['start-monitoring' => true, 'stop-monitoring' => false] as $option => $monitored) {
+				if ($input->getOption($option) === null) continue;
+				$trunk = trim((string)$input->getOption($option));
+				if ($trunk === '' || !isset($settings['trunks'][$trunk])) throw new \InvalidArgumentException('Unknown PJSIP trunk channelid: ' . $trunk);
+				$settings['trunks'][$trunk]['monitored'] = $monitored;
+				$changed = true;
+			}
 			if ($input->getOption('recovery') !== null) {
 				$settings['recovery_enabled'] = $input->getOption('recovery');
 				$changed = true;
@@ -307,6 +320,8 @@ class Concurrencycount extends Command {
 				$changed = true;
 			}
 			if ($changed) $settings = $cc->saveLiveSettings($settings);
+			if (!$json && $input->getOption('start-monitoring') !== null) $output->writeln('<info>Monitoring started for ' . trim((string)$input->getOption('start-monitoring')) . '.</info>');
+			if (!$json && $input->getOption('stop-monitoring') !== null) $output->writeln('<info>Monitoring stopped for ' . trim((string)$input->getOption('stop-monitoring')) . '.</info>');
 		} catch (\Exception $exception) {
 			$output->writeln('<error>' . $exception->getMessage() . '</error>');
 			return 1;
@@ -359,7 +374,7 @@ class Concurrencycount extends Command {
 			$output->writeln('Message:     ' . $snapshot['message']);
 			return;
 		}
-		$output->writeln('Overall Live Concurrency (active monitored PJSIP legs): ' . $snapshot['overall']['current']);
+		$output->writeln('Overall Live Concurrency (active attributable PJSIP legs): ' . $snapshot['overall']['current']);
 		foreach ($snapshot['overall']['calls'] as $call) $output->writeln('  ' . $call['channel'] . ' ' . $call['state'] . ' ' . $call['duration_seconds'] . 's');
 		foreach ($snapshot['trunks'] as $trunk => $result) {
 			$output->writeln(sprintf('%-24s %d (%d inbound, %d outbound, %d unknown)', $trunk, $result['current'], $result['direction_counts']['inbound'], $result['direction_counts']['outbound'], $result['direction_counts']['unknown']));
@@ -378,7 +393,7 @@ class Concurrencycount extends Command {
 		$output->writeln('Alert email:           ' . ($settings['alert_email'] !== '' ? $settings['alert_email'] : '(not configured)'));
 		$output->writeln(sprintf('Overall threshold:     %s %d; alert %s', $settings['overall']['enabled'] ? 'enabled' : 'disabled', $settings['overall']['threshold'], $settings['overall']['alert_enabled'] ? 'enabled' : 'disabled'));
 		foreach ($settings['trunks'] as $trunk => $scope) {
-			$output->writeln(sprintf('%-24s threshold %s %d; alert %s', $trunk, $scope['enabled'] ? 'enabled' : 'disabled', $scope['threshold'], $scope['alert_enabled'] ? 'enabled' : 'disabled'));
+			$output->writeln(sprintf('%-24s monitoring %s; threshold %s %d; alert %s', $trunk, !empty($scope['monitored']) ? 'active' : 'stopped', $scope['enabled'] ? 'enabled' : 'disabled', $scope['threshold'], $scope['alert_enabled'] ? 'enabled' : 'disabled'));
 		}
 	}
 

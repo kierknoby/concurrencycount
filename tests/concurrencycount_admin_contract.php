@@ -9,7 +9,7 @@ $class = file_get_contents($root . '/Concurrencycount.class.php');
 $view = file_get_contents($root . '/views/main.php');
 $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
-$liveJavascript = file_get_contents($root . '/assets/js/live-command-centre.js');
+$liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
 $monitor = file_get_contents($root . '/alert-monitor.php');
 $console = file_get_contents($root . '/Console/Concurrencycount.class.php');
@@ -67,7 +67,7 @@ foreach (['Trunk Concurrency', 'Extension Concurrency', 'Group Concurrency'] as 
 admin_contract_assert(strpos($view, 'Overall Extension Concurrency') === false, 'Historical Group mode must no longer be labelled Overall Extension Concurrency');
 admin_contract_assert(strpos($liveJavascript, "scopeRow('overall', 'Overall Live Concurrency', settings.overall)") !== false, 'Live threshold settings must label the overall scope as Overall Live Concurrency, not the historical Group label');
 admin_contract_assert(strpos($thresholdService, "'Overall Live Concurrency' : substr") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
-admin_contract_assert(strpos($liveJavascript, 'Overall Extension Concurrency') === false && strpos($thresholdService, 'Overall Extension Concurrency') === false, 'No Live Command Centre reference may use the stale Overall Extension Concurrency wording');
+admin_contract_assert(strpos($liveJavascript, 'Overall Extension Concurrency') === false && strpos($thresholdService, 'Overall Extension Concurrency') === false, 'No Live View reference may use the stale Overall Extension Concurrency wording');
 admin_contract_assert(substr_count($view, 'type="radio" name="cc-wizard-mode"') === 3, 'Reporting modes must use three native radio controls');
 admin_contract_assert(preg_match('/id="cc-mode-trunk"[^>]+value="trunk"[^>]+checked/', $view) === 1, 'Trunk must remain the default GUI mode');
 admin_contract_assert(strpos($view, '<fieldset') !== false && strpos($view, '<legend') !== false, 'Reporting mode controls need an accessible fieldset and legend');
@@ -151,12 +151,13 @@ admin_contract_assert(strpos($liveJavascript, "removeClass('active btn-primary')
 admin_contract_assert(strpos($javascript, "attr('aria-selected', 'true')") !== false && strpos($javascript, "attr('aria-selected', 'false')") !== false, 'Top-level tab selection must use aria-selected semantics');
 admin_contract_assert(strpos($view, 'do not enable or disable live monitoring') !== false, 'Workspace tabs must be explicitly labelled as navigation only');
 admin_contract_assert(strpos($view, 'cc-settings-button') !== false, 'Thresholds & alerts control must use a neutral settings affordance, not an enable/disable button style');
-foreach (['OVERALL LIVE CONCURRENCY', 'active monitored PJSIP call legs now'] as $overallLabel) {
+foreach (['OVERALL LIVE CONCURRENCY', 'active attributable PJSIP call legs now'] as $overallLabel) {
 	admin_contract_assert(strpos($view, $overallLabel) !== false, 'Overall Live Concurrency wording missing: ' . $overallLabel);
 }
 admin_contract_assert(strpos($view, 'OVERALL EXTENSION CONCURRENCY') === false, 'Live Overall metric must not be labelled as extension-only now that trunk legs are included');
-admin_contract_assert(substr_count($liveSnapshotService, '$overallCalls[] = $channel;') === 2, 'Monitored trunk legs must contribute to Overall Live Concurrency alongside numeric extension legs');
-admin_contract_assert(strpos($console, "'Overall Live Concurrency (active monitored PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
+admin_contract_assert(substr_count($liveSnapshotService, '$overallCalls[] = $channel;') === 2, 'Configured trunk legs must contribute to Overall Live Concurrency alongside numeric extension legs');
+admin_contract_assert(strpos($view, 'Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.') !== false, 'GUI opening description must represent both Live and Historical functionality');
+admin_contract_assert(strpos($console, "'Overall Live Concurrency (active attributable PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
 admin_contract_assert(strpos($liveJavascript, "appendPoint(history.overall, data.generated_ts, data.overall.current)") !== false && strpos($liveJavascript, 'function renderSnapshot(data)') !== false, 'Overall and trunk rolling series must be derived from the same live snapshot object');
 admin_contract_assert(strpos($liveJavascript, "command: 'monitorstatus'") !== false && strpos($liveJavascript, "command: 'restartmonitor'") !== false, 'GUI monitor status/restart parity missing');
 foreach (['if (request ||', 'document.hidden', 'requestSequence', 'series.length > 900', "command: 'livestatus'", "command: 'savesettings'", "command: 'historicalgraph'"] as $pollingContract) {
@@ -180,12 +181,12 @@ admin_contract_assert(substr_count($betweenSections, '<section') === substr_coun
 // every modal that follows the workspaces into the still-open .concurrencycount container.
 $openDivs = substr_count($view, '<div') - substr_count($view, '</div>');
 admin_contract_assert($openDivs === 0, 'views/main.php has unbalanced <div> tags (' . $openDivs . ' unclosed) - modals after the workspaces would be nested in the wrong container');
-admin_contract_assert(preg_match('/<\/section>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<div class="modal fade concurrencycount" id="cc-live-settings-modal"/', $view) === 1, 'The outer row/col-sm-12/concurrencycount wrapper must close before the first modal, keeping modals as top-level siblings');
+admin_contract_assert(preg_match('/<\/section>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<section id="cc-live-wall"/', $view) === 1, 'The outer admin wrapper must close before the top-level Live Wall presentation');
 admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && strpos($chartJavascript, 'onSelect') !== false, 'Chart threshold/interaction support missing');
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.0.1', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -197,7 +198,7 @@ admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_historical_repo
 admin_contract_assert(strpos($historicalReportsService, 'MAX_REPORTS = 5') !== false, 'Five-report hard limit must be enforced in the backend service, not only the GUI');
 admin_contract_assert(strpos($console, "'list-historical-reports'") !== false && strpos($console, "'show-historical-report'") !== false && strpos($console, "'delete-historical-report'") !== false, 'CLI visibility/management for persisted historical report tabs is missing');
 
-/* Historic Report tabs are top-level peers of Live Command Centre / Historical Reports, not a nested second-level strip */
+/* Historic Report tabs are top-level peers of Live View / Historical Reports, not a nested second-level strip */
 admin_contract_assert(substr_count($view, 'id="cc-workspace-tabs"') === 1, 'A single top-level tab strip container must exist');
 foreach (['cc-report-tabs', 'cc-report-workspace', 'cc-report-new', 'cc-report-tab-bar'] as $legacyNestedNeedle) {
 	admin_contract_assert(strpos($view, $legacyNestedNeedle) === false, 'No nested second-level historical report-tab container may remain: ' . $legacyNestedNeedle);
@@ -226,6 +227,8 @@ admin_contract_assert(strpos($cleanup, 'if (report.firstRunCleanupAttempted) ret
 admin_contract_assert(strpos($javascript, 'generated_default_name') !== false, 'Generated default names must defer final slot naming to the server');
 admin_contract_assert(strpos($javascript, 'title="' . "' + escapeHtml(report.name)") !== false, 'Long report tabs must expose their complete saved name');
 admin_contract_assert(strpos($css, '.cc-workspace-tab.cc-report-tab-top:hover') !== false && strpos($css, '[aria-selected="true"]:hover') !== false, 'Report tabs need hover styling distinct from selected styling');
+admin_contract_assert(strpos($css, '.cc-report-tab-select:focus-visible') !== false && strpos($css, 'inset 0 -2px 0 #7d919f') !== false, 'Report tabs need a subtle keyboard-only focus treatment');
+admin_contract_assert(strpos($css, '.cc-report-tab-select:hover') !== false && strpos($css, '.cc-report-tab-select:focus:not(:focus-visible)') !== false, 'Report-tab hover and mouse focus must suppress the bright focus box');
 admin_contract_assert(strpos($css, 'text-overflow: ellipsis') !== false && strpos($css, 'max-width: 240px') !== false, 'Long report names must be constrained and ellipsized');
 admin_contract_assert(strpos($console, "\$report['name']") !== false, 'CLI list/show/delete surfaces must expose the persisted report name');
 admin_contract_assert(strpos($javascript, 'role="tab"') !== false, 'Report tabs must use tab semantics');
@@ -236,12 +239,39 @@ admin_contract_assert(strpos($javascript, 'runTargetReportId') !== false && strp
 admin_contract_assert(strpos($javascript, 'occurrenceCache') !== false, 'Occurrence drill-down state must be scoped per report instance');
 admin_contract_assert(strpos($javascript, 'runTargetReportId = null;') !== false, 'Demo must not silently attach its result to a persisted report tab');
 
-/* Live Command Centre must remain untouched by this change */
+/* Live View must retain its established polling and workspace contracts. */
 foreach (['function updateOverall', 'function pollLive', 'function startPolling'] as $liveFn) {
-	admin_contract_assert(strpos($liveJavascript, $liveFn) !== false, 'Live Command Centre function must remain present and unchanged: ' . $liveFn);
+	admin_contract_assert(strpos($liveJavascript, $liveFn) !== false, 'Live View function must remain present: ' . $liveFn);
 }
-admin_contract_assert(strpos($liveJavascript, 'window.CCLiveWorkspace') !== false, 'Live Command Centre must expose its section-switch hook for the shared top-level tab strip');
-admin_contract_assert(strpos($liveJavascript, "\$('.cc-workspace-tab').off('click.ccLive')") === false, 'Live Command Centre must no longer bind top-level tab clicks itself now that report tabs share the strip');
-admin_contract_assert(strpos($liveJavascript, 'historicalReports') === false, 'Live Command Centre file must not know about the historical report tab model');
+admin_contract_assert(strpos($liveJavascript, 'window.CCLiveWorkspace') !== false, 'Live View must expose its section-switch hook for the shared top-level tab strip');
+admin_contract_assert(strpos($liveJavascript, "\$('.cc-workspace-tab').off('click.ccLive')") === false, 'Live View must not bind top-level tab clicks itself now that report tabs share the strip');
+admin_contract_assert(strpos($liveJavascript, 'historicalReports') === false, 'Live View file must not know about the historical report tab model');
+
+/* 2.1.0 Live View presentation and operational monitoring */
+admin_contract_assert(strpos($view, '>Live View<') === false || strpos($view, "_('Live View')") !== false, 'User-facing Live View label missing');
+admin_contract_assert(strpos($view, "_('Live Command " . "Centre')") === false, 'Obsolete pre-2.1 live-dashboard label remains in the GUI');
+foreach (['id="cc-live-wall"', 'id="cc-live-wall-exit"', 'id="cc-hidden-trunks"', 'id="cc-hidden-trunk-list"'] as $id) {
+	admin_contract_assert(strpos($view, $id) !== false, 'Live View/Wall surface missing: ' . $id);
+}
+foreach (['hidden_trunks', 'trunk_order', 'monitored'] as $setting) {
+	admin_contract_assert(strpos($thresholdService, "'" . $setting . "'") !== false, '2.1.0 Live setting missing: ' . $setting);
+}
+admin_contract_assert(strpos($class, "empty(\$settings['trunks'][\$trunk]['monitored'])") !== false, 'Background monitor must gate per-trunk evaluation on monitored state');
+admin_contract_assert(strpos($class, "unset(\$states['trunk:' . \$trunk])") !== false, 'Stopping monitoring must clear stale per-trunk episode state');
+foreach (['cc-hide-trunk', 'cc-unhide-trunk', 'cc-toggle-monitoring', 'cc-move-earlier', 'cc-move-later', 'cc-drag-handle'] as $control) {
+	admin_contract_assert(strpos($liveJavascript, $control) !== false, 'Live View control missing: ' . $control);
+}
+admin_contract_assert(strpos($liveJavascript, 'aria-label="Move ') !== false, 'Accessible non-drag reorder labels missing');
+admin_contract_assert(strpos($liveJavascript, 'function orderedTrunks') !== false && strpos($liveJavascript, 'function renderHiddenTrunks') !== false, 'Shared visibility/order renderer missing');
+admin_contract_assert(substr_count($liveJavascript, "command: 'livestatus'") === 1, 'Live Wall must not introduce a second live-status acquisition path');
+admin_contract_assert(strpos($liveJavascript, 'renderLiveWall(snapshot)') !== false || strpos($liveJavascript, 'renderLiveWall(data)') !== false, 'Live Wall must render from the shared latest snapshot');
+admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen === 'function'") !== false && strpos($liveJavascript, 'fullscreenchange.ccLive') !== false, 'Fullscreen API feature detection/state handling missing');
+admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
+$wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));
+foreach (['Hide Trunk', 'Unhide', 'Start Monitoring', 'Stop Monitoring', 'Thresholds & alerts', 'Move earlier', 'Move later'] as $mutation) {
+	admin_contract_assert(strpos($wallMarkup, $mutation) === false, 'Live Wall must remain read-only; found: ' . $mutation);
+}
+admin_contract_assert(strpos($readme, 'Changing a trunk channelid') !== false, 'README must document channelid preference identity limitation');
+admin_contract_assert(strpos($readme, 'only monitored PJSIP trunk and extension legs') === false && strpos($readme, 'includes monitored trunk legs') === false, 'README must not use operational monitored wording for Overall Live Concurrency attribution');
 
 echo "Administrative contract passed\n";

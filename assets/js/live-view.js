@@ -10,6 +10,9 @@ window._ccLiveLoaded = true;
 	var requestSequence = 0;
 	var appliedSequence = 0;
 	var activeWorkspace = 'live';
+	var wallActive = false;
+	var preferenceSaveTimer = null;
+	var draggedTrunk = null;
 	var history = {overall: [], trunks: {}};
 	var charts = {overall: null, trunks: {}, historical: null};
 	var historicalResult = null;
@@ -37,11 +40,14 @@ window._ccLiveLoaded = true;
 			startPolling(true);
 		});
 		$('#cc-live-settings').off('click.ccLive').on('click.ccLive', openSettings);
+		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', enterLiveWall);
+		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP activity (trunk + extension legs)', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
+		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 	}
 
@@ -55,7 +61,7 @@ window._ccLiveLoaded = true;
 		activeWorkspace = target === 'live' ? 'live' : 'historical';
 		$('#cc-live-section').toggle(activeWorkspace === 'live');
 		$('#cc-historical-section').toggle(activeWorkspace === 'historical');
-		if (activeWorkspace === 'live') startPolling(true);
+		if (activeWorkspace === 'live' || wallActive) startPolling(true);
 		else stopTimer();
 	}
 
@@ -71,20 +77,20 @@ window._ccLiveLoaded = true;
 
 	function startPolling(immediate) {
 		stopTimer();
-		if (activeWorkspace !== 'live' || document.hidden) return;
+		if (!isLivePresentationActive() || document.hidden) return;
 		if (immediate) pollLive();
 		else scheduleNext();
 	}
 
 	function scheduleNext() {
 		stopTimer();
-		if (activeWorkspace !== 'live' || document.hidden) return;
+		if (!isLivePresentationActive() || document.hidden) return;
 		var interval = settings ? parseInt(settings.refresh_interval, 10) : 5;
 		timer = window.setTimeout(pollLive, Math.max(1, interval) * 1000);
 	}
 
 	function pollLive() {
-		if (request || activeWorkspace !== 'live' || document.hidden) return;
+		if (request || !isLivePresentationActive() || document.hidden) return;
 		var sequence = ++requestSequence;
 		request = ajax({command: 'livestatus'}).done(function (response) {
 			if (sequence < appliedSequence) return;
@@ -125,6 +131,30 @@ window._ccLiveLoaded = true;
 		updateOverall(data.overall);
 		ensureTrunkCards(data.trunks);
 		Object.keys(data.trunks).forEach(function (trunk) { updateTrunk(trunk, data.trunks[trunk]); });
+		renderHiddenTrunks(data.trunks);
+		if (wallActive) renderLiveWall(data);
+	}
+
+	function isLivePresentationActive() {
+		return activeWorkspace === 'live' || wallActive;
+	}
+
+	function orderedTrunks(trunks) {
+		var available = Object.keys(trunks || {});
+		var ordered = [];
+		(settings && settings.trunk_order ? settings.trunk_order : []).forEach(function (trunk) {
+			if (available.indexOf(trunk) >= 0 && ordered.indexOf(trunk) < 0) ordered.push(trunk);
+		});
+		available.forEach(function (trunk) { if (ordered.indexOf(trunk) < 0) ordered.push(trunk); });
+		return ordered;
+	}
+
+	function isHidden(trunk) {
+		return !!settings && (settings.hidden_trunks || []).indexOf(trunk) >= 0;
+	}
+
+	function isMonitored(trunk) {
+		return !settings || !settings.trunks || !settings.trunks[trunk] || settings.trunks[trunk].monitored !== false;
 	}
 
 	function updateOverall(overall) {
@@ -139,17 +169,21 @@ window._ccLiveLoaded = true;
 
 	function ensureTrunkCards(trunks) {
 		var container = $('#cc-live-trunks');
-		var names = Object.keys(trunks);
+		var names = orderedTrunks(trunks).filter(function (trunk) { return !isHidden(trunk); });
 		var existing = container.data('trunks') || [];
 		if (JSON.stringify(existing) === JSON.stringify(names)) return;
 		Object.keys(charts.trunks).forEach(function (name) { charts.trunks[name].destroy(); });
 		charts.trunks = {};
 		var html = '';
 		names.forEach(function (trunk, index) {
-			html += '<article class="cc-live-trunk" data-trunk-index="' + index + '" data-status="normal">' +
+			html += '<article class="cc-live-trunk" draggable="false" data-trunk="' + escapeHtml(trunk) + '" data-trunk-index="' + index + '" data-status="normal">' +
+				'<div class="cc-trunk-toolbar"><button type="button" class="cc-drag-handle" draggable="true" aria-label="Drag ' + escapeHtml(trunk) + ' to reorder" title="Drag to reorder"><i class="fa fa-bars"></i></button>' +
+				'<button type="button" class="cc-move-earlier" aria-label="Move ' + escapeHtml(trunk) + ' earlier"' + (index === 0 ? ' disabled' : '') + '><i class="fa fa-arrow-left"></i></button>' +
+				'<button type="button" class="cc-move-later" aria-label="Move ' + escapeHtml(trunk) + ' later"' + (index === names.length - 1 ? ' disabled' : '') + '><i class="fa fa-arrow-right"></i></button>' +
+				'<button type="button" class="cc-toggle-monitoring"></button><button type="button" class="cc-hide-trunk">Hide Trunk</button></div>' +
 				'<div class="cc-live-trunk-header"><div><h4 class="cc-trunk-name">' + escapeHtml(trunk) + '</h4><span class="cc-trunk-split">0 inbound · 0 outbound · 0 unknown</span></div>' +
 				'<button type="button" class="cc-trunk-value" data-trunk-index="' + index + '">0</button></div>' +
-				'<div class="cc-live-meta"><span class="cc-trunk-threshold">Threshold off</span><span class="cc-trunk-peak">Recent peak 0 (this session)</span><span class="cc-trunk-status">Normal</span></div>' +
+				'<div class="cc-live-meta"><span class="cc-trunk-monitoring">Monitoring active</span><span class="cc-trunk-threshold">Threshold off</span><span class="cc-trunk-peak">Recent peak 0 (this session)</span><span class="cc-trunk-status">Normal</span></div>' +
 				'<canvas class="cc-trunk-chart" id="cc-trunk-chart-' + index + '" height="110"></canvas></article>';
 		});
 		container.html(html).data('trunks', names);
@@ -160,6 +194,7 @@ window._ccLiveLoaded = true;
 		names.forEach(function (trunk, index) {
 			charts.trunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-trunk-chart-' + index), {onSelect: function () { showCalls(trunk + ' current trunk channels', snapshot.trunks[trunk].calls); }});
 		});
+		bindTrunkControls();
 	}
 
 	function updateTrunk(trunk, result) {
@@ -174,7 +209,161 @@ window._ccLiveLoaded = true;
 		panel.find('.cc-trunk-threshold').text(result.threshold_enabled ? 'Threshold ' + result.threshold : 'Threshold off');
 		panel.find('.cc-trunk-peak').text('Recent peak ' + recentPeak(history.trunks[trunk] || []) + ' (this session)');
 		panel.find('.cc-trunk-status').text(statusLabel(result.status));
-		charts.trunks[trunk].setData(history.trunks[trunk] || [], result.threshold_enabled ? result.threshold : 0);
+		panel.find('.cc-trunk-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped');
+		panel.find('.cc-toggle-monitoring').text(isMonitored(trunk) ? 'Stop Monitoring' : 'Start Monitoring').attr('aria-label', (isMonitored(trunk) ? 'Stop monitoring ' : 'Start monitoring ') + trunk);
+		if (charts.trunks[trunk]) charts.trunks[trunk].setData(history.trunks[trunk] || [], result.threshold_enabled ? result.threshold : 0);
+	}
+
+	function bindTrunkControls() {
+		var grid = $('#cc-live-trunks');
+		grid.find('.cc-hide-trunk').off('click.ccLive').on('click.ccLive', function () { setHidden($(this).closest('[data-trunk]').data('trunk'), true); });
+		grid.find('.cc-toggle-monitoring').off('click.ccLive').on('click.ccLive', function () { toggleMonitoring($(this).closest('[data-trunk]').data('trunk')); });
+		grid.find('.cc-move-earlier').off('click.ccLive').on('click.ccLive', function () { moveTrunk($(this).closest('[data-trunk]').data('trunk'), -1); });
+		grid.find('.cc-move-later').off('click.ccLive').on('click.ccLive', function () { moveTrunk($(this).closest('[data-trunk]').data('trunk'), 1); });
+		grid.find('.cc-drag-handle').off('dragstart.ccLive dragend.ccLive').on('dragstart.ccLive', function (event) {
+			draggedTrunk = $(this).closest('[data-trunk]').data('trunk');
+			$(this).closest('.cc-live-trunk').addClass('cc-is-dragging');
+			event.originalEvent.dataTransfer.effectAllowed = 'move';
+			event.originalEvent.dataTransfer.setData('text/plain', draggedTrunk);
+		}).on('dragend.ccLive', function () {
+			draggedTrunk = null;
+			grid.find('.cc-live-trunk').removeClass('cc-is-dragging cc-drop-target');
+		});
+		grid.find('.cc-live-trunk').off('dragover.ccLive dragleave.ccLive drop.ccLive').on('dragover.ccLive', function (event) {
+			if (!draggedTrunk || $(this).data('trunk') === draggedTrunk) return;
+			event.preventDefault();
+			grid.find('.cc-live-trunk').removeClass('cc-drop-target');
+			$(this).addClass('cc-drop-target');
+		}).on('dragleave.ccLive', function () { $(this).removeClass('cc-drop-target'); }).on('drop.ccLive', function (event) {
+			event.preventDefault();
+			var target = $(this).data('trunk');
+			if (draggedTrunk && target && draggedTrunk !== target) reorderBefore(draggedTrunk, target);
+		});
+	}
+
+	function setHidden(trunk, hidden) {
+		if (!settings) return;
+		var list = settings.hidden_trunks || [];
+		settings.hidden_trunks = list.filter(function (name) { return name !== trunk; });
+		if (hidden) settings.hidden_trunks.push(trunk);
+		persistPreferences();
+		renderSnapshot(snapshot);
+	}
+
+	function toggleMonitoring(trunk) {
+		if (!settings || !settings.trunks || !settings.trunks[trunk]) return;
+		settings.trunks[trunk].monitored = !isMonitored(trunk);
+		saveSettings(settings, false);
+		renderSnapshot(snapshot);
+	}
+
+	function moveTrunk(trunk, direction) {
+		var visible = orderedTrunks(snapshot ? snapshot.trunks : {}).filter(function (name) { return !isHidden(name); });
+		var index = visible.indexOf(trunk);
+		var other = index + direction;
+		if (index < 0 || other < 0 || other >= visible.length) return;
+		var order = (settings.trunk_order || []).slice();
+		var trunkIndex = order.indexOf(trunk);
+		var otherIndex = order.indexOf(visible[other]);
+		if (trunkIndex < 0 || otherIndex < 0) return;
+		order.splice(trunkIndex, 1);
+		otherIndex = order.indexOf(visible[other]);
+		order.splice(direction < 0 ? otherIndex : otherIndex + 1, 0, trunk);
+		settings.trunk_order = order;
+		persistPreferences();
+		renderSnapshot(snapshot);
+	}
+
+	function reorderBefore(trunk, target) {
+		var order = (settings.trunk_order || []).slice();
+		var from = order.indexOf(trunk);
+		var to = order.indexOf(target);
+		if (from < 0 || to < 0) return;
+		order.splice(from, 1);
+		to = order.indexOf(target);
+		order.splice(to, 0, trunk);
+		settings.trunk_order = order;
+		persistPreferences();
+		renderSnapshot(snapshot);
+	}
+
+	function persistPreferences() {
+		if (preferenceSaveTimer) window.clearTimeout(preferenceSaveTimer);
+		preferenceSaveTimer = window.setTimeout(function () { preferenceSaveTimer = null; saveSettings(settings, false); }, 250);
+	}
+
+	function renderHiddenTrunks(trunks) {
+		var hidden = orderedTrunks(trunks).filter(isHidden);
+		$('#cc-hidden-trunks').toggle(hidden.length > 0);
+		var html = hidden.map(function (trunk) {
+			var active = isMonitored(trunk);
+			return '<div class="cc-hidden-trunk-row" data-trunk="' + escapeHtml(trunk) + '"><strong>' + escapeHtml(trunk) + '</strong><span>' + (active ? 'Monitoring active' : 'Monitoring stopped') + '</span>' +
+				'<div><button type="button" class="btn btn-default btn-sm cc-unhide-trunk" aria-label="Unhide ' + escapeHtml(trunk) + '">Unhide</button> ' +
+				'<button type="button" class="btn btn-default btn-sm cc-toggle-monitoring" aria-label="' + (active ? 'Stop monitoring ' : 'Start monitoring ') + escapeHtml(trunk) + '">' + (active ? 'Stop Monitoring' : 'Start Monitoring') + '</button></div></div>';
+		}).join('');
+		$('#cc-hidden-trunk-list').html(html).find('.cc-unhide-trunk').on('click', function () { setHidden($(this).closest('[data-trunk]').data('trunk'), false); });
+		$('#cc-hidden-trunk-list .cc-toggle-monitoring').on('click', function () { toggleMonitoring($(this).closest('[data-trunk]').data('trunk')); });
+	}
+
+	function enterLiveWall() {
+		wallActive = true;
+		$('#cc-live-wall').show().attr('aria-hidden', 'false');
+		$('body').addClass('cc-wall-active');
+		if (snapshot) renderLiveWall(snapshot);
+		startPolling(!snapshot);
+		var wall = document.getElementById('cc-live-wall');
+		if (wall && typeof wall.requestFullscreen === 'function') {
+			var requestResult;
+			try { requestResult = wall.requestFullscreen(); } catch (error) { requestResult = null; }
+			if (requestResult && typeof requestResult.catch === 'function') requestResult.catch(function () { /* Full-page fallback remains active. */ });
+		}
+	}
+
+	function exitLiveWall() {
+		wallActive = false;
+		$('#cc-live-wall').hide().attr('aria-hidden', 'true');
+		$('body').removeClass('cc-wall-active');
+		if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+			var exitResult = document.exitFullscreen();
+			if (exitResult && typeof exitResult.catch === 'function') exitResult.catch(function () {});
+		}
+		if (activeWorkspace !== 'live') stopTimer();
+	}
+
+	function onFullscreenChange() {
+		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', document.fullscreenElement === document.getElementById('cc-live-wall'));
+	}
+
+	function renderLiveWall(data) {
+		$('#cc-wall-message').hide();
+		$('#cc-wall-content').show();
+		$('#cc-wall-updated').text('Last successful update: ' + new Date(data.generated_ts * 1000).toLocaleString());
+		$('#cc-wall-overall-value').text(data.overall.current);
+		$('#cc-wall-overall-status').text(statusLabel(data.overall.status));
+		$('#cc-wall-overall-peak').text('Recent peak ' + recentPeak(history.overall));
+		$('.cc-wall-overall').attr('data-status', data.overall.status);
+		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'));
+		charts.wallOverall.setData(history.overall, data.overall.threshold_enabled ? data.overall.threshold : 0);
+		var names = orderedTrunks(data.trunks).filter(function (trunk) { return !isHidden(trunk); });
+		var previous = $('#cc-wall-trunks').data('trunks') || [];
+		if (JSON.stringify(previous) !== JSON.stringify(names)) {
+			Object.keys(charts.wallTrunks || {}).forEach(function (name) { charts.wallTrunks[name].destroy(); });
+			charts.wallTrunks = {};
+			$('#cc-wall-trunks').html(names.map(function (trunk, index) {
+				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(trunk) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="140"></canvas></article>';
+			}).join('')).data('trunks', names);
+			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index)); });
+		}
+		names.forEach(function (trunk) {
+			var result = data.trunks[trunk];
+			var card = $('#cc-wall-trunks [data-wall-trunk]').filter(function () { return $(this).attr('data-wall-trunk') === trunk; });
+			card.attr('data-status', result.status).find('.cc-wall-trunk-value').text(result.current);
+			card.find('.cc-wall-trunk-split').text(result.direction_counts.inbound + ' inbound · ' + result.direction_counts.outbound + ' outbound · ' + result.direction_counts.unknown + ' unknown');
+			card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped');
+			card.find('.cc-wall-status').text(statusLabel(result.status));
+			card.find('.cc-wall-peak').text('Recent peak ' + recentPeak(history.trunks[trunk] || []));
+			charts.wallTrunks[trunk].setData(history.trunks[trunk] || [], result.threshold_enabled ? result.threshold : 0);
+		});
 	}
 
 	function showCalls(title, calls) {
@@ -200,7 +389,9 @@ window._ccLiveLoaded = true;
 
 	function markStale(message) {
 		showLiveMessage(message, 'warning');
+		$('#cc-wall-message').removeClass('alert-info alert-danger').addClass('alert-warning').text(message).show();
 		$('.cc-status-panel, .cc-live-trunk').attr('data-status', 'stale');
+		$('.cc-wall-trunk').attr('data-status', 'stale');
 	}
 
 	function showLiveMessage(message, level) {
@@ -209,7 +400,7 @@ window._ccLiveLoaded = true;
 
 	function onVisibilityChange() {
 		if (document.hidden) stopTimer();
-		else if (activeWorkspace === 'live') startPolling(true);
+		else if (isLivePresentationActive()) startPolling(true);
 	}
 
 	function stopTimer() {
@@ -219,6 +410,11 @@ window._ccLiveLoaded = true;
 
 	function stopPolling() {
 		stopTimer();
+		if (preferenceSaveTimer) {
+			window.clearTimeout(preferenceSaveTimer);
+			preferenceSaveTimer = null;
+			saveSettings(settings, false);
+		}
 		if (request && typeof request.abort === 'function') request.abort();
 		request = null;
 	}
@@ -279,14 +475,20 @@ window._ccLiveLoaded = true;
 			refresh_interval: parseInt($('#cc-setting-refresh').val(), 10),
 			alerts_enabled: $('#cc-setting-alerts').is(':checked'),
 			recovery_enabled: $('#cc-setting-recovery').is(':checked'),
-			alert_email: $('#cc-setting-email').val().trim(), overall: {}, trunks: {}
+			alert_email: $('#cc-setting-email').val().trim(),
+			hidden_trunks: (settings.hidden_trunks || []).slice(), trunk_order: (settings.trunk_order || []).slice(),
+			overall: {}, trunks: {}
 		};
 		$('#cc-threshold-rows tr').each(function () {
 			var row = $(this);
 			var scope = row.data('scope');
 			var value = {enabled: row.find('.cc-threshold-enabled').is(':checked'), threshold: parseInt(row.find('.cc-threshold-value').val(), 10) || 0, alert_enabled: row.find('.cc-alert-enabled').is(':checked')};
 			if (scope === 'overall') candidate.overall = value;
-			else candidate.trunks[String(scope).substring(6)] = value;
+			else {
+				var trunk = String(scope).substring(6);
+				value.monitored = isMonitored(trunk);
+				candidate.trunks[trunk] = value;
+			}
 		});
 		saveSettings(candidate, true);
 	}
@@ -295,13 +497,20 @@ window._ccLiveLoaded = true;
 		ajax({command: 'savesettings', settings: JSON.stringify(candidate)}).done(function (response) {
 			if (!response.status) {
 				$('#cc-settings-error').text(response.message || 'Unable to save settings.').show();
+				showLiveMessage(response.message || 'Unable to save Live View settings.', 'warning');
+				loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
 				return;
 			}
 			settings = response.settings;
 			$('#cc-live-refresh').val(String(settings.refresh_interval));
 			if (closeModal) $('#cc-live-settings-modal').modal('hide');
+			if (snapshot) renderSnapshot(snapshot);
 			startPolling(true);
-		}).fail(function () { $('#cc-settings-error').text('Unable to save settings.').show(); });
+		}).fail(function () {
+			$('#cc-settings-error').text('Unable to save settings.').show();
+			showLiveMessage('Unable to save Live View settings.', 'warning');
+			loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+		});
 	}
 
 	function loadHistoricalGraph(result, cachedSeries) {

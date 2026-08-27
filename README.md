@@ -1,4 +1,4 @@
-# Concurrency Count 2.0.1 for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.1.0 for FreePBX/PBXact 16 and 17
 
 **NOT CURRENTLY SUITABLE FOR PRODUCTION.**
 
@@ -6,7 +6,7 @@ Concurrency Count provides live and historical visibility into PJSIP concurrency
 
 Historical reporting includes persistent report workspaces, flexible date and time ranges, concurrency graphs, inline trunk peak occurrences, lazy contributing-call drill-down, FreePBX entity resolution, and CDR Reports integration. Normal reporting is read-only against `asteriskcdrdb`; the separate Demo mode temporarily writes tagged synthetic CDR rows, validates calculated results, and removes the test data after the run.
 
-Concurrency Count is the FreePBX module companion to the `concurrency-count` CLI tool and provides both GUI and CLI access to its reporting and operational features. It supports FreePBX/PBXact 16 and 17 and includes supervised background workers for live threshold monitoring and notification delivery.
+Concurrency Count provides both GUI and CLI access to its reporting and operational features. Live View is the configurable everyday dashboard, while Live Wall provides a read-only large-screen presentation from the same live snapshot. The module supports FreePBX/PBXact 16 and 17 and includes supervised background workers for live threshold monitoring and notification delivery.
 
 ## Requirements
 
@@ -142,11 +142,19 @@ Engines are calculation strategies, not reporting modes. Choosing an engine does
 
 **Sweep** is experimental. It processes start and end events instead of visiting every occupied second, while preserving the same inclusive boundaries and intended result. It can be faster and use less memory, but should be treated as experimental and checked through Demo comparison before operational use.
 
-## Live Command Centre
+## Live View and Live Wall
 
-The Live Command Centre is a separate current-state view backed by Asterisk Manager Interface channel data. It does not derive live values from CDRs and does not store browser samples as historical records.
+Live View is a separate current-state dashboard backed by Asterisk Manager Interface channel data. It does not derive live values from CDRs and does not store browser samples as historical records.
 
-The **Live Command Centre** / **Historical Reports** controls at the top of the page are workspace tabs, not enable/disable switches. Selecting one only changes which view is shown and whether the browser polls for live updates; it has no effect on backend AMI monitoring, threshold alerts, or the supervised PM2 worker, which continue running regardless of which tab is open. There is currently no separate "live monitoring enabled/disabled" setting — the only persistent settings are the threshold and alert-notification switches described below.
+The **Live View** / **Historical Reports** controls at the top of the page are workspace tabs, not enable/disable switches. Selecting one changes which view is shown and whether the browser polls for live updates; it does not control the supervised PM2 worker.
+
+Each configured Live trunk can be hidden from the dashboard without changing its current snapshot, thresholds, alerts, monitoring state, SIP configuration, historical reporting, or contribution to Overall Live Concurrency. Hidden trunks remain available in a compact section for Unhide and Start/Stop Monitoring. Visible cards can be reordered by drag handle or keyboard-operable Move earlier/Move later controls. `hidden_trunks` and `trunk_order` are persisted in the existing module settings table. Unknown saved channelids are retained but ignored while unavailable; newly discovered trunks append after the saved order.
+
+Start/Stop Monitoring is an independent operational gate stored as `live_settings.trunks[channelid].monitored`. Stopping monitoring skips unattended per-trunk threshold episode and notification evaluation while retaining current counts and threshold configuration. Overall evaluation continues. Stopping clears that trunk's active episode state; restarting evaluates the next current snapshot as a fresh episode, avoiding stale recovery transitions. The established threshold `enabled` and `alert_enabled` controls retain their existing meanings.
+
+**Live Wall** is a read-only, responsive wallboard using the same latest browser snapshot, rolling history, saved visibility and saved ordering as Live View. It has no configuration controls and creates no additional poller or backend AMI request path. Its launch action requests the standard Fullscreen API when available; denial simply leaves the full-page wall presentation active. Browser Esc exits fullscreen while leaving Live Wall active, and **Exit Live Wall** always returns to Live View.
+
+These preferences use the current FreePBX Core PJSIP trunk `channelid`. Changing a trunk channelid can leave saved visibility, ordering or monitoring preferences associated with the old identifier; 2.1.0 does not attempt automatic identity migration.
 
 **Overall Live Concurrency** counts active PJSIP call legs which Concurrency Count can reliably attribute to something it monitors: every current `PJSIP/<trunk>-<channel-id>` channel matching a configured trunk, plus every current numeric `PJSIP/<extension>-<channel-id>` channel. It is leg-based, consistent with how Trunk Concurrency and historical Group counting already work:
 
@@ -155,11 +163,11 @@ The **Live Command Centre** / **Historical Reports** controls at the top of the 
 - an internal call between two extensions counts as **2** (both extension legs);
 - Local channels, other non-PJSIP technologies, and PJSIP endpoints which are neither a configured trunk nor a numeric extension are excluded and never inflate the total.
 
-It is not a total of every Asterisk channel — only monitored PJSIP trunk and extension legs are included.
+It is not a total of every Asterisk channel — only active attributable PJSIP legs are included: configured PJSIP trunk legs plus numeric PJSIP extension legs. Hidden trunks and monitoring-stopped trunks still contribute; dashboard presentation and per-trunk monitoring state do not change Overall Live Concurrency.
 
 **Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
 
-Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to the new Live "Overall Live Concurrency" metric, which deliberately includes monitored trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to Live "Overall Live Concurrency", which deliberately includes configured PJSIP trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
 
 "Recent peak" shown under each Live metric is a rolling maximum kept only in the current browser session's in-memory series (the same series drawn on that metric's chart); it is not the backend threshold-episode peak and resets when the page is reloaded. A value recorded for a single browser sample can appear as a very narrow spike on the chart rather than a visibly sustained rise.
 
@@ -198,6 +206,8 @@ The GUI and `fwconsole concurrencycount` call the same live snapshot, settings, 
 | Master alerts enabled | `fwconsole concurrencycount --alerts=on` |
 | Overall alert enabled | `fwconsole concurrencycount --overall-alert=on` |
 | Per-trunk alert enabled | `fwconsole concurrencycount --trunk-alert='gamma=on'` |
+| Start per-trunk unattended monitoring | `fwconsole concurrencycount --start-monitoring='gamma'` |
+| Stop per-trunk unattended monitoring | `fwconsole concurrencycount --stop-monitoring='gamma'` |
 | Recovery notifications | `fwconsole concurrencycount --recovery=on` |
 | Alert email | `fwconsole concurrencycount --alert-email=admin@example.com` |
 | Alert monitor status | `fwconsole concurrencycount --monitor-status` |

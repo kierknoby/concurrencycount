@@ -11,6 +11,8 @@ class ThresholdService {
 			'alerts_enabled' => false,
 			'recovery_enabled' => true,
 			'alert_email' => '',
+			'hidden_trunks' => [],
+			'trunk_order' => [],
 			'overall' => $this->scopeDefaults(),
 			'trunks' => [],
 		];
@@ -39,6 +41,8 @@ class ThresholdService {
 			'alerts_enabled' => $this->toBool(isset($input['alerts_enabled']) ? $input['alerts_enabled'] : false),
 			'recovery_enabled' => $this->toBool(isset($input['recovery_enabled']) ? $input['recovery_enabled'] : true),
 			'alert_email' => $email,
+			'hidden_trunks' => $this->normaliseIdentifierList(isset($input['hidden_trunks']) ? $input['hidden_trunks'] : [], 'Hidden trunks', $rejectUnknownTrunks),
+			'trunk_order' => $this->normaliseIdentifierList(isset($input['trunk_order']) ? $input['trunk_order'] : [], 'Trunk order', $rejectUnknownTrunks),
 			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : []),
 			'trunks' => [],
 		];
@@ -52,10 +56,35 @@ class ThresholdService {
 				if ($rejectUnknownTrunks) throw new \InvalidArgumentException('Threshold configuration contains an invalid trunk.');
 				continue;
 			}
-			$result['trunks'][$trunk] = $this->normaliseScope($scope);
+			$result['trunks'][$trunk] = $this->normaliseTrunkScope($scope, $rejectUnknownTrunks);
 		}
 		foreach ($trunks as $trunk) {
-			if (!isset($result['trunks'][$trunk])) $result['trunks'][$trunk] = $this->scopeDefaults();
+			if (!isset($result['trunks'][$trunk])) $result['trunks'][$trunk] = $this->trunkScopeDefaults();
+			if (!in_array($trunk, $result['trunk_order'], true)) $result['trunk_order'][] = $trunk;
+		}
+		return $result;
+	}
+
+	private function normaliseIdentifierList($value, string $label, bool $strict): array {
+		if (!is_array($value)) {
+			if ($strict) throw new \InvalidArgumentException($label . ' must be a list.');
+			return [];
+		}
+		$result = [];
+		$seen = [];
+		foreach ($value as $identifier) {
+			if (!is_string($identifier)) {
+				if ($strict) throw new \InvalidArgumentException($label . ' contains an invalid trunk identifier.');
+				continue;
+			}
+			$identifier = trim($identifier);
+			if ($identifier === '' || strlen($identifier) > 128 || preg_match('/[\x00-\x1F\x7F]/', $identifier)) {
+				if ($strict) throw new \InvalidArgumentException($label . ' contains an invalid trunk identifier.');
+				continue;
+			}
+			if (isset($seen[$identifier])) continue;
+			$seen[$identifier] = true;
+			$result[] = $identifier;
 		}
 		return $result;
 	}
@@ -132,8 +161,24 @@ class ThresholdService {
 		];
 	}
 
+	private function normaliseTrunkScope(array $scope, bool $strict): array {
+		try {
+			$monitored = $this->toBool(isset($scope['monitored']) ? $scope['monitored'] : true);
+		} catch (\InvalidArgumentException $exception) {
+			if ($strict) throw $exception;
+			$monitored = true;
+		}
+		return $this->normaliseScope($scope) + [
+			'monitored' => $monitored,
+		];
+	}
+
 	private function scopeDefaults(): array {
 		return ['enabled' => false, 'threshold' => 0, 'alert_enabled' => false];
+	}
+
+	private function trunkScopeDefaults(): array {
+		return $this->scopeDefaults() + ['monitored' => true];
 	}
 
 	private function normalState(): array {
