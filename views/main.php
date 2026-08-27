@@ -136,7 +136,7 @@ $_ccAssetVer = max(
 	</div>
 </div>
 
-<section id="cc-live-wall" class="cc-live-wall" style="display:none;" aria-labelledby="cc-live-wall-title">
+<section id="cc-live-wall" class="cc-live-wall cc-theme-dark" style="display:none;" aria-labelledby="cc-live-wall-title">
 	<header class="cc-wall-header">
 		<div><span class="cc-section-kicker"><?php echo _('READ-ONLY LIVE DASHBOARD'); ?></span><h1 id="cc-live-wall-title"><?php echo _('Live Wall'); ?></h1></div>
 		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress"></i> <?php echo _('Exit Live Wall'); ?></button></div>

@@ -565,13 +565,17 @@ window._ccLoaded = true;
 		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No ' + (activityOnly ? 'activity' : 'peak') + ' occurrences in this range.</p>';
 		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>' + (activityOnly ? 'Activity occurrences' : 'Peak occurrences') + '</h5>';
 		occurrences.forEach(function (occurrence, occurrenceIndex) {
-				var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
-				html += '<div class="panel panel-default cc-occurrence">' +
-					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
-					'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + '</strong><small>' + (activityOnly ? 'Activity occurrence' : escapeHtml(occurrence.peak) + ' simultaneous trunk legs') + ' &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
-					'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
-					'</div>';
+			if (occurrenceIndex === 5) html += '<div id="cc-additional-occurrences-' + nameIndex + '" class="cc-additional-occurrences" hidden>';
+			var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
+			html += '<div class="panel panel-default cc-occurrence">' +
+				'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
+				'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatOccurrenceRange(occurrence.from, occurrence.to)) + '</strong><small>' + (activityOnly ? 'Activity occurrence' : escapeHtml(occurrence.peak) + ' simultaneous trunk legs') + ' &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
+				'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
+				'</div>';
 		});
+		if (occurrences.length > 5) {
+			html += '</div><button type="button" class="btn btn-default btn-sm cc-occurrence-list-toggle" aria-expanded="false" aria-controls="cc-additional-occurrences-' + nameIndex + '">Show ' + escapeHtml(occurrences.length - 5) + ' more</button>';
+		}
 		html += '</div>';
 		return html;
 	}
@@ -590,10 +594,21 @@ window._ccLoaded = true;
 			: escapeHtml(label);
 	}
 
-	function formatClockRange(from, to) {
-		var fromClock = String(from || '').split(' ')[1] || from;
-		var toClock = String(to || '').split(' ')[1] || to;
-		return fromClock === toClock ? fromClock : fromClock + ' to ' + toClock;
+	function parseOccurrenceTimestamp(value) {
+		var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2}:\d{2})$/);
+		if (!match) return null;
+		var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		var monthIndex = parseInt(match[2], 10) - 1;
+		if (monthIndex < 0 || monthIndex > 11) return null;
+		return {date: match[1] + '-' + match[2] + '-' + match[3], label: parseInt(match[3], 10) + ' ' + months[monthIndex] + ' ' + match[1], time: match[4]};
+	}
+
+	function formatOccurrenceRange(from, to) {
+		var fromParts = parseOccurrenceTimestamp(from);
+		var toParts = parseOccurrenceTimestamp(to);
+		if (!fromParts || !toParts) return String(from || '') === String(to || '') ? String(from || '') : String(from || '') + ' to ' + String(to || '');
+		if (fromParts.date === toParts.date) return fromParts.label + ', ' + fromParts.time + (fromParts.time === toParts.time ? '' : ' to ' + toParts.time);
+		return fromParts.label + ', ' + fromParts.time + ' to ' + toParts.label + ', ' + toParts.time;
 	}
 
 	function formatDuration(seconds) {
@@ -735,8 +750,9 @@ window._ccLoaded = true;
 			var summary = entry.summary || {};
 			var context = [summary.trunk, summary.extension].filter(Boolean).join(' / ') || '-';
 			var relevance = entry.matches_current_report === true ? 'Would be eligible' : (entry.matches_current_report === false ? 'Not in scope' : 'Relevance unavailable');
+			var relevanceClass = !hasReportContext ? 'cc-excluded-global' : (entry.matches_current_report === true ? 'cc-excluded-relevant' : (entry.matches_current_report === false ? 'cc-excluded-not-in-scope' : 'cc-excluded-unknown'));
 			var sourceState = entry.source_available ? '' : '<br><span class="text-muted">Source CDR unavailable</span>';
-			body.append('<tr><td>' + escapeHtml(summary.calldate || '-') + '</td><td>' + escapeHtml(summary.src || '-') + '</td><td>' + escapeHtml(summary.dst || '-') + '</td><td>' + escapeHtml(context) + '</td><td>' + escapeHtml(formatDuration(summary.duration || 0)) + '</td><td><code>' + escapeHtml(entry.call_identity) + '</code>' + sourceState + '</td><td>' + escapeHtml(entry.excluded_at) + '</td>' + (hasReportContext ? '<td>' + escapeHtml(relevance) + '</td>' : '') + '<td><button type="button" class="btn btn-default btn-sm cc-restore-excluded" data-call-identity="' + escapeHtml(entry.call_identity) + '">Restore</button></td></tr>');
+			body.append('<tr class="' + relevanceClass + '"><td>' + escapeHtml(summary.calldate || '-') + '</td><td>' + escapeHtml(summary.src || '-') + '</td><td>' + escapeHtml(summary.dst || '-') + '</td><td>' + escapeHtml(context) + '</td><td>' + escapeHtml(formatDuration(summary.duration || 0)) + '</td><td><code>' + escapeHtml(entry.call_identity) + '</code>' + sourceState + '</td><td>' + escapeHtml(entry.excluded_at) + '</td>' + (hasReportContext ? '<td class="cc-excluded-relevance">' + escapeHtml(relevance) + '</td>' : '') + '<td><button type="button" class="btn btn-default btn-sm cc-restore-excluded" data-call-identity="' + escapeHtml(entry.call_identity) + '">Restore</button></td></tr>');
 		});
 	}
 
@@ -1670,6 +1686,11 @@ window._ccLoaded = true;
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
+		}).off('click', '.cc-occurrence-list-toggle').on('click', '.cc-occurrence-list-toggle', function () {
+			var button = $(this);
+			var expanded = button.attr('aria-expanded') !== 'true';
+			button.attr('aria-expanded', expanded ? 'true' : 'false').text(expanded ? 'Show less' : 'Show ' + button.closest('.cc-occurrence-section').find('.cc-additional-occurrences .cc-occurrence').length + ' more');
+			button.closest('.cc-occurrence-section').find('.cc-additional-occurrences').prop('hidden', !expanded);
 		}).off('click', '.cc-activity-toggle').on('click', '.cc-activity-toggle', function () {
 			var button = $(this);
 			var expanded = button.attr('aria-expanded') !== 'true';

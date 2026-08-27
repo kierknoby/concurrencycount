@@ -209,6 +209,8 @@ Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment
 
 Excluding a logical call never deletes or updates source CDR rows. Its persisted informational summary remains visible if the source CDR is removed. Current-report relevance is calculated from actual source rows when available, using the same mode assignment rules as the report. If the source is unavailable, relevance is unavailable rather than guessed from the summary.
 
+Excluded Calls remains a global list. When opened from a Historic Report, calls that would not otherwise be eligible for that report are shown as **Not in scope** and visually de-emphasised rather than hidden. Calls whose source CDR is unavailable show **Relevance unavailable**.
+
 Exclusions and endpoint classifications are independent: classifying an endpoint does not exclude its calls, and excluding a logical call does not change endpoint identity.
 
 ### Historical limitations

@@ -401,6 +401,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
 		$('body').addClass('cc-wall-active');
 		if (snapshot) renderLiveWall(snapshot);
+		scheduleChartResize(resizeWallCharts);
 		startPolling(!snapshot);
 		var wall = document.getElementById('cc-live-wall');
 		if (wall && typeof wall.requestFullscreen === 'function') {
@@ -419,10 +420,27 @@ window._ccLiveLoaded = true;
 			if (exitResult && typeof exitResult.catch === 'function') exitResult.catch(function () {});
 		}
 		if (activeWorkspace !== 'live') stopTimer();
+		scheduleChartResize(resizeLiveCharts);
 	}
 
 	function onFullscreenChange() {
 		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', document.fullscreenElement === document.getElementById('cc-live-wall'));
+		if (wallActive) scheduleChartResize(resizeWallCharts);
+	}
+
+	function scheduleChartResize(callback) {
+		if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(callback);
+		else window.setTimeout(callback, 0);
+	}
+
+	function resizeWallCharts() {
+		if (charts.wallOverall) charts.wallOverall.resize();
+		Object.keys(charts.wallTrunks || {}).forEach(function (trunk) { charts.wallTrunks[trunk].resize(); });
+	}
+
+	function resizeLiveCharts() {
+		if (charts.overall) charts.overall.resize();
+		Object.keys(charts.trunks || {}).forEach(function (trunk) { charts.trunks[trunk].resize(); });
 	}
 
 	function renderLiveWall(data) {
@@ -434,7 +452,7 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-overall-threshold').text(data.overall.threshold_enabled ? 'Threshold ' + data.overall.threshold : 'Threshold off');
 		$('#cc-wall-overall-peak').text('Recent peak ' + recentPeak(history.overall));
 		$('.cc-wall-overall').attr('data-status', data.overall.status);
-		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'));
+		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'), {theme: 'dark'});
 		charts.wallOverall.setData(history.overall, data.overall.threshold_enabled ? data.overall.threshold : 0);
 		var configuredFeatured = settings && settings.live_wall_featured_trunks ? settings.live_wall_featured_trunks : [];
 		var names = configuredFeatured.filter(function (trunk) { return Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk); });
@@ -453,13 +471,14 @@ window._ccLiveLoaded = true;
 			$('#cc-wall-trunks').html(names.map(function (trunk, index) {
 				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(featuredTrunkLabel(trunk)) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-threshold"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="110"></canvas></article>';
 			}).join('')).data('trunks', names);
-			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index)); });
+			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index), {theme: 'dark'}); });
 		}
 		names.forEach(function (trunk) {
 			var result = data.trunks[trunk];
 			var card = $('#cc-wall-trunks [data-wall-trunk]').filter(function () { return $(this).attr('data-wall-trunk') === trunk; });
 			card.attr('data-status', result.status).find('.cc-wall-trunk-value').text(result.current);
 			card.find('.cc-wall-trunk-split').text(result.direction_counts.inbound + ' inbound · ' + result.direction_counts.outbound + ' outbound · ' + result.direction_counts.unknown + ' unknown');
+			card.toggleClass('cc-monitoring-stopped', !isMonitored(trunk));
 			card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped');
 			card.find('.cc-wall-threshold').text(result.threshold_enabled ? 'Threshold ' + result.threshold : 'Threshold off');
 			card.find('.cc-wall-status').text(statusLabel(result.status));
@@ -493,7 +512,7 @@ window._ccLiveLoaded = true;
 		showLiveMessage(message, 'warning');
 		$('#cc-wall-message').removeClass('alert-info alert-danger').addClass('alert-warning').text(message).show();
 		$('.cc-status-panel, .cc-live-trunk').attr('data-status', 'stale');
-		$('.cc-wall-trunk').attr('data-status', 'stale');
+		$('.cc-wall-overall, .cc-wall-trunk').attr('data-status', 'stale');
 	}
 
 	function showLiveMessage(message, level) {

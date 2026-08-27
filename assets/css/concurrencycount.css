@@ -263,6 +263,16 @@ body:has(.concurrencycount) #page_body {
 	margin-top: 6px;
 }
 
+.concurrencycount .cc-occurrence {
+	background: #fff;
+}
+
+.concurrencycount .cc-occurrence > .panel-heading {
+	border-color: #ddd;
+	background: #fff;
+	color: #333;
+}
+
 .concurrencycount .cc-occurrence-toggle {
 	display: flex;
 	align-items: center;
@@ -276,6 +286,17 @@ body:has(.concurrencycount) #page_body {
 	text-align: left;
 }
 
+.concurrencycount .cc-occurrence-toggle:hover,
+.concurrencycount .cc-occurrence-toggle[aria-expanded="true"] {
+	background: #f7f7f7;
+}
+
+.concurrencycount .cc-occurrence-toggle:focus,
+.concurrencycount .cc-occurrence-toggle:focus-visible {
+	outline: 2px solid #7d919f;
+	outline-offset: 2px;
+}
+
 .concurrencycount .cc-occurrence-toggle .fa {
 	flex: 0 0 auto;
 	width: 16px;
@@ -284,6 +305,16 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-occurrence-toggle span,
 .concurrencycount .cc-occurrence-toggle small {
 	display: block;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.concurrencycount .cc-additional-occurrences[hidden] {
+	display: none !important;
+}
+
+.concurrencycount .cc-occurrence-list-toggle {
+	margin-top: 4px;
 }
 
 .concurrencycount .cc-occurrence-focused {
@@ -296,6 +327,32 @@ body:has(.concurrencycount) #page_body {
 
 .concurrencycount .cc-call-path {
 	min-width: 210px;
+}
+
+.concurrencycount #cc-excluded-calls-rows .cc-excluded-not-in-scope > td:not(:last-child) {
+	background: #f2f3f4;
+	color: #68727b;
+}
+
+.concurrencycount #cc-excluded-calls-rows .cc-excluded-not-in-scope code,
+.concurrencycount #cc-excluded-calls-rows .cc-excluded-not-in-scope .text-muted {
+	color: #68727b;
+}
+
+.concurrencycount #cc-excluded-calls-rows .cc-excluded-relevant .cc-excluded-relevance {
+	font-weight: 600;
+}
+
+.concurrencycount #cc-excluded-calls-rows .cc-excluded-unknown .cc-excluded-relevance {
+	border-left: 3px dotted #8a949c;
+	color: #4f5d68;
+	font-weight: 600;
+}
+
+.concurrencycount #cc-excluded-calls-rows .cc-restore-excluded:focus,
+.concurrencycount #cc-excluded-calls-rows .cc-restore-excluded:focus-visible {
+	outline: 2px solid #7d919f;
+	outline-offset: 2px;
 }
 
 .concurrencycount .cc-direction-summary {
@@ -845,6 +902,39 @@ body.cc-wall-active { overflow:hidden; }
 .cc-wall-trunk[data-status="exceeded"], .cc-wall-overall[data-status="exceeded"] { border-color:#ff6b6b; }
 .cc-wall-trunk[data-status="approaching"], .cc-wall-overall[data-status="approaching"] { border-color:#ffd166; }
 .cc-wall-trunk[data-status="stale"], .cc-wall-overall[data-status="stale"] { border-color:#aab3bb; opacity:.8; }
+
+/* Live Wall is an intentional dark presentation, independent of the FreePBX theme. */
+.cc-live-wall.cc-theme-dark { background:#101820; color:#edf3f7; }
+.cc-live-wall.cc-theme-dark .cc-wall-overall,
+.cc-live-wall.cc-theme-dark .cc-wall-trunk { background:#172431; color:#edf3f7; box-shadow:0 1px 10px rgba(0,0,0,.24); }
+.cc-live-wall.cc-theme-dark canvas { background:#172431; border-radius:4px; }
+.cc-live-wall.cc-theme-dark .cc-section-kicker,
+.cc-live-wall.cc-theme-dark #cc-wall-updated,
+.cc-live-wall.cc-theme-dark .cc-wall-featured-note,
+.cc-live-wall.cc-theme-dark .cc-wall-trunk-split,
+.cc-live-wall.cc-theme-dark .cc-wall-monitoring,
+.cc-live-wall.cc-theme-dark .cc-wall-threshold,
+.cc-live-wall.cc-theme-dark .cc-wall-peak { color:#c7d1da; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-exit { background:#263746; border-color:#6f8292; color:#fff; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-exit:hover { background:#344b5d; border-color:#9babb7; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-exit:focus,
+.cc-live-wall.cc-theme-dark #cc-live-wall-exit:focus-visible,
+.cc-live-wall.cc-theme-dark canvas:focus,
+.cc-live-wall.cc-theme-dark canvas:focus-visible { outline:2px solid #9bc9e8; outline-offset:3px; box-shadow:none; }
+.cc-live-wall.cc-theme-dark .alert { background:#213342; border-color:#6f8292; color:#edf3f7; }
+.cc-live-wall.cc-theme-dark [data-status="normal"] .cc-wall-status { color:#b7d7c5; }
+.cc-live-wall.cc-theme-dark [data-status="approaching"] .cc-wall-status { color:#ffe096; }
+.cc-live-wall.cc-theme-dark [data-status="exceeded"] .cc-wall-status { color:#ffaaaa; }
+.cc-live-wall.cc-theme-dark [data-status="stale"],
+.cc-live-wall.cc-theme-dark [data-status="degraded"],
+.cc-live-wall.cc-theme-dark [data-status="unavailable"],
+.cc-live-wall.cc-theme-dark [data-status="failed"] { border-color:#aab3bb; opacity:.82; }
+.cc-live-wall.cc-theme-dark [data-status="stale"] .cc-wall-status,
+.cc-live-wall.cc-theme-dark [data-status="degraded"] .cc-wall-status,
+.cc-live-wall.cc-theme-dark [data-status="unavailable"] .cc-wall-status,
+.cc-live-wall.cc-theme-dark [data-status="failed"] .cc-wall-status { color:#d1d7dc; }
+.cc-live-wall.cc-theme-dark .cc-monitoring-stopped { border-style:dashed; }
+.cc-live-wall.cc-theme-dark .cc-monitoring-stopped .cc-wall-monitoring { color:#b6c7d4; font-weight:600; }
 
 @media (max-width:900px), (max-height:700px) {
 	.cc-live-wall { overflow:auto; }
