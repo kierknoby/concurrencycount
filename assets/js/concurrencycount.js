@@ -324,7 +324,7 @@ window._ccLoaded = true;
 		var body = $('#cc-results-body');
 		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
-			body.html(renderExplanation(r) + '<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
+			body.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
 		} else if (r.mode === 'demo') {
 			renderDemo(body, r);
 		} else if (r.mode === 'group') {
@@ -401,7 +401,7 @@ window._ccLoaded = true;
 		var engine = r.engine || (r.engines ? 'comparison' : 'original');
 		var overview = r.overview || {};
 		if (r.empty_message) {
-			return 'No matching answered PJSIP calls were found for this report, so there is no concurrency peak to show.';
+			return 'No eligible activity was found in the selected range.';
 		}
 		if (r.mode === 'demo') {
 			if (r.accuracy_status === 'pass' && r.engines) {
@@ -441,9 +441,11 @@ window._ccLoaded = true;
 		var average = parseFloat(overview.average_concurrency) || 0;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
-		var text = 'The highest total number of simultaneous attributable PJSIP extension legs in this date range was ' + max + '. Both classified extension sides of one internal CDR can count.';
+		var text = max === 1
+			? 'Activity was present, but no eligible extension-side legs overlapped. The exact highest simultaneous count was 1.'
+			: 'The highest total number of simultaneous attributable PJSIP extension legs in this date range was ' + max + '. Both classified extension sides of one internal CDR can count.';
 		if (average > 0) {
-			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
+			text += ' For calls that started in the selected range, the average simultaneous count within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (peakPercent > 0) {
 			if (peakPercent < 1) {
@@ -464,11 +466,13 @@ window._ccLoaded = true;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var namesWithPeak = parseInt(overview.names_with_peak, 10) || 0;
 		var namesSeen = parseInt(overview.names_seen, 10) || 0;
-		var text = r.mode === 'trunk'
-			? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
-			: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.';
+		var text = max === 1
+			? 'Activity was present, but no calls overlapped for any one ' + label + '. The exact highest simultaneous count was 1.'
+			: (r.mode === 'trunk'
+				? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
+				: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.');
 		if (average > 0) {
-			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
+			text += ' For calls that started in the selected range, the average simultaneous count within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (namesWithPeak === 1 && namesSeen > 1) {
 			text += ' The peak was concentrated on one ' + label + '.';
@@ -481,12 +485,12 @@ window._ccLoaded = true;
 
 	function renderGroup(el, r) {
 		var html = renderExplanation(r);
-		html += '<div class="cc-peak-summary">' +
-			'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
-			'<br><span>' + escapeHtml(r.max_concurrency) + ' attributable PJSIP extension legs active simultaneously across the PBX.</span>' +
-			'</div>';
+		var activityOnly = parseInt(r.max_concurrency, 10) === 1;
+		html += '<div class="cc-peak-summary' + (activityOnly ? ' cc-activity-summary' : '') + '">' +
+			(activityOnly ? 'Activity detected, no concurrency' : 'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>') +
+			'<br><span>' + (activityOnly ? 'Highest simultaneous count: 1 attributable PJSIP extension leg.' : escapeHtml(r.max_concurrency) + ' attributable PJSIP extension legs active simultaneously across the PBX.') + '</span></div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
-			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
+			html += '<h4>' + (activityOnly ? 'Activity time ranges' : 'Peak time ranges') + '</h4><ul class="cc-peak-ranges">';
 			r.peak_ranges.forEach(function (range) {
 				if (range.from === range.to) {
 					html += '<li>' + escapeHtml(range.from) + '</li>';
@@ -502,56 +506,68 @@ window._ccLoaded = true;
 	function renderPerName(el, r) {
 		var label = (r.mode === 'trunk') ? 'Trunk' : 'Extension';
 		var names = Object.keys(r.per_name);
-		if (!names.length) {
-			el.html(renderExplanation(r) + '<p class="text-muted">No calls found in the selected date range.</p>');
+		var concurrencyNames = names.filter(function (name) { return parseInt(r.per_name[name], 10) >= 2; });
+		var activityNames = names.filter(function (name) { return parseInt(r.per_name[name], 10) === 1; });
+		if (!concurrencyNames.length && !activityNames.length) {
+			el.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
 			return;
 		}
 		var html = renderExplanation(r);
 		if (r.mode === 'trunk') {
-			html += '<div class="cc-trunk-results">';
-			names.forEach(function (trunk, nameIndex) {
-				var count = r.per_name[trunk];
-				var isPeak = count === r.global_max && r.global_max > 0;
-				html += '<section class="panel panel-default cc-trunk-result' + (isPeak ? ' cc-peak-row' : '') + '" data-name-index="' + nameIndex + '">' +
-					'<div class="panel-heading cc-trunk-summary"><h4>' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>' +
-					'<p>Peak trunk concurrency: <strong>' + escapeHtml(count) + '</strong></p></div>' +
-					renderOccurrenceSection(trunk, nameIndex, r) + '</section>';
-			});
-			html += '</div>';
+			html += renderTrunkResults(concurrencyNames, names, r, false);
+			if (activityNames.length) html += renderActivityDisclosure(renderTrunkResults(activityNames, names, r, true), activityNames.length);
 		} else {
-		var peakColumn = r.mode === 'trunk' ? 'Peak trunk concurrency' : 'Peak assigned CDR concurrency';
-		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
-			'<th>' + escapeHtml(label) + '</th>' +
-			'<th>' + escapeHtml(peakColumn) + '</th>' +
-			'</tr></thead><tbody>';
-		names.forEach(function (n) {
-			var count = r.per_name[n];
-			var isPeak = (count === r.global_max && r.global_max > 0);
-			var nameIndex = names.indexOf(n);
-			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + escapeHtml(n) + '</td>' +
-				'<td><strong>' + escapeHtml(count) + '</strong></td>' +
-				'</tr>';
-		});
-		html += '</tbody></table></div>';
+			html += renderExtensionTable(concurrencyNames, r, 'Peak assigned CDR concurrency');
+			if (activityNames.length) html += renderActivityDisclosure(renderExtensionTable(activityNames, r, 'Activity status'), activityNames.length);
 		}
-		var peakDetail = r.mode === 'trunk'
-			? r.global_max + ' trunk legs active simultaneously at the busiest point.'
-			: r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
-		html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong>' +
-			'<br><span>' + escapeHtml(peakDetail) + '</span></div>';
+		if (parseInt(r.global_max, 10) >= 2) {
+			var peakDetail = r.mode === 'trunk' ? r.global_max + ' trunk legs active simultaneously at the busiest point.' : r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
+			html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong><br><span>' + escapeHtml(peakDetail) + '</span></div>';
+		} else {
+			html += '<div class="cc-peak-summary cc-activity-summary">No concurrent calls detected.<br><span>Activity was present, but no calls overlapped. Highest simultaneous count: 1.</span></div>';
+		}
 		el.html(html);
 	}
 
-	function renderOccurrenceSection(trunk, nameIndex, r) {
+	function renderTrunkResults(selectedNames, allNames, r, activityOnly) {
+		if (!selectedNames.length) return '';
+		var html = '<div class="cc-trunk-results">';
+		selectedNames.forEach(function (trunk) {
+			var nameIndex = allNames.indexOf(trunk);
+			var count = r.per_name[trunk];
+			var isPeak = count === r.global_max && r.global_max >= 2;
+			html += '<section class="panel panel-default cc-trunk-result' + (isPeak ? ' cc-peak-row' : '') + (activityOnly ? ' cc-activity-result' : '') + '" data-name-index="' + nameIndex + '">' +
+				'<div class="panel-heading cc-trunk-summary"><h4>' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>' +
+				'<p>' + (activityOnly ? 'Activity detected, no concurrency' : 'Peak trunk concurrency: <strong>' + escapeHtml(count) + '</strong>') + '</p></div>' +
+				renderOccurrenceSection(trunk, nameIndex, r, activityOnly) + '</section>';
+		});
+		return html + '</div>';
+	}
+
+	function renderExtensionTable(selectedNames, r, heading) {
+		if (!selectedNames.length) return '';
+		var html = '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Extension</th><th>' + escapeHtml(heading) + '</th></tr></thead><tbody>';
+		selectedNames.forEach(function (name) {
+			var count = parseInt(r.per_name[name], 10) || 0;
+			var isPeak = count === r.global_max && r.global_max >= 2;
+			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '><td>' + escapeHtml(name) + '</td><td>' + (count === 1 ? 'Activity detected, no concurrency' : '<strong>' + escapeHtml(count) + '</strong>') + '</td></tr>';
+		});
+		return html + '</tbody></table></div>';
+	}
+
+	function renderActivityDisclosure(content, count) {
+		return '<section class="cc-activity-only"><button type="button" class="btn btn-default cc-activity-toggle" aria-expanded="false" aria-controls="cc-activity-only-results"><span>Show activity-only results</span> <span class="badge">' + escapeHtml(count) + '</span></button><div id="cc-activity-only-results" class="cc-activity-only-results" hidden>' + content + '</div></section>';
+	}
+
+	function renderOccurrenceSection(trunk, nameIndex, r, activityOnly) {
 		var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
-		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No peak occurrences in this range.</p>';
-		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>Peak occurrences</h5>';
+		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No ' + (activityOnly ? 'activity' : 'peak') + ' occurrences in this range.</p>';
+		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>' + (activityOnly ? 'Activity occurrences' : 'Peak occurrences') + '</h5>';
 		occurrences.forEach(function (occurrence, occurrenceIndex) {
 				var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
 				html += '<div class="panel panel-default cc-occurrence">' +
 					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
-					'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + '</strong><small>' + escapeHtml(occurrence.peak) + ' simultaneous trunk legs &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
+					'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + '</strong><small>' + (activityOnly ? 'Activity occurrence' : escapeHtml(occurrence.peak) + ' simultaneous trunk legs') + ' &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
 					'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
 					'</div>';
 		});
@@ -1641,6 +1657,11 @@ window._ccLoaded = true;
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
+		}).off('click', '.cc-activity-toggle').on('click', '.cc-activity-toggle', function () {
+			var button = $(this);
+			var expanded = button.attr('aria-expanded') !== 'true';
+			button.attr('aria-expanded', expanded ? 'true' : 'false').find('span:first').text(expanded ? 'Hide activity-only results' : 'Show activity-only results');
+			button.closest('.cc-activity-only').find('.cc-activity-only-results').prop('hidden', !expanded);
 		}).off('click', '.cc-exclude-call').on('click', '.cc-exclude-call', function () {
 			confirmExcludeCall($(this));
 		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {

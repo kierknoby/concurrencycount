@@ -57,5 +57,7 @@ foreach (['Set browser refresh interval', 'Enable or disable threshold notificat
 console_contract_assert(strpos($console, "['start-monitoring' => true, 'stop-monitoring' => false]") !== false, 'Start/Stop Monitoring must share one settings mutation path');
 console_contract_assert(strpos($console, "['monitored'] = \$monitored") !== false, 'CLI monitoring operations must update only the monitored field');
 console_contract_assert(strpos($console, "!empty(\$scope['monitored']) ? 'active' : 'stopped'") !== false, 'Settings output must expose per-trunk monitoring state');
+console_contract_assert(strpos($console, "((int)\$results['max_concurrency'] === 1 ? 'Activity' : 'Peak') . ' time ranges:'") !== false, 'Group CLI must label peak-1 ranges as Activity and peak-2+ ranges as Peak');
+console_contract_assert(strpos($console, "Activity detected, no concurrency.") !== false, 'Group CLI peak-1 activity status missing');
 
 echo "Console contract passed\n";

@@ -166,10 +166,11 @@ class Concurrencycount extends Command {
 				}
 			}
 		} elseif ($results['mode'] === 'group') {
-			$output->writeln('<info>Maximum concurrent calls overall: ' . $results['max_concurrency'] . '</info>');
+			$output->writeln('<info>Exact highest simultaneous count overall: ' . $results['max_concurrency'] . '</info>');
+			if ((int)$results['max_concurrency'] === 1) $output->writeln('Activity detected, no concurrency.');
 			$output->writeln('');
 			if (!empty($results['peak_ranges'])) {
-				$output->writeln('Peak time ranges:');
+				$output->writeln(((int)$results['max_concurrency'] === 1 ? 'Activity' : 'Peak') . ' time ranges:');
 				foreach ($results['peak_ranges'] as $r) {
 					if ($r['from'] === $r['to']) {
 						$output->writeln('  ' . $r['from']);
@@ -180,10 +181,11 @@ class Concurrencycount extends Command {
 			}
 		} else {
 			$label = ($results['mode'] === 'trunk') ? 'Trunk' : 'Extension';
-			$output->writeln(sprintf('%-24s  %s', $label, 'Max concurrent'));
+			$output->writeln(sprintf('%-24s  %-10s  %s', $label, 'Exact peak', 'Status'));
 			foreach ($results['per_name'] as $name => $count) {
 				$marker = ($count === $results['global_max'] && $results['global_max'] > 0) ? '*' : ' ';
-				$output->writeln(sprintf('%s%-23s  %d', $marker, $name, $count));
+				$status = (int)$count === 0 ? 'No activity' : ((int)$count === 1 ? 'Activity only' : 'Concurrency');
+				$output->writeln(sprintf('%s%-23s  %-10d  %s', $marker, $name, $count, $status));
 			}
 			$output->writeln('');
 			$output->writeln('<info>Global maximum: ' . $results['global_max'] . '</info>');

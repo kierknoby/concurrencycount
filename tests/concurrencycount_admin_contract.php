@@ -95,13 +95,24 @@ foreach (['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 
 	admin_contract_assert(strpos($view, 'data-preset="' . $preset . '"') !== false, 'Date preset missing: ' . $preset);
 }
 admin_contract_assert(strpos($view, 'type="date"') !== false && strpos($view, 'cc-include-time') !== false, 'Native custom date/time controls missing');
+admin_contract_assert(substr_count($view, 'id="cc-include-time"') === 1 && preg_match('/<input[^>]+type="checkbox"[^>]+id="cc-include-time"/', $view) === 1, 'Include time must remain one native checkbox');
+admin_contract_assert(strpos($view, '<label class="cc-time-toggle" for="cc-include-time">') !== false, 'Include time text must be explicitly associated with its checkbox');
+admin_contract_assert(preg_match('/<div class="cc-range-centre">.*id="cc-range-label".*id="cc-include-time".*<\/div>/s', $view) === 1, 'Include time must sit in the centred date-range column');
+admin_contract_assert(strpos($css, '.cc-range-centre') !== false && strpos($css, '.cc-time-toggle input[type="checkbox"]') !== false && strpos($css, 'min-height: 0') !== false, 'Compact centred Include time styling missing');
+$cancelCount = preg_match_all('/<button[^>]*class="([^"]*)"[^>]*>[^<]*(?:<[^>]+>[^<]*<\/[^>]+>[^<]*)*<\?php echo _\(\'Cancel\'\); \?>/s', $view, $cancelMatches);
+admin_contract_assert($cancelCount === substr_count($view, "_('Cancel')"), 'Every user-facing Cancel button must be audited');
+foreach ($cancelMatches[1] as $cancelClasses) {
+	admin_contract_assert(strpos($cancelClasses, 'cc-btn-cancel') !== false, 'Cancel button missing shared soft-danger styling');
+	admin_contract_assert(strpos($cancelClasses, 'btn-primary') === false && strpos($cancelClasses, 'btn-success') === false, 'Cancel button must not use affirmative styling');
+}
+admin_contract_assert(strpos($css, '.cc-btn-cancel') !== false && strpos($css, '.cc-btn-cancel:focus-visible') !== false, 'Shared Cancel hover/focus styling missing');
 admin_contract_assert(strpos($javascript, "command: 'peakdetails'") !== false, 'Peak detail AJAX wiring missing');
 foreach (['cc-trunk-result', 'cc-occurrence-section', 'cc-occurrence-toggle', 'loadOccurrence'] as $drilldown) {
 	admin_contract_assert(strpos($javascript, $drilldown) !== false, 'Trunk drill-down wiring missing: ' . $drilldown);
 }
 admin_contract_assert(strpos($javascript, 'cc-show-occurrences') === false, 'Obsolete separate occurrence reveal control remains');
 admin_contract_assert(strpos($javascript, 'style="display:none"><h5>Peak occurrences') === false, 'Compact peak occurrences must render immediately');
-admin_contract_assert(strpos($javascript, "renderOccurrenceSection(trunk, nameIndex, r) + '</section>'") !== false, 'Each occurrence list must be contained by its own trunk result');
+admin_contract_assert(strpos($javascript, 'renderOccurrenceSection(trunk, nameIndex, r, activityOnly)') !== false, 'Each occurrence list must be contained by its full trunk result model');
 admin_contract_assert(strpos($javascript, "if (detail.data('loading')) return;") !== false, 'Rapid expansion must not duplicate an in-flight detail request');
 admin_contract_assert(strpos($javascript, 'Select this occurrence to retry.') !== false, 'Failed occurrence detail requests must remain retryable');
 admin_contract_assert(strpos($javascript, 'setOccurrenceExpanded') !== false && strpos($javascript, "aria-expanded=\"false\"") !== false && strpos($javascript, 'aria-controls=') !== false, 'Occurrence disclosure accessibility wiring missing');
@@ -110,6 +121,15 @@ admin_contract_assert(strpos($javascript, 'report.occurrenceCache[cacheKey]') !=
 foreach (['Peak trunk concurrency', 'Peak assigned CDR concurrency', 'Peak group concurrency'] as $resultTerm) {
 	admin_contract_assert(strpos($javascript, $resultTerm) !== false, 'Mode-specific result terminology missing: ' . $resultTerm);
 }
+foreach (['concurrencyNames', 'activityNames', 'Show activity-only results', 'Activity detected, no concurrency', 'No concurrent calls detected.', 'No activity found for this report.'] as $activityContract) {
+	admin_contract_assert(strpos($javascript, $activityContract) !== false, 'Historical activity/concurrency presentation contract missing: ' . $activityContract);
+}
+admin_contract_assert(strpos($javascript, "parseInt(r.per_name[name], 10) >= 2") !== false && strpos($javascript, "parseInt(r.per_name[name], 10) === 1") !== false, 'Historical entity partition must preserve exact peak 1 as activity and begin concurrency at 2');
+admin_contract_assert(strpos($javascript, 'cc-activity-result') !== false && strpos($javascript, 'renderOccurrenceSection(trunk, nameIndex, r, activityOnly)') !== false, 'Peak-1 Trunks must remain discoverable with their occurrence path');
+admin_contract_assert(strpos($javascript, "activityOnly ? 'Activity occurrence'") !== false, 'Peak-1 Trunk occurrences must use activity wording');
+admin_contract_assert(strpos($javascript, "command: 'peakdetails'") !== false && strpos($javascript, 'cc-exclude-call') !== false, 'Activity-only Trunks must retain lazy detail and Exclude Call');
+admin_contract_assert(strpos($javascript, 'aria-controls="cc-activity-only-results"') !== false && strpos($javascript, "button.attr('aria-expanded', expanded ? 'true' : 'false')") !== false && strpos($javascript, ".prop('hidden', !expanded)") !== false, 'Activity-only disclosure must be keyboard-accessible and presentation-only');
+admin_contract_assert(strpos($readme, 'an exact peak of 1 means activity occurred') !== false && strpos($readme, 'concurrency begins at 2') !== false, 'README activity-only semantic is missing');
 admin_contract_assert(strpos($javascript, 'config.php?display=') === false, 'Frontend must not construct FreePBX administrative URLs');
 admin_contract_assert(strpos($class, "'need_html' => 'true'") !== false, 'Native CDR report action must submit an HTML search');
 foreach (['ActionID', 'CoreShowChannelsComplete', 'ListItems', 'Asterisk channel snapshot did not complete'] as $snapshotContract) {

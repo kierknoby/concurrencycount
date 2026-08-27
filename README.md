@@ -90,6 +90,8 @@ Concurrency Count works from completed CDR records rather than live Asterisk cha
 
 Only CDRs with an `ANSWERED` disposition and a start time inside the selected range are included. A call that starts before the range is not included even if it continues into the range. Never-answered calls are excluded, but an answered CDR is counted using its full recorded duration, not `billsec`; setup, ringing or queue time contained in that ultimately answered CDR can therefore contribute.
 
+Historical presentation distinguishes activity from true concurrency: an exact peak of 1 means activity occurred but no eligible calls or legs overlapped, while concurrency begins at 2. The engines retain the exact calculated value, and activity-only Trunk and Extension results remain available through a restrained disclosure with existing Trunk occurrence and call drill-down intact. Graphs and raw exports may therefore still contain the numeric value 1, but the GUI does not describe one active call as concurrent.
+
 ## Reporting modes
 
 ### Trunk Concurrency

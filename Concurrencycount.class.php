@@ -2471,7 +2471,7 @@ class Concurrencycount implements \BMO {
 			}
 			if (isset($r['demo_report']) && $r['demo_report'] === 'group') {
 				$rows[] = ['Metric', 'Expected', 'Actual'];
-				$rows[] = ['Maximum concurrent calls overall', isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0, isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
+				$rows[] = ['Exact highest simultaneous count overall', isset($r['expected_max_concurrency']) ? $r['expected_max_concurrency'] : 0, isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
 			} else {
 				$label = (isset($r['demo_report']) && $r['demo_report'] === 'trunk') ? 'Trunk' : 'Extension';
 				$rows[] = [$label, 'Expected', 'Actual'];
@@ -2482,9 +2482,10 @@ class Concurrencycount implements \BMO {
 				}
 			}
 		} elseif ($r['mode'] === 'group') {
-			$rows[] = ['Maximum concurrent calls overall', isset($r['max_concurrency']) ? $r['max_concurrency'] : 0];
+			$groupMax = isset($r['max_concurrency']) ? (int)$r['max_concurrency'] : 0;
+			$rows[] = ['Exact highest simultaneous count overall', $groupMax];
 			$rows[] = [];
-			$rows[] = ['Peak time ranges'];
+			$rows[] = [$groupMax === 1 ? 'Activity time ranges' : 'Peak time ranges'];
 			if (!empty($r['peak_ranges'])) {
 				foreach ($r['peak_ranges'] as $range) {
 					if ($range['from'] === $range['to']) {
@@ -2496,7 +2497,7 @@ class Concurrencycount implements \BMO {
 			}
 		} else {
 			$label = ($r['mode'] === 'trunk') ? 'Trunk' : 'Extension';
-			$rows[] = [$label, 'Max concurrent'];
+			$rows[] = [$label, 'Exact peak'];
 			if (!empty($r['per_name'])) {
 				foreach ($r['per_name'] as $name => $count) {
 					$rows[] = [$name, $count];
@@ -2725,10 +2726,12 @@ class Concurrencycount implements \BMO {
 				}
 			}
 		} elseif ($r['mode'] === 'group') {
-			$lines[] = 'Maximum concurrent calls overall: ' . (isset($r['max_concurrency']) ? $r['max_concurrency'] : 0);
+			$groupMax = isset($r['max_concurrency']) ? (int)$r['max_concurrency'] : 0;
+			$lines[] = 'Exact highest simultaneous count overall: ' . $groupMax;
+			if ($groupMax === 1) $lines[] = 'Status: Activity detected, no concurrency';
 			$lines[] = '';
 			if (!empty($r['peak_ranges'])) {
-				$lines[] = 'Peak time ranges:';
+				$lines[] = ($groupMax === 1 ? 'Activity' : 'Peak') . ' time ranges:';
 				foreach ($r['peak_ranges'] as $range) {
 					if ($range['from'] === $range['to']) {
 						$lines[] = '  ' . $range['from'];
@@ -2741,7 +2744,7 @@ class Concurrencycount implements \BMO {
 			}
 		} else {
 			$label = ($r['mode'] === 'trunk') ? 'Trunk' : 'Extension';
-			$lines[] = sprintf('%-24s  %s', $label, 'Max concurrent');
+			$lines[] = sprintf('%-24s  %s', $label, 'Exact peak');
 			if (!empty($r['per_name'])) {
 				foreach ($r['per_name'] as $name => $count) {
 					$lines[] = sprintf('%-24s  %d', $name, $count);
@@ -2751,6 +2754,7 @@ class Concurrencycount implements \BMO {
 			}
 			$lines[] = '';
 			$lines[] = 'Global maximum: ' . (isset($r['global_max']) ? $r['global_max'] : 0);
+			if ((int)(isset($r['global_max']) ? $r['global_max'] : 0) === 1) $lines[] = 'Status: Activity detected, no concurrency';
 		}
 
 		$lines[] = '';

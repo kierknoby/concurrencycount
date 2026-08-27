@@ -116,7 +116,7 @@ $_ccAssetVer = max(
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical concurrency'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
 								<div class="row"><div class="col-sm-12">
@@ -156,7 +156,7 @@ $_ccAssetVer = max(
 	<div class="modal-dialog" role="document"><div class="modal-content">
 		<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button><h4 id="cc-exclude-call-title" class="modal-title"><?php echo _('Exclude this call?'); ?></h4></div>
 		<div class="modal-body"><p><?php echo _('This call will be excluded from this report and every future Historical Report in Concurrency Count.'); ?></p><p><strong><?php echo _('The original CDR will not be deleted or modified.'); ?></strong></p><p><?php echo _('You can restore the call at any time from Excluded Calls.'); ?></p><div id="cc-exclude-call-error" class="alert alert-danger" style="display:none;"></div></div>
-		<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-exclude-call-confirm" class="btn btn-warning"><?php echo _('Exclude Call'); ?></button></div>
+		<div class="modal-footer"><button type="button" class="btn cc-btn-cancel" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-exclude-call-confirm" class="btn btn-warning"><?php echo _('Exclude Call'); ?></button></div>
 	</div></div>
 </div>
 
@@ -198,7 +198,7 @@ $_ccAssetVer = max(
 				<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th><?php echo _('Scope'); ?></th><th><?php echo _('Threshold enabled'); ?></th><th><?php echo _('Threshold'); ?></th><th><?php echo _('Alert enabled'); ?></th></tr></thead><tbody id="cc-threshold-rows"></tbody></table></div>
 				<div id="cc-settings-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
-			<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-settings-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save settings'); ?></button></div>
+			<div class="modal-footer"><button type="button" class="btn cc-btn-cancel" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-settings-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save settings'); ?></button></div>
 		</div>
 	</div>
 </div>
@@ -218,7 +218,7 @@ $_ccAssetVer = max(
 				<div id="cc-wall-featured-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
 			<div class="modal-footer">
-				<button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button>
+				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal"><?php echo _('Cancel'); ?></button>
 				<button type="button" id="cc-wall-featured-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save featured trunks'); ?></button>
 			</div>
 		</div>
@@ -262,7 +262,7 @@ $_ccAssetVer = max(
 				</div>
 			</div>
 			<div class="modal-footer">
-				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
+				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
 				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk">
 					<i class="fa fa-play"></i> <?php echo _('Run Trunks'); ?>
 				</button>
@@ -348,7 +348,10 @@ $_ccAssetVer = max(
 					</div>
 					<div class="cc-range-nav">
 						<button type="button" class="btn btn-default cc-range-shift" data-direction="-1" aria-label="<?php echo _('Previous range'); ?>" title="<?php echo _('Previous range'); ?>"><i class="fa fa-chevron-left"></i></button>
-						<strong id="cc-range-label"></strong>
+						<div class="cc-range-centre">
+							<strong id="cc-range-label"></strong>
+							<label class="cc-time-toggle" for="cc-include-time"><input type="checkbox" id="cc-include-time"><span><?php echo _('Include time'); ?></span></label>
+						</div>
 						<button type="button" class="btn btn-default cc-range-shift" data-direction="1" aria-label="<?php echo _('Next range'); ?>" title="<?php echo _('Next range'); ?>"><i class="fa fa-chevron-right"></i></button>
 					</div>
 					<div id="cc-custom-dates" class="row" style="display:none;">
@@ -361,9 +364,6 @@ $_ccAssetVer = max(
 							<input type="date" id="cc-date-to" class="form-control">
 						</div>
 					</div>
-					<div class="checkbox cc-time-toggle">
-						<label><input type="checkbox" id="cc-include-time"> <?php echo _('Include time'); ?></label>
-					</div>
 					<div id="cc-time-controls" class="row" style="display:none;">
 						<div class="col-sm-6 form-group"><label for="cc-time-from"><?php echo _('From time'); ?></label><input type="time" id="cc-time-from" class="form-control" value="00:00"></div>
 						<div class="col-sm-6 form-group"><label for="cc-time-to"><?php echo _('To time'); ?></label><input type="time" id="cc-time-to" class="form-control" value="23:59"></div>
@@ -372,7 +372,7 @@ $_ccAssetVer = max(
 				<div id="cc-wizard-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
 			<div class="modal-footer">
-				<button type="button" class="btn btn-default" data-dismiss="modal" id="cc-wizard-cancel"><?php echo _('Cancel'); ?></button>
+				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal" id="cc-wizard-cancel"><?php echo _('Cancel'); ?></button>
 				<button type="button" class="btn btn-primary" id="cc-wizard-next"><i class="fa fa-play"></i> <?php echo _('Run report'); ?></button>
 			</div>
 		</div>
