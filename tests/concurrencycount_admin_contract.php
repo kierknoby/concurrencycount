@@ -23,6 +23,7 @@ $registry = file_get_contents($root . '/Engines/Registry.php');
 $liveSnapshotService = file_get_contents($root . '/Services/LiveSnapshotService.php');
 $historicalReportsService = file_get_contents($root . '/Services/HistoricalReportsService.php');
 $identityService = file_get_contents($root . '/Services/PjsipIdentityService.php');
+$exclusionService = file_get_contents($root . '/Services/HistoricalCallExclusionService.php');
 $module = simplexml_load_file($root . '/module.xml');
 
 function admin_contract_assert($condition, $message) {
@@ -30,7 +31,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications'] as $command) {
+foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -161,6 +162,12 @@ foreach (['freepbx-trunk', 'freepbx-device', 'manual-override', 'unresolved', 'f
 admin_contract_assert(strpos($class, "SELECT id FROM devices WHERE LOWER(tech) = 'pjsip' AND id <> ''") !== false, 'Authoritative FreePBX PJSIP device query missing');
 admin_contract_assert(strpos($class, 'pjsip show endpoints') === false && strpos($class, "NOT REGEXP '^[19]'") === false, 'Obsolete endpoint/destination heuristics remain in runtime code');
 admin_contract_assert(strpos($view, 'PJSIP Endpoint Classifications') !== false && strpos($javascript, 'invalidateAndRerunReports') !== false, 'Classification management and report cache invalidation are required');
+foreach (['Exclude Call', 'Excluded Calls', 'Restore all excluded calls', 'The original CDR will not be deleted or modified.'] as $wording) admin_contract_assert(strpos($view, $wording) !== false, 'Historical exclusion UI wording missing: ' . $wording);
+admin_contract_assert(strpos($class, 'HISTORICAL_CALL_EXCLUSIONS_KEY') !== false && strpos($class, "GET_LOCK('concurrencycount_historical_call_exclusions'") !== false, 'Global exclusion persistence must be dedicated and race-locked');
+admin_contract_assert(strpos($class, 'filterRows($rows, $this->getHistoricalCallExclusions())') !== false, 'Candidate CDR rows must be globally exclusion-filtered before classification');
+admin_contract_assert(strpos($exclusionService, "'linkedid:'") !== false && strpos($exclusionService, "'uniqueid:'") !== false, 'Logical call identity must prefer linkedid with uniqueid fallback');
+admin_contract_assert(strpos($javascript, 'invalidateAndRerunReports()') !== false && strpos($javascript, '.cc-exclude-call') !== false, 'Exclude Call must invalidate report caches and rerun the active report');
+admin_contract_assert(strpos($class, 'UPDATE cdr') === false, 'Historical exclusions must never update CDR rows');
 admin_contract_assert(strpos($view, 'Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.') !== false, 'GUI opening description must represent both Live and Historical functionality');
 admin_contract_assert(strpos($console, "'Overall Live Concurrency (active attributable PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
 admin_contract_assert(strpos($liveJavascript, "appendPoint(history.overall, data.generated_ts, data.overall.current)") !== false && strpos($liveJavascript, 'function renderSnapshot(data)') !== false, 'Overall and trunk rolling series must be derived from the same live snapshot object');

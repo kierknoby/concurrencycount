@@ -43,6 +43,7 @@ $runtimeFiles = [
 	'Services/SettingsRepository.php', 'Services/HistoricalGraphService.php',
 	'Services/HistoricalReportsService.php',
 	'Services/PjsipIdentityService.php',
+	'Services/HistoricalCallExclusionService.php',
 	'Services/AlertMonitorCoordinator.php', 'Services/AmiChannelSource.php',
 	'Services/AlertOutboxService.php', 'alert-monitor.php', 'alert-mailer.php', 'install.php', 'uninstall.php',
 ];

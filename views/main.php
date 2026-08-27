@@ -110,6 +110,7 @@ $_ccAssetVer = max(
 							</div>
 						</div>
 						<div id="cc-report-active" style="display:none;">
+							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
 							<div id="cc-report-loading" class="text-muted" style="display:none;"><span class="cc-spinner"></span> <span id="cc-report-loading-text"></span></div>
 							<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
 							<div id="cc-results" style="display:none; margin-top:20px;">
@@ -150,6 +151,22 @@ $_ccAssetVer = max(
 		<div id="cc-wall-trunks" class="cc-wall-trunk-grid"></div>
 	</div>
 </section>
+
+<div class="modal fade concurrencycount" id="cc-exclude-call-modal" tabindex="-1" role="dialog" aria-labelledby="cc-exclude-call-title">
+	<div class="modal-dialog" role="document"><div class="modal-content">
+		<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button><h4 id="cc-exclude-call-title" class="modal-title"><?php echo _('Exclude this call?'); ?></h4></div>
+		<div class="modal-body"><p><?php echo _('This call will be excluded from this report and every future Historical Report in Concurrency Count.'); ?></p><p><strong><?php echo _('The original CDR will not be deleted or modified.'); ?></strong></p><p><?php echo _('You can restore the call at any time from Excluded Calls.'); ?></p><div id="cc-exclude-call-error" class="alert alert-danger" style="display:none;"></div></div>
+		<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-exclude-call-confirm" class="btn btn-warning"><?php echo _('Exclude Call'); ?></button></div>
+	</div></div>
+</div>
+
+<div class="modal fade concurrencycount" id="cc-excluded-calls-modal" tabindex="-1" role="dialog" aria-labelledby="cc-excluded-calls-title">
+	<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+		<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button><h4 id="cc-excluded-calls-title" class="modal-title"><?php echo _('Excluded Calls'); ?></h4></div>
+		<div class="modal-body"><p><?php echo _('These calls are globally excluded from Concurrency Count Historical Reports only. Source CDR data is not deleted or modified.'); ?></p><div id="cc-excluded-calls-message" class="alert" style="display:none;"></div><div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th><?php echo _('Started'); ?></th><th><?php echo _('Source'); ?></th><th><?php echo _('Destination'); ?></th><th><?php echo _('Context'); ?></th><th><?php echo _('Duration'); ?></th><th><?php echo _('Call identity'); ?></th><th><?php echo _('Excluded'); ?></th><th id="cc-excluded-relevance-heading"><?php echo _('Current report'); ?></th><th></th></tr></thead><tbody id="cc-excluded-calls-rows"></tbody></table></div></div>
+		<div class="modal-footer"><button type="button" id="cc-restore-all-excluded" class="btn btn-warning"><?php echo _('Restore all excluded calls'); ?></button><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Close'); ?></button></div>
+	</div></div>
+</div>
 
 <div class="modal fade concurrencycount" id="cc-identity-modal" tabindex="-1" role="dialog" aria-labelledby="cc-identity-title">
 	<div class="modal-dialog modal-lg" role="document"><div class="modal-content">

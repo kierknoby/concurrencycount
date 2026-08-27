@@ -65,6 +65,8 @@ window._ccLoaded = true;
 	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
 	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-view.js
 	var generatedReportName = '';
+	var pendingExcludedCallIdentity = null;
+	var pendingPersistedRefresh = false;
 
 	function selectedMode() {
 		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
@@ -356,7 +358,7 @@ window._ccLoaded = true;
 			historicalReports[id].graphSeries = null;
 			historicalReports[id].occurrenceCache = {};
 		});
-		if (activeReportId && historicalReports[activeReportId]) regenerateReport(historicalReports[activeReportId]);
+		if (activeReportId && historicalReports[activeReportId]) { pendingPersistedRefresh = true; regenerateReport(historicalReports[activeReportId]); }
 	}
 
 	function saveIdentityClassification(endpoint, classification) {
@@ -651,10 +653,94 @@ window._ccLoaded = true;
 				'<td>' + escapeHtml(caller) + '</td><td>' + escapeHtml(destination) + '</td>' +
 				'<td>' + escapeHtml(call.direction) + '</td><td>' + escapeHtml(formatDuration(call.duration)) + '</td>' +
 				'<td class="cc-call-path">' + path.join(' <span aria-hidden="true">&rarr;</span> ') + '</td>' +
-				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button></td></tr>';
+				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button>' +
+				(call.call_identity ? ' <button type="button" class="btn btn-warning btn-sm cc-exclude-call" data-call-index="' + callIndex + '">Exclude Call</button>' : '') + '</td></tr>';
 		});
 		html += '</tbody></table></div>';
 		return html;
+	}
+
+	function callFromDetailButton(button) {
+		var occurrence = button.closest('.cc-occurrence');
+		var callIndex = parseInt(button.data('call-index'), 10);
+		var detail = occurrence.find('.cc-occurrence-detail').data('detail');
+		return detail && detail.calls ? detail.calls[callIndex] : null;
+	}
+
+	function confirmExcludeCall(button) {
+		var call = callFromDetailButton(button);
+		if (!call || !call.call_identity) return;
+		pendingExcludedCallIdentity = call.call_identity;
+		$('#cc-exclude-call-error').hide().empty();
+		$('#cc-exclude-call-modal').modal('show');
+	}
+
+	function excludePendingCall() {
+		if (!pendingExcludedCallIdentity) return;
+		$('#cc-exclude-call-confirm').prop('disabled', true);
+		ajax({command: 'excludecall', call_identity: pendingExcludedCallIdentity}).done(function (response) {
+			if (!response.status) { $('#cc-exclude-call-error').text(response.message || 'Unable to exclude this call.').show(); return; }
+			pendingExcludedCallIdentity = null;
+			$('#cc-exclude-call-modal').modal('hide');
+			updateExcludedCount(response.excluded_count);
+			setStatus('Call excluded globally. The source CDR was not changed. Regenerating this report...', 'success');
+			invalidateAndRerunReports();
+		}).fail(function () {
+			$('#cc-exclude-call-error').text('Unable to save the call exclusion. The current report has not been changed.').show();
+		}).always(function () { $('#cc-exclude-call-confirm').prop('disabled', false); });
+	}
+
+	function updateExcludedCount(count) {
+		count = parseInt(count, 10) || 0;
+		$('#cc-excluded-count').text(count ? '(' + count + ')' : '');
+	}
+
+	function openExcludedCalls() {
+		$('#cc-excluded-calls-message').hide().empty();
+		ajax({command: 'listexcludedcalls', report_id: activeReportId || ''}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to load excluded calls.').show(); return; }
+			renderExcludedCalls(response.calls || [], !!response.has_report_context);
+			updateExcludedCount(response.excluded_count);
+			$('#cc-excluded-calls-modal').modal('show');
+		});
+	}
+
+	function renderExcludedCalls(calls, hasReportContext) {
+		$('#cc-excluded-relevance-heading').toggle(hasReportContext);
+		var body = $('#cc-excluded-calls-rows').empty();
+		if (!calls.length) {
+			body.append('<tr><td colspan="9" class="text-muted">No calls are currently excluded.</td></tr>');
+			$('#cc-restore-all-excluded').prop('disabled', true);
+			return;
+		}
+		$('#cc-restore-all-excluded').prop('disabled', false);
+		calls.forEach(function (entry) {
+			var summary = entry.summary || {};
+			var context = [summary.trunk, summary.extension].filter(Boolean).join(' / ') || '-';
+			var relevance = entry.matches_current_report === true ? 'Would be eligible' : (entry.matches_current_report === false ? 'Not in scope' : 'Relevance unavailable');
+			var sourceState = entry.source_available ? '' : '<br><span class="text-muted">Source CDR unavailable</span>';
+			body.append('<tr><td>' + escapeHtml(summary.calldate || '-') + '</td><td>' + escapeHtml(summary.src || '-') + '</td><td>' + escapeHtml(summary.dst || '-') + '</td><td>' + escapeHtml(context) + '</td><td>' + escapeHtml(formatDuration(summary.duration || 0)) + '</td><td><code>' + escapeHtml(entry.call_identity) + '</code>' + sourceState + '</td><td>' + escapeHtml(entry.excluded_at) + '</td>' + (hasReportContext ? '<td>' + escapeHtml(relevance) + '</td>' : '') + '<td><button type="button" class="btn btn-default btn-sm cc-restore-excluded" data-call-identity="' + escapeHtml(entry.call_identity) + '">Restore</button></td></tr>');
+		});
+	}
+
+	function restoreExcludedCall(identity) {
+		if (!window.confirm('Restore this call? It will become eligible for Historical Reports again.')) return;
+		ajax({command: 'restoreexcludedcall', call_identity: identity}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore this call.').show(); return; }
+			updateExcludedCount(response.excluded_count);
+			openExcludedCalls();
+			invalidateAndRerunReports();
+		});
+	}
+
+	function restoreAllExcludedCalls() {
+		if (!window.confirm('Restore all excluded calls? All calls will become eligible for Historical Reports again. No source CDR data will be changed.')) return;
+		ajax({command: 'restoreallexcludedcalls'}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore excluded calls.').show(); return; }
+			updateExcludedCount(0);
+			renderExcludedCalls([], !!activeReportId);
+			invalidateAndRerunReports();
+		});
 	}
 
 	function openCdrSearch(button) {
@@ -923,7 +1009,8 @@ window._ccLoaded = true;
 		} catch (error) {
 			$('#cc-report-loading').hide();
 			$('#cc-report-empty').show();
-			setStatus('Unable to regenerate ' + report.name + ': ' + (error.message || 'invalid saved date range.'), 'error');
+			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but ' : '') + 'Unable to regenerate ' + report.name + ': ' + (error.message || 'invalid saved date range.'), 'error');
+			pendingPersistedRefresh = false;
 		}
 	}
 
@@ -1286,7 +1373,8 @@ window._ccLoaded = true;
 			$('#cc-report-loading').hide();
 			if (!resp.status) {
 				if (discardFailedFirstRun(targetReportId, resp.message || 'Failed to run.')) return;
-				setStatus(resp.message || 'Failed to run.', 'error');
+				setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + (resp.message || 'Failed to run.'), 'error');
+				pendingPersistedRefresh = false;
 				return;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
@@ -1294,7 +1382,8 @@ window._ccLoaded = true;
 		}).fail(function () {
 			$('#cc-report-loading').hide();
 			if (discardFailedFirstRun(targetReportId, randomOops())) return;
-			setStatus(randomOops(), 'error');
+			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + randomOops(), 'error');
+			pendingPersistedRefresh = false;
 		});
 	}
 
@@ -1305,6 +1394,7 @@ window._ccLoaded = true;
 	 * if that report is still the one visibly active.
 	 */
 	function applyReportResult(targetReportId, results, engineUsed) {
+		pendingPersistedRefresh = false;
 		if (targetReportId && historicalReports[targetReportId]) {
 			var report = historicalReports[targetReportId];
 			report.result = results;
@@ -1484,6 +1574,10 @@ window._ccLoaded = true;
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
 		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
+		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
+		$('#cc-exclude-call-confirm').off('click').on('click', excludePendingCall);
+		$('#cc-restore-all-excluded').off('click').on('click', restoreAllExcludedCalls);
+		$('#cc-excluded-calls-rows').off('click.ccExcluded', '.cc-restore-excluded').on('click.ccExcluded', '.cc-restore-excluded', function () { restoreExcludedCall($(this).data('call-identity')); });
 		$('#cc-results-body').off('click.ccIdentity', '.cc-classify-endpoint').on('click.ccIdentity', '.cc-classify-endpoint', function () { saveIdentityClassification($(this).data('endpoint'), $(this).data('classification')); });
 		$('#cc-identity-rows').off('click.ccIdentity', '.cc-reset-identity').on('click.ccIdentity', '.cc-reset-identity', function () {
 			ajax({command: 'resetidentityclassification', endpoint: $(this).data('endpoint')}).done(function (response) { if (response.status) { renderIdentityClassifications(response.classifications || []); invalidateAndRerunReports(); } });
@@ -1547,6 +1641,8 @@ window._ccLoaded = true;
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
+		}).off('click', '.cc-exclude-call').on('click', '.cc-exclude-call', function () {
+			confirmExcludeCall($(this));
 		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
 			openCdrSearch($(this));
 		});

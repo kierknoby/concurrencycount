@@ -26,6 +26,7 @@ require_once __DIR__ . '/Services/AmiChannelSource.php';
 require_once __DIR__ . '/Services/AlertOutboxService.php';
 require_once __DIR__ . '/Services/HistoricalReportsService.php';
 require_once __DIR__ . '/Services/PjsipIdentityService.php';
+require_once __DIR__ . '/Services/HistoricalCallExclusionService.php';
 
 class Concurrencycount implements \BMO {
 
@@ -33,7 +34,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -41,6 +42,7 @@ class Concurrencycount implements \BMO {
 	const MONITOR_HEARTBEAT_KEY = 'monitor_heartbeat';
 	const HISTORICAL_REPORTS_KEY = 'historical_reports';
 	const PJSIP_IDENTITY_OVERRIDES_KEY = 'pjsip_identity_overrides';
+	const HISTORICAL_CALL_EXCLUSIONS_KEY = 'historical_call_exclusions';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
@@ -50,6 +52,7 @@ class Concurrencycount implements \BMO {
 	private $cdrColumnsCache = null;
 	private $settingsRepository = null;
 	private $pjsipIdentityService = null;
+	private $historicalCallExclusions = null;
 
 	public function __construct($freepbx = null) {
 		if ($freepbx === null) {
@@ -279,6 +282,14 @@ class Concurrencycount implements \BMO {
 				return $this->handleResetIdentityClassification();
 			case 'resetallidentityclassifications':
 				return $this->resetAllIdentityClassifications();
+			case 'listexcludedcalls':
+				return $this->handleListExcludedCalls();
+			case 'excludecall':
+				return $this->handleExcludeCall();
+			case 'restoreexcludedcall':
+				return $this->handleRestoreExcludedCall();
+			case 'restoreallexcludedcalls':
+				return $this->handleRestoreAllExcludedCalls();
 		}
 		return ['status' => false, 'message' => _('Unknown command')];
 	}
@@ -405,6 +416,206 @@ class Concurrencycount implements \BMO {
 		$this->getSettingsRepository()->set(self::PJSIP_IDENTITY_OVERRIDES_KEY, []);
 		$this->pjsipIdentityService = null;
 		return ['status' => true, 'classifications' => []];
+	}
+
+	private function getHistoricalCallExclusionService(): \FreePBX\modules\Concurrencycount\Services\HistoricalCallExclusionService {
+		return new \FreePBX\modules\Concurrencycount\Services\HistoricalCallExclusionService();
+	}
+
+	private function getHistoricalCallExclusions(): array {
+		if ($this->historicalCallExclusions !== null) return $this->historicalCallExclusions;
+		$service = $this->getHistoricalCallExclusionService();
+		$this->historicalCallExclusions = $service->repair($this->getSettingsRepository()->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []));
+		return $this->historicalCallExclusions;
+	}
+
+	private function handleExcludeCall(): array {
+		try {
+			$service = $this->getHistoricalCallExclusionService();
+			$identity = $service->validateIdentity(isset($_REQUEST['call_identity']) ? $_REQUEST['call_identity'] : '');
+			$rows = $this->fetchLogicalCallRows($identity);
+			if (empty($rows)) throw new \InvalidArgumentException(_('The selected source CDR call could not be found.'));
+			foreach ($rows as $row) if (strpos((string)(isset($row['accountcode']) ? $row['accountcode'] : ''), 'CCDEMO') === 0) throw new \InvalidArgumentException(_('Demo calls cannot be added to persistent Historical exclusions.'));
+			$summary = $this->buildExcludedCallSummary($rows);
+			$result = $this->withHistoricalCallExclusionsLock(function () use ($service, $identity, $summary): array {
+				$repository = $this->getSettingsRepository();
+				$stored = $service->repair($repository->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []));
+				$stored = $service->exclude($stored, $identity, $summary);
+				$repository->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, $stored);
+				return $stored;
+			});
+			$this->historicalCallExclusions = $result;
+			return ['status' => true, 'excluded_count' => count($result)];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function handleRestoreExcludedCall(): array {
+		try {
+			$service = $this->getHistoricalCallExclusionService();
+			$identity = $service->validateIdentity(isset($_REQUEST['call_identity']) ? $_REQUEST['call_identity'] : '');
+			$result = $this->withHistoricalCallExclusionsLock(function () use ($service, $identity): array {
+				$repository = $this->getSettingsRepository();
+				$stored = $service->restore($repository->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []), $identity);
+				$repository->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, $stored);
+				return $stored;
+			});
+			$this->historicalCallExclusions = $result;
+			return ['status' => true, 'excluded_count' => count($result)];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function handleRestoreAllExcludedCalls(): array {
+		try {
+			$this->withHistoricalCallExclusionsLock(function (): array {
+				$this->getSettingsRepository()->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []);
+				return [];
+			});
+			$this->historicalCallExclusions = [];
+			return ['status' => true, 'excluded_count' => 0];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function handleListExcludedCalls(): array {
+		try {
+			$reportId = isset($_REQUEST['report_id']) ? trim((string)$_REQUEST['report_id']) : '';
+			$report = $reportId === '' ? null : $this->getHistoricalReportDefinition($reportId);
+			$stored = $this->getHistoricalCallExclusions();
+			$sourceRows = $this->fetchExcludedLogicalCallRows(array_keys($stored));
+			$calls = [];
+			foreach ($stored as $identity => $entry) {
+				$summary = isset($entry['summary']) ? $entry['summary'] : [];
+				$calls[] = [
+					'call_identity' => $identity,
+					'excluded_at' => date('Y-m-d H:i:s', (int)$entry['excluded_at']),
+					'summary' => $summary,
+					'source_available' => !empty($sourceRows[$identity]),
+					'matches_current_report' => $report === null || empty($sourceRows[$identity]) ? null : $this->excludedCallMatchesReport($sourceRows[$identity], $report),
+				];
+			}
+			usort($calls, function ($a, $b) { return strcmp($b['excluded_at'], $a['excluded_at']); });
+			return ['status' => true, 'calls' => $calls, 'excluded_count' => count($calls), 'has_report_context' => $report !== null];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function withHistoricalCallExclusionsLock(callable $callback): array {
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_historical_call_exclusions', 5)")->fetchColumn();
+		if ((int)$lock !== 1) throw new \RuntimeException(_('Excluded Calls are busy, please try again.'));
+		try { return call_user_func($callback); }
+		finally { $this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_historical_call_exclusions')"); }
+	}
+
+	private function getHistoricalReportDefinition(string $id): array {
+		if (!preg_match('/^[0-9a-f]{32}$/', $id)) throw new \InvalidArgumentException(_('Invalid historical report id.'));
+		$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+		$stored = $service->reconcileStored($this->getSettingsRepository()->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+		$report = $service->findById($stored, $id);
+		if ($report === null) throw new \InvalidArgumentException(_('Historical report tab no longer exists.'));
+		return $report;
+	}
+
+	private function fetchLogicalCallRows(string $identity): array {
+		$service = $this->getHistoricalCallExclusionService();
+		$parts = $service->splitIdentity($identity);
+		$available = [];
+		foreach ($this->getCdrColumns() as $column) if (isset($column['Field'])) $available[$column['Field']] = true;
+		if (!isset($available[$parts['field']])) return [];
+		$wanted = ['calldate', 'src', 'dst', 'disposition', 'duration', 'billsec', 'channel', 'dstchannel', 'uniqueid', 'linkedid', 'accountcode'];
+		$select = [];
+		foreach ($wanted as $field) if (isset($available[$field])) $select[] = '`' . $field . '`';
+		$stmt = $this->cdrdb->prepare('SELECT ' . implode(', ', $select) . ' FROM cdr WHERE `' . $parts['field'] . '` = :identity ORDER BY calldate ASC');
+		$stmt->execute([':identity' => $parts['value']]);
+		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+	}
+
+	private function buildExcludedCallSummary(array $rows): array {
+		$first = $rows[0];
+		$channels = [];
+		$trunks = [];
+		$extensions = [];
+		$identity = $this->getPjsipIdentityService();
+		foreach ($rows as $row) foreach (['channel', 'dstchannel'] as $field) {
+			$channel = trim((string)(isset($row[$field]) ? $row[$field] : ''));
+			if ($channel === '') continue;
+			$channels[$channel] = true;
+			$endpoint = $identity->parseChannel($channel);
+			if ($endpoint === null) continue;
+			$type = $identity->classify($endpoint)['type'];
+			if ($type === 'trunk') $trunks[$endpoint] = true;
+			elseif ($type === 'extension') $extensions[$endpoint] = true;
+		}
+		return [
+			'calldate' => isset($first['calldate']) ? (string)$first['calldate'] : '',
+			'src' => isset($first['src']) ? (string)$first['src'] : '', 'dst' => isset($first['dst']) ? (string)$first['dst'] : '',
+			'disposition' => isset($first['disposition']) ? (string)$first['disposition'] : '',
+			'duration' => isset($first['duration']) ? (int)$first['duration'] : 0, 'billsec' => isset($first['billsec']) ? (int)$first['billsec'] : 0,
+			'trunk' => implode(', ', array_keys($trunks)), 'extension' => implode(', ', array_keys($extensions)), 'channels' => array_keys($channels),
+		];
+	}
+
+	private function excludedCallMatchesReport(array $rows, array $report): bool {
+		$range = $this->historicalReportDefinitionRange($report);
+		$start = $range['start'];
+		$end = $range['end'];
+		$eligibleRows = [];
+		foreach ($rows as $row) {
+			$calldate = isset($row['calldate']) ? (string)$row['calldate'] : '';
+			if ($calldate < $start || $calldate > $end || (isset($row['disposition']) && $row['disposition'] !== 'ANSWERED')) continue;
+			if (strpos((string)(isset($row['channel']) ? $row['channel'] : ''), 'PJSIP/') !== 0 && strpos((string)(isset($row['dstchannel']) ? $row['dstchannel'] : ''), 'PJSIP/') !== 0) continue;
+			$eligibleRows[] = $row;
+		}
+		if (empty($eligibleRows)) return false;
+		$identity = $this->getPjsipIdentityService();
+		if ($report['mode'] === 'group') return !empty($this->classifyGroupRows($eligibleRows, $identity)['rows']);
+		$classified = $this->classifyPerNameRows($eligibleRows, $report['mode'], $identity)['rows'];
+		$filter = isset($report['filter']) ? (string)$report['filter'] : '';
+		foreach ($classified as $row) if ($filter === '' || (isset($row['identity']) && hash_equals($filter, (string)$row['identity']))) return true;
+		return false;
+	}
+
+	private function historicalReportDefinitionRange(array $report): array {
+		$today = date('Y-m-d');
+		$preset = isset($report['preset']) ? (string)$report['preset'] : 'custom';
+		$from = isset($report['range_from']) ? (string)$report['range_from'] : $today;
+		$to = isset($report['range_to']) ? (string)$report['range_to'] : $today;
+		if ($preset === 'today') $from = $to = $today;
+		elseif ($preset === 'yesterday') $from = $to = date('Y-m-d', strtotime($today . ' -1 day'));
+		elseif ($preset === 'last7') { $from = date('Y-m-d', strtotime($today . ' -6 days')); $to = $today; }
+		elseif ($preset === 'last30') { $from = date('Y-m-d', strtotime($today . ' -29 days')); $to = $today; }
+		elseif ($preset === 'month') { $from = date('Y-m-01'); $to = $today; }
+		elseif ($preset === 'year') { $from = date('Y-01-01'); $to = $today; }
+		elseif ($preset === 'lastyear') { $year = (int)date('Y') - 1; $from = $year . '-01-01'; $to = $year . '-12-31'; }
+		$start = $from . (!empty($report['include_time']) ? ' ' . $report['from_time'] . ':00' : ' 00:00:00');
+		$end = $to . (!empty($report['include_time']) ? ' ' . $report['to_time'] . ':59' : ' 23:59:59');
+		if ($to === $today && $end > date('Y-m-d H:i:s')) $end = date('Y-m-d H:i:s');
+		return ['start' => $start, 'end' => $end];
+	}
+
+	private function fetchExcludedLogicalCallRows(array $identities): array {
+		$service = $this->getHistoricalCallExclusionService();
+		$columns = [];
+		foreach ($this->getCdrColumns() as $column) if (isset($column['Field'])) $columns[$column['Field']] = true;
+		$linked = []; $unique = [];
+		foreach ($identities as $identity) { $part = $service->splitIdentity($identity); if ($part['field'] === 'linkedid') $linked[] = $part['value']; else $unique[] = $part['value']; }
+		$clauses = []; $params = []; $index = 0;
+		foreach (['linkedid' => $linked, 'uniqueid' => $unique] as $field => $values) {
+			if (empty($values) || !isset($columns[$field])) continue;
+			$holders = [];
+			foreach ($values as $value) { $key = ':id' . $index++; $holders[] = $key; $params[$key] = $value; }
+			$clauses[] = '`' . $field . '` IN (' . implode(',', $holders) . ')';
+		}
+		if (empty($clauses)) return [];
+		$wanted = ['calldate', 'duration', 'channel', 'dstchannel', 'disposition', 'linkedid', 'uniqueid'];
+		$selectParts = [];
+		foreach ($wanted as $field) $selectParts[] = isset($columns[$field]) ? '`' . $field . '`' : "'' AS `" . $field . '`';
+		$select = implode(', ', $selectParts);
+		$stmt = $this->cdrdb->prepare('SELECT DISTINCT ' . $select . ' FROM cdr WHERE ' . implode(' OR ', $clauses));
+		$stmt->execute($params);
+		$rows = [];
+		while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+			$identity = $service->identityForRow($row);
+			if ($identity !== null) $rows[$identity][] = $row;
+		}
+		return $rows;
 	}
 
 	private function getSettingsRepository(): \FreePBX\modules\Concurrencycount\Services\SettingsRepository {
@@ -1275,7 +1486,7 @@ class Concurrencycount implements \BMO {
 			':trunk_channel' => 'PJSIP/' . $trunk . '-%',
 			':trunk_destination' => 'PJSIP/' . $trunk . '-%',
 		]);
-		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+		return $this->getHistoricalCallExclusionService()->filterRows($stmt->fetchAll(\PDO::FETCH_ASSOC), $this->getHistoricalCallExclusions());
 	}
 
 	private function formatPeakCall(array $leg, string $trunk): array {
@@ -1311,6 +1522,7 @@ class Concurrencycount implements \BMO {
 			'destination_channel' => isset($row['dstchannel']) ? (string)$row['dstchannel'] : '',
 			'uniqueid' => isset($row['uniqueid']) ? (string)$row['uniqueid'] : '',
 			'linkedid' => isset($row['linkedid']) ? (string)$row['linkedid'] : '',
+			'call_identity' => $this->getHistoricalCallExclusionService()->identityForRow($row),
 			'recording' => isset($row['recordingfile']) ? (string)$row['recordingfile'] : '',
 			'path' => $path,
 			'cdr_search' => $this->buildCdrSearch($row),
@@ -2133,7 +2345,10 @@ class Concurrencycount implements \BMO {
 			$account_filter = ' AND accountcode = :accountcode';
 			$params[':accountcode'] = $accountcode;
 		}
-		$sql = "SELECT calldate, duration, channel, dstchannel, dst
+		$available = [];
+		foreach ($this->getCdrColumns() as $column) if (isset($column['Field'])) $available[$column['Field']] = true;
+		$identitySelect = (isset($available['linkedid']) ? '`linkedid`' : "'' AS linkedid") . ', ' . (isset($available['uniqueid']) ? '`uniqueid`' : "'' AS uniqueid");
+		$sql = "SELECT calldate, duration, channel, dstchannel, dst, $identitySelect
 				FROM cdr
 				WHERE disposition='ANSWERED'
 				  AND calldate BETWEEN :start AND :end
@@ -2141,7 +2356,9 @@ class Concurrencycount implements \BMO {
 				  AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
 		$stmt = $this->cdrdb->prepare($sql);
 		$stmt->execute($params);
-		return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+		$rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+		if ($accountcode !== '') return $rows;
+		return $this->getHistoricalCallExclusionService()->filterRows($rows, $this->getHistoricalCallExclusions());
 	}
 
 	private function classifyPerNameRows(array $cdrRows, string $mode, \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService $identity): array {
