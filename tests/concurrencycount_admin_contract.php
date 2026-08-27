@@ -250,10 +250,10 @@ admin_contract_assert(strpos($liveJavascript, 'historicalReports') === false, 'L
 /* 2.1.0 Live View presentation and operational monitoring */
 admin_contract_assert(strpos($view, '>Live View<') === false || strpos($view, "_('Live View')") !== false, 'User-facing Live View label missing');
 admin_contract_assert(strpos($view, "_('Live Command " . "Centre')") === false, 'Obsolete pre-2.1 live-dashboard label remains in the GUI');
-foreach (['id="cc-live-wall"', 'id="cc-live-wall-exit"', 'id="cc-hidden-trunks"', 'id="cc-hidden-trunk-list"'] as $id) {
+foreach (['id="cc-live-wall"', 'id="cc-live-wall-exit"', 'id="cc-live-wall-configure"', 'id="cc-live-wall-config-modal"', 'id="cc-wall-featured-list"', 'id="cc-hidden-trunks"', 'id="cc-hidden-trunk-list"'] as $id) {
 	admin_contract_assert(strpos($view, $id) !== false, 'Live View/Wall surface missing: ' . $id);
 }
-foreach (['hidden_trunks', 'trunk_order', 'monitored'] as $setting) {
+foreach (['hidden_trunks', 'trunk_order', 'live_wall_featured_trunks', 'monitored'] as $setting) {
 	admin_contract_assert(strpos($thresholdService, "'" . $setting . "'") !== false, '2.1.0 Live setting missing: ' . $setting);
 }
 admin_contract_assert(strpos($class, "empty(\$settings['trunks'][\$trunk]['monitored'])") !== false, 'Background monitor must gate per-trunk evaluation on monitored state');
@@ -265,12 +265,24 @@ admin_contract_assert(strpos($liveJavascript, 'aria-label="Move ') !== false, 'A
 admin_contract_assert(strpos($liveJavascript, 'function orderedTrunks') !== false && strpos($liveJavascript, 'function renderHiddenTrunks') !== false, 'Shared visibility/order renderer missing');
 admin_contract_assert(substr_count($liveJavascript, "command: 'livestatus'") === 1, 'Live Wall must not introduce a second live-status acquisition path');
 admin_contract_assert(strpos($liveJavascript, 'renderLiveWall(snapshot)') !== false || strpos($liveJavascript, 'renderLiveWall(data)') !== false, 'Live Wall must render from the shared latest snapshot');
+admin_contract_assert(strpos($liveJavascript, 'settings.live_wall_featured_trunks') !== false && strpos($liveJavascript, 'configuredFeatured.filter') !== false, 'Live Wall must render only its configured featured-trunk list');
+admin_contract_assert(strpos($liveJavascript, 'var names = orderedTrunks(data.trunks).filter') === false, 'Live Wall must not mirror every non-hidden Live View trunk');
+admin_contract_assert(strpos($liveJavascript, 'Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk)') !== false, 'Hidden or unavailable featured trunks must be suppressed without substitution');
+admin_contract_assert(strpos($liveJavascript, "card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped')") !== false, 'Monitoring-stopped featured trunks must remain visible with textual state');
+admin_contract_assert(strpos($liveJavascript, 'function setHidden') !== false && strpos($liveJavascript, 'settings.live_wall_featured_trunks =') === false, 'Hide/Unhide must not rewrite featured-trunk preferences');
+admin_contract_assert(strpos($liveJavascript, 'featuredDraft.length >= 3') !== false && strpos($liveJavascript, 'Deselect one to choose another.') !== false, 'Configure Live Wall must enforce and explain the three-trunk limit');
+admin_contract_assert(strpos($liveJavascript, 'cc-featured-earlier') !== false && strpos($liveJavascript, 'cc-featured-later') !== false, 'Featured trunks require accessible left-to-right ordering controls');
+admin_contract_assert(strpos($liveJavascript, 'live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice()') !== false, 'Threshold settings saves must preserve featured-trunk preferences');
 admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen === 'function'") !== false && strpos($liveJavascript, 'fullscreenchange.ccLive') !== false, 'Fullscreen API feature detection/state handling missing');
 admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
 $wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));
 foreach (['Hide Trunk', 'Unhide', 'Start Monitoring', 'Stop Monitoring', 'Thresholds & alerts', 'Move earlier', 'Move later'] as $mutation) {
 	admin_contract_assert(strpos($wallMarkup, $mutation) === false, 'Live Wall must remain read-only; found: ' . $mutation);
 }
+admin_contract_assert(strpos($wallMarkup, 'Configure Live Wall') === false, 'Configure Live Wall must remain outside the read-only Wall');
+$configModal = substr($view, strpos($view, '<div class="modal fade concurrencycount" id="cc-live-wall-config-modal"'), strpos($view, '<!-- Demo prompt modal -->') - strpos($view, '<div class="modal fade concurrencycount" id="cc-live-wall-config-modal"'));
+admin_contract_assert(strpos($configModal, 'aria-labelledby="cc-live-wall-config-title"') !== false && strpos($configModal, 'Choose up to 3 trunks') !== false, 'Featured-trunk modal must be labelled and explain its limit');
+admin_contract_assert(strpos($css, '.cc-wall-trunk-grid[data-count="3"]') !== false && strpos($css, 'repeat(3,minmax(0,1fr))') !== false, 'Live Wall must compose three equal featured cards for desktop');
 admin_contract_assert(strpos($readme, 'Changing a trunk channelid') !== false, 'README must document channelid preference identity limitation');
 admin_contract_assert(strpos($readme, 'only monitored PJSIP trunk and extension legs') === false && strpos($readme, 'includes monitored trunk legs') === false, 'README must not use operational monitored wording for Overall Live Concurrency attribution');
 

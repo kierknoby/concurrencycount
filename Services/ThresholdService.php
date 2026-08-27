@@ -13,6 +13,7 @@ class ThresholdService {
 			'alert_email' => '',
 			'hidden_trunks' => [],
 			'trunk_order' => [],
+			'live_wall_featured_trunks' => [],
 			'overall' => $this->scopeDefaults(),
 			'trunks' => [],
 		];
@@ -43,6 +44,7 @@ class ThresholdService {
 			'alert_email' => $email,
 			'hidden_trunks' => $this->normaliseIdentifierList(isset($input['hidden_trunks']) ? $input['hidden_trunks'] : [], 'Hidden trunks', $rejectUnknownTrunks),
 			'trunk_order' => $this->normaliseIdentifierList(isset($input['trunk_order']) ? $input['trunk_order'] : [], 'Trunk order', $rejectUnknownTrunks),
+			'live_wall_featured_trunks' => $this->normaliseIdentifierList(isset($input['live_wall_featured_trunks']) ? $input['live_wall_featured_trunks'] : [], 'Live Wall featured trunks', $rejectUnknownTrunks, 3),
 			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : []),
 			'trunks' => [],
 		];
@@ -65,7 +67,7 @@ class ThresholdService {
 		return $result;
 	}
 
-	private function normaliseIdentifierList($value, string $label, bool $strict): array {
+	private function normaliseIdentifierList($value, string $label, bool $strict, int $maximum = 0): array {
 		if (!is_array($value)) {
 			if ($strict) throw new \InvalidArgumentException($label . ' must be a list.');
 			return [];
@@ -85,6 +87,10 @@ class ThresholdService {
 			if (isset($seen[$identifier])) continue;
 			$seen[$identifier] = true;
 			$result[] = $identifier;
+		}
+		if ($maximum > 0 && count($result) > $maximum) {
+			if ($strict) throw new \InvalidArgumentException($label . ' may contain no more than ' . $maximum . ' trunks.');
+			$result = array_slice($result, 0, $maximum);
 		}
 		return $result;
 	}

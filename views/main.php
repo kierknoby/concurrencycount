@@ -67,6 +67,7 @@ $_ccAssetVer = max(
 							<div><span class="cc-section-kicker"><?php echo _('LIVE'); ?></span><h2><?php echo _('Current Asterisk state'); ?></h2></div>
 							<div class="cc-live-actions">
 								<button type="button" id="cc-live-wall-launch" class="btn btn-default" title="<?php echo _('Open the read-only Live Wall'); ?>"><i class="fa fa-television"></i> <?php echo _('Live Wall'); ?></button>
+								<button type="button" id="cc-live-wall-configure" class="btn btn-default" aria-haspopup="dialog" title="<?php echo _('Choose featured trunks for Live Wall'); ?>"><i class="fa fa-sliders"></i> <?php echo _('Configure Live Wall'); ?></button>
 								<label for="cc-live-refresh"><?php echo _('Refresh'); ?></label>
 								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
 									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
@@ -141,9 +142,10 @@ $_ccAssetVer = max(
 	<div id="cc-wall-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
 	<div id="cc-wall-content" style="display:none;">
 		<article class="cc-wall-overall cc-status-panel" data-status="normal">
-			<div><span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span><strong id="cc-wall-overall-value">0</strong><span id="cc-wall-overall-status"><?php echo _('Normal'); ?></span><span id="cc-wall-overall-peak"><?php echo _('Recent peak 0'); ?></span></div>
+			<div><span class="cc-section-kicker"><?php echo _('OVERALL LIVE CONCURRENCY'); ?></span><strong id="cc-wall-overall-value">0</strong><span id="cc-wall-overall-status"><?php echo _('Normal'); ?></span><span id="cc-wall-overall-threshold"><?php echo _('Threshold off'); ?></span><span id="cc-wall-overall-peak"><?php echo _('Recent peak 0'); ?></span></div>
 			<canvas id="cc-wall-overall-chart" height="180"></canvas>
 		</article>
+		<p id="cc-wall-featured-note" class="cc-wall-featured-note" style="display:none;"></p>
 		<div id="cc-wall-trunks" class="cc-wall-trunk-grid"></div>
 	</div>
 </section>
@@ -171,6 +173,28 @@ $_ccAssetVer = max(
 				<div id="cc-settings-error" class="alert alert-danger" style="display:none;"></div>
 			</div>
 			<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button><button type="button" id="cc-settings-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save settings'); ?></button></div>
+		</div>
+	</div>
+</div>
+
+<div class="modal fade concurrencycount" id="cc-live-wall-config-modal" tabindex="-1" role="dialog" aria-labelledby="cc-live-wall-config-title">
+	<div class="modal-dialog" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button>
+				<h4 id="cc-live-wall-config-title" class="modal-title"><?php echo _('Configure Live Wall'); ?></h4>
+			</div>
+			<div class="modal-body">
+				<h5><?php echo _('Featured trunks'); ?></h5>
+				<p><?php echo _('Choose up to 3 trunks to display on Live Wall. Featured trunks appear left to right in the order shown below.'); ?></p>
+				<p id="cc-wall-featured-count" class="text-muted" aria-live="polite"></p>
+				<div id="cc-wall-featured-list"></div>
+				<div id="cc-wall-featured-error" class="alert alert-danger" style="display:none;"></div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Cancel'); ?></button>
+				<button type="button" id="cc-wall-featured-save" class="btn btn-primary"><i class="fa fa-save"></i> <?php echo _('Save featured trunks'); ?></button>
+			</div>
 		</div>
 	</div>
 </div>

@@ -13,6 +13,7 @@ window._ccLiveLoaded = true;
 	var wallActive = false;
 	var preferenceSaveTimer = null;
 	var draggedTrunk = null;
+	var featuredDraft = [];
 	var history = {overall: [], trunks: {}};
 	var charts = {overall: null, trunks: {}, historical: null};
 	var historicalResult = null;
@@ -41,7 +42,9 @@ window._ccLiveLoaded = true;
 		});
 		$('#cc-live-settings').off('click.ccLive').on('click.ccLive', openSettings);
 		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', enterLiveWall);
+		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', openLiveWallConfiguration);
 		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
+		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP activity (trunk + extension legs)', snapshot ? snapshot.overall.calls : []); });
@@ -305,6 +308,94 @@ window._ccLiveLoaded = true;
 		$('#cc-hidden-trunk-list .cc-toggle-monitoring').on('click', function () { toggleMonitoring($(this).closest('[data-trunk]').data('trunk')); });
 	}
 
+	function openLiveWallConfiguration() {
+		if (!settings) {
+			loadSettings().done(openLiveWallConfiguration);
+			return;
+		}
+		featuredDraft = (settings.live_wall_featured_trunks || []).slice(0, 3);
+		$('#cc-wall-featured-error').hide();
+		renderLiveWallConfiguration();
+		$('#cc-live-wall-config-modal').modal('show');
+	}
+
+	function configuredTrunksForWallConfiguration() {
+		if (snapshot && snapshot.trunks) return orderedTrunks(snapshot.trunks);
+		return Object.keys(settings && settings.trunks ? settings.trunks : {}).sort();
+	}
+
+	function featuredTrunkLabel(trunk) {
+		var result = snapshot && snapshot.trunks ? snapshot.trunks[trunk] : null;
+		return result && result.entity && result.entity.label ? result.entity.label : trunk;
+	}
+
+	function renderLiveWallConfiguration() {
+		var configured = configuredTrunksForWallConfiguration();
+		var rows = [];
+		featuredDraft.forEach(function (trunk, index) {
+			var available = configured.indexOf(trunk) >= 0;
+			var states = [];
+			if (isHidden(trunk)) states.push('Hidden from Live Wall');
+			if (!available) states.push('Currently unavailable');
+			else states.push(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped');
+			rows.push(featuredConfigurationRow(trunk, index, true, states.join(' · ')));
+		});
+		configured.forEach(function (trunk) {
+			if (featuredDraft.indexOf(trunk) >= 0) return;
+			var states = [isHidden(trunk) ? 'Hidden from Live Wall' : (isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped')];
+			rows.push(featuredConfigurationRow(trunk, -1, false, states.join(' · ')));
+		});
+		if (!rows.length) rows.push('<p class="text-muted">No configured Live trunks are currently available.</p>');
+		$('#cc-wall-featured-list').html(rows.join(''));
+		$('#cc-wall-featured-count').text(featuredDraft.length + ' of 3 featured trunks selected.' + (featuredDraft.length === 3 ? ' Deselect one to choose another.' : ''));
+		bindLiveWallConfigurationControls();
+	}
+
+	function featuredConfigurationRow(trunk, index, selected, stateText) {
+		var disabled = !selected && featuredDraft.length >= 3;
+		return '<div class="cc-wall-featured-row" data-featured-trunk="' + escapeHtml(trunk) + '">' +
+			'<label><input type="checkbox" class="cc-wall-featured-choice"' + (selected ? ' checked' : '') + (disabled ? ' disabled' : '') + '> <strong>' + escapeHtml(featuredTrunkLabel(trunk)) + '</strong> <small>' + escapeHtml(trunk) + '</small></label>' +
+			'<span class="cc-wall-featured-state">' + escapeHtml(stateText) + '</span>' +
+			(selected ? '<span class="cc-wall-featured-order"><button type="button" class="btn btn-default btn-sm cc-featured-earlier" aria-label="Move ' + escapeHtml(trunk) + ' earlier"' + (index === 0 ? ' disabled' : '') + '>Move earlier</button> <button type="button" class="btn btn-default btn-sm cc-featured-later" aria-label="Move ' + escapeHtml(trunk) + ' later"' + (index === featuredDraft.length - 1 ? ' disabled' : '') + '>Move later</button></span>' : '') + '</div>';
+	}
+
+	function bindLiveWallConfigurationControls() {
+		$('#cc-wall-featured-list .cc-wall-featured-choice').on('change', function () {
+			var trunk = $(this).closest('[data-featured-trunk]').attr('data-featured-trunk');
+			if ($(this).is(':checked')) {
+				if (featuredDraft.length >= 3) {
+					$(this).prop('checked', false);
+					$('#cc-wall-featured-error').text('Choose no more than 3 featured trunks.').show();
+					return;
+				}
+				featuredDraft.push(trunk);
+			} else featuredDraft = featuredDraft.filter(function (name) { return name !== trunk; });
+			$('#cc-wall-featured-error').hide();
+			renderLiveWallConfiguration();
+		});
+		$('#cc-wall-featured-list .cc-featured-earlier, #cc-wall-featured-list .cc-featured-later').on('click', function () {
+			var trunk = $(this).closest('[data-featured-trunk]').attr('data-featured-trunk');
+			var from = featuredDraft.indexOf(trunk);
+			var to = from + ($(this).hasClass('cc-featured-earlier') ? -1 : 1);
+			if (from < 0 || to < 0 || to >= featuredDraft.length) return;
+			featuredDraft.splice(from, 1);
+			featuredDraft.splice(to, 0, trunk);
+			renderLiveWallConfiguration();
+		});
+	}
+
+	function saveLiveWallConfiguration() {
+		var candidate = $.extend(true, {}, settings);
+		candidate.live_wall_featured_trunks = featuredDraft.slice();
+		var button = $('#cc-wall-featured-save').prop('disabled', true);
+		$('#cc-wall-featured-error').hide();
+		saveSettings(candidate, false, function () {
+			$('#cc-live-wall-config-modal').modal('hide');
+		}, function (message) {
+			$('#cc-wall-featured-error').text(message || 'Unable to save featured trunks.').show();
+		}).always(function () { button.prop('disabled', false); });
+	}
+
 	function enterLiveWall() {
 		wallActive = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
@@ -336,21 +427,31 @@ window._ccLiveLoaded = true;
 
 	function renderLiveWall(data) {
 		$('#cc-wall-message').hide();
-		$('#cc-wall-content').show();
+		$('#cc-wall-content').css('display', 'grid');
 		$('#cc-wall-updated').text('Last successful update: ' + new Date(data.generated_ts * 1000).toLocaleString());
 		$('#cc-wall-overall-value').text(data.overall.current);
 		$('#cc-wall-overall-status').text(statusLabel(data.overall.status));
+		$('#cc-wall-overall-threshold').text(data.overall.threshold_enabled ? 'Threshold ' + data.overall.threshold : 'Threshold off');
 		$('#cc-wall-overall-peak').text('Recent peak ' + recentPeak(history.overall));
 		$('.cc-wall-overall').attr('data-status', data.overall.status);
 		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'));
 		charts.wallOverall.setData(history.overall, data.overall.threshold_enabled ? data.overall.threshold : 0);
-		var names = orderedTrunks(data.trunks).filter(function (trunk) { return !isHidden(trunk); });
+		var configuredFeatured = settings && settings.live_wall_featured_trunks ? settings.live_wall_featured_trunks : [];
+		var names = configuredFeatured.filter(function (trunk) { return Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk); });
+		var unavailableCount = configuredFeatured.filter(function (trunk) { return !Object.prototype.hasOwnProperty.call(data.trunks, trunk); }).length;
+		var hiddenCount = configuredFeatured.filter(function (trunk) { return Object.prototype.hasOwnProperty.call(data.trunks, trunk) && isHidden(trunk); }).length;
+		var note = '';
+		if (!configuredFeatured.length) note = 'No featured trunks configured.';
+		else if (!names.length) note = 'Featured trunks are currently hidden or unavailable.';
+		else if (unavailableCount || hiddenCount) note = (unavailableCount ? unavailableCount + ' featured unavailable. ' : '') + (hiddenCount ? hiddenCount + ' featured hidden from Live Wall.' : '');
+		$('#cc-wall-featured-note').text(note).toggle(note !== '');
+		$('#cc-wall-trunks').attr('data-count', names.length);
 		var previous = $('#cc-wall-trunks').data('trunks') || [];
 		if (JSON.stringify(previous) !== JSON.stringify(names)) {
 			Object.keys(charts.wallTrunks || {}).forEach(function (name) { charts.wallTrunks[name].destroy(); });
 			charts.wallTrunks = {};
 			$('#cc-wall-trunks').html(names.map(function (trunk, index) {
-				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(trunk) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="140"></canvas></article>';
+				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(featuredTrunkLabel(trunk)) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-threshold"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="110"></canvas></article>';
 			}).join('')).data('trunks', names);
 			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index)); });
 		}
@@ -360,6 +461,7 @@ window._ccLiveLoaded = true;
 			card.attr('data-status', result.status).find('.cc-wall-trunk-value').text(result.current);
 			card.find('.cc-wall-trunk-split').text(result.direction_counts.inbound + ' inbound · ' + result.direction_counts.outbound + ' outbound · ' + result.direction_counts.unknown + ' unknown');
 			card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped');
+			card.find('.cc-wall-threshold').text(result.threshold_enabled ? 'Threshold ' + result.threshold : 'Threshold off');
 			card.find('.cc-wall-status').text(statusLabel(result.status));
 			card.find('.cc-wall-peak').text('Recent peak ' + recentPeak(history.trunks[trunk] || []));
 			charts.wallTrunks[trunk].setData(history.trunks[trunk] || [], result.threshold_enabled ? result.threshold : 0);
@@ -477,6 +579,7 @@ window._ccLiveLoaded = true;
 			recovery_enabled: $('#cc-setting-recovery').is(':checked'),
 			alert_email: $('#cc-setting-email').val().trim(),
 			hidden_trunks: (settings.hidden_trunks || []).slice(), trunk_order: (settings.trunk_order || []).slice(),
+			live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice(),
 			overall: {}, trunks: {}
 		};
 		$('#cc-threshold-rows tr').each(function () {
@@ -493,12 +596,13 @@ window._ccLiveLoaded = true;
 		saveSettings(candidate, true);
 	}
 
-	function saveSettings(candidate, closeModal) {
-		ajax({command: 'savesettings', settings: JSON.stringify(candidate)}).done(function (response) {
+	function saveSettings(candidate, closeModal, onSuccess, onFailure) {
+		return ajax({command: 'savesettings', settings: JSON.stringify(candidate)}).done(function (response) {
 			if (!response.status) {
 				$('#cc-settings-error').text(response.message || 'Unable to save settings.').show();
 				showLiveMessage(response.message || 'Unable to save Live View settings.', 'warning');
 				loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+				if (onFailure) onFailure(response.message || 'Unable to save settings.');
 				return;
 			}
 			settings = response.settings;
@@ -506,10 +610,12 @@ window._ccLiveLoaded = true;
 			if (closeModal) $('#cc-live-settings-modal').modal('hide');
 			if (snapshot) renderSnapshot(snapshot);
 			startPolling(true);
+			if (onSuccess) onSuccess(response.settings);
 		}).fail(function () {
 			$('#cc-settings-error').text('Unable to save settings.').show();
 			showLiveMessage('Unable to save Live View settings.', 'warning');
 			loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+			if (onFailure) onFailure('Unable to save settings.');
 		});
 	}
 

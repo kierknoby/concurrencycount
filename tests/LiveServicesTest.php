@@ -110,6 +110,7 @@ live_assert_same(false, $defaults['alerts_enabled'], 'Alerts disabled by default
 live_assert_same(true, $defaults['recovery_enabled'], 'Recovery enabled by default');
 live_assert_same([], $defaults['hidden_trunks'], 'Hidden trunks default empty');
 live_assert_same([], $defaults['trunk_order'], 'Trunk order defaults empty before inventory reconciliation');
+live_assert_same([], $defaults['live_wall_featured_trunks'], 'Live Wall featured trunks default empty');
 $config = $thresholds->normalise([
 	'refresh_interval' => 1,
 	'alerts_enabled' => 'on',
@@ -126,10 +127,33 @@ live_assert_same(false, $config['trunks']['gamma-backup']['enabled'], 'Threshold
 live_assert_same(false, $config['trunks']['gamma']['monitored'], 'Monitoring state is independent of threshold enablement');
 live_assert_same(true, $config['trunks']['gamma-backup']['monitored'], 'Legacy/new trunk monitoring defaults active');
 live_assert_same(['gamma', 'gamma-backup'], $config['trunk_order'], 'New trunks append predictably to an empty saved order');
+live_assert_same([], $config['live_wall_featured_trunks'], 'New trunks do not become featured automatically');
+$featuredConfig = $thresholds->normalise([
+	'live_wall_featured_trunks' => ['gamma-backup', 'gamma', 'gamma-backup'],
+	'trunks' => [
+		'gamma' => ['enabled' => true, 'threshold' => 3, 'alert_enabled' => true, 'monitored' => false],
+		'gamma-backup' => ['enabled' => true, 'threshold' => 7, 'alert_enabled' => true, 'monitored' => true],
+	],
+], ['gamma', 'gamma-backup']);
+live_assert_same(['gamma-backup', 'gamma'], $featuredConfig['live_wall_featured_trunks'], 'Featured trunk order persists and duplicate identifiers are removed');
+live_assert_same(false, $featuredConfig['trunks']['gamma']['monitored'], 'Featured selection does not alter monitoring state');
+live_assert_same(true, $featuredConfig['trunks']['gamma']['enabled'], 'Featured selection does not alter threshold enabled state');
+live_assert_same(true, $featuredConfig['trunks']['gamma']['alert_enabled'], 'Featured selection does not alter alert enabled state');
+$oneFeatured = $thresholds->normalise(['live_wall_featured_trunks' => ['gamma']], ['gamma']);
+live_assert_same(['gamma'], $oneFeatured['live_wall_featured_trunks'], 'One featured trunk is accepted');
+$threeFeatured = $thresholds->normalise(['live_wall_featured_trunks' => ['one', 'two', 'three']], []);
+live_assert_same(['one', 'two', 'three'], $threeFeatured['live_wall_featured_trunks'], 'Three featured trunks are accepted in left-to-right order');
+$tooManyFeaturedRejected = false;
+try { $thresholds->normalise(['live_wall_featured_trunks' => ['one', 'two', 'three', 'four']], []); } catch (InvalidArgumentException $exception) { $tooManyFeaturedRejected = true; }
+live_assert_same(true, $tooManyFeaturedRejected, 'Explicit featured trunk saves reject more than three identifiers');
+$malformedFeaturedRejected = false;
+try { $thresholds->normalise(['live_wall_featured_trunks' => 'gamma'], ['gamma']); } catch (InvalidArgumentException $exception) { $malformedFeaturedRejected = true; }
+live_assert_same(true, $malformedFeaturedRejected, 'Malformed explicit featured trunk value is rejected');
 $reconciled = $thresholds->reconcileStored([
 	'alerts_enabled' => true,
 	'hidden_trunks' => ['temporarily-absent', 'gamma', 'gamma'],
 	'trunk_order' => ['temporarily-absent', 'gamma', 'gamma'],
+	'live_wall_featured_trunks' => ['temporarily-absent', 'gamma', 'temporarily-absent'],
 	'overall' => ['enabled' => true, 'threshold' => 8, 'alert_enabled' => true],
 	'trunks' => ['removed-trunk' => ['enabled' => true, 'threshold' => 5, 'alert_enabled' => true]],
 ], ['gamma']);
@@ -138,6 +162,7 @@ live_assert_same(8, $reconciled['overall']['threshold'], 'Overall settings survi
 live_assert_same(true, $reconciled['trunks']['gamma']['monitored'], 'Legacy settings without monitored reconcile active');
 live_assert_same(['temporarily-absent', 'gamma'], $reconciled['hidden_trunks'], 'Preference reconciliation preserves stale identifiers and removes duplicates safely');
 live_assert_same(['temporarily-absent', 'gamma'], $reconciled['trunk_order'], 'Saved order preserves stale logical positions without duplicate entries');
+live_assert_same(['temporarily-absent', 'gamma'], $reconciled['live_wall_featured_trunks'], 'Valid stale featured channelids are retained in saved order');
 $unknownRejected = false;
 try { $thresholds->normalise(['trunks' => ['removed-trunk' => ['threshold' => 5]]], ['gamma']); } catch (InvalidArgumentException $exception) { $unknownRejected = true; }
 live_assert_same(true, $unknownRejected, 'New GUI/CLI writes still reject unknown trunks');
@@ -147,15 +172,16 @@ live_assert_same(true, $malformedPreferencesRejected, 'Malformed presentation pr
 $malformedMonitoringRejected = false;
 try { $thresholds->normalise(['trunks' => ['gamma' => ['monitored' => 'perhaps']]], ['gamma']); } catch (InvalidArgumentException $exception) { $malformedMonitoringRejected = true; }
 live_assert_same(true, $malformedMonitoringRejected, 'Malformed monitored state is rejected');
-$malformedStored = $thresholds->reconcileStored(['hidden_trunks' => 'not-a-list', 'trunk_order' => [false, 'gamma'], 'trunks' => ['gamma' => ['monitored' => 'perhaps']]], ['gamma']);
+$malformedStored = $thresholds->reconcileStored(['hidden_trunks' => 'not-a-list', 'trunk_order' => [false, 'gamma'], 'live_wall_featured_trunks' => [false, 'one', 'two', 'three', 'four'], 'trunks' => ['gamma' => ['monitored' => 'perhaps']]], ['gamma']);
 live_assert_same([], $malformedStored['hidden_trunks'], 'Malformed stored hidden preferences reconcile safely');
 live_assert_same(['gamma'], $malformedStored['trunk_order'], 'Malformed stored order entries are skipped and current trunks remain ordered');
 live_assert_same(true, $malformedStored['trunks']['gamma']['monitored'], 'Malformed stored monitoring state reconciles to active');
+live_assert_same(['one', 'two', 'three'], $malformedStored['live_wall_featured_trunks'], 'Malformed/overflow stored featured state reconciles safely to three valid identifiers');
 
 $presentationAndMonitoring = $live->analyse([
 	live_channel('PJSIP/gamma-20000001', 'from-trunk-gamma'),
 	live_channel('PJSIP/205-20000002', 'from-internal'),
-], ['gamma'], ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
+], ['gamma'], ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'live_wall_featured_trunks' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
 live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall alongside numeric extension legs');
 live_assert_same(1, $presentationAndMonitoring['trunks']['gamma']['current'], 'Presentation and monitoring preferences do not alter underlying trunk counts');
 
