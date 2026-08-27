@@ -8,9 +8,7 @@ class HistoricalGraphService {
 	public function trunkSeries(array $rows, array $trunks, string $start, string $end): array {
 		$events = [];
 		foreach ($rows as $row) {
-			$channel = isset($row['chan']) ? (string)$row['chan'] : '';
-			if (!preg_match('|^PJSIP/([^ ]+)-[0-9a-f]+$|', $channel, $match)) continue;
-			$trunk = $match[1];
+			$trunk = isset($row['identity']) ? (string)$row['identity'] : '';
 			if (!in_array($trunk, $trunks, true)) continue;
 			$this->addInterval($events[$trunk], isset($row['calldate']) ? $row['calldate'] : '', isset($row['duration']) ? (int)$row['duration'] : 0);
 		}
@@ -26,11 +24,8 @@ class HistoricalGraphService {
 		$events = [];
 		foreach ($rows as $row) {
 			$duration = isset($row['duration']) ? min(86400, (int)$row['duration']) : 0;
-			foreach (['channel', 'dstchannel'] as $field) {
-				if (preg_match('|^PJSIP/[0-9]+-|', isset($row[$field]) ? $row[$field] : '')) {
-					$this->addInterval($events, isset($row['calldate']) ? $row['calldate'] : '', $duration);
-				}
-			}
+			$legs = isset($row['extension_legs']) ? max(0, (int)$row['extension_legs']) : 0;
+			for ($i = 0; $i < $legs; $i++) $this->addInterval($events, isset($row['calldate']) ? $row['calldate'] : '', $duration);
 		}
 		$exact = $this->eventsToPoints($events, $start, $end);
 		return [
@@ -54,14 +49,19 @@ class HistoricalGraphService {
 		$end = strtotime($rangeEnd);
 		ksort($events, SORT_NUMERIC);
 		$current = 0;
-		$points = [['ts' => $start, 'value' => 0]];
+		foreach ($events as $timestamp => $delta) {
+			if ((int)$timestamp > $start) break;
+			$current += (int)$delta;
+		}
+		$points = [['ts' => $start, 'value' => max(0, $current)]];
 		foreach ($events as $timestamp => $delta) {
 			$timestamp = (int)$timestamp;
+			if ($timestamp <= $start) continue;
+			if ($timestamp > $end) break;
 			$current += (int)$delta;
-			if ($timestamp < $start || $timestamp > $end) continue;
 			$points[] = ['ts' => $timestamp, 'value' => max(0, $current)];
 		}
-		$points[] = ['ts' => $end, 'value' => !empty($points) ? $points[count($points) - 1]['value'] : 0];
+		$points[] = ['ts' => $end, 'value' => max(0, $current)];
 		return $this->deduplicate($points);
 	}
 

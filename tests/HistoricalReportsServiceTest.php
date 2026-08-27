@@ -126,6 +126,21 @@ try {
 }
 hr_assert(true === $invalidRejected, 'Invalid mode is rejected before persisting a new report');
 
+foreach (['2026-02-29', '2026-02-31', '2026-13-01'] as $invalidDate) {
+	$dateRejected = false;
+	try { $service->createReport($service->defaults(), hr_definition(['range_from' => $invalidDate])); }
+	catch (InvalidArgumentException $exception) { $dateRejected = true; }
+	hr_assert($dateRejected, 'Impossible persisted calendar date is rejected: ' . $invalidDate);
+}
+$validLeap = $service->createReport($service->defaults(), hr_definition(['range_from' => '2024-02-29', 'range_to' => '2024-02-29']));
+hr_assert('2024-02-29' === $validLeap[1]['range_from'], 'Valid leap day is retained');
+$reverseRejected = false;
+try { $service->createReport($service->defaults(), hr_definition(['range_from' => '2026-08-27', 'range_to' => '2026-08-26'])); }
+catch (InvalidArgumentException $exception) { $reverseRejected = true; }
+hr_assert($reverseRejected, 'Persisted report rejects a reversed date range');
+$groupDefinition = $service->createReport($service->defaults(), hr_definition(['mode' => 'group', 'filter' => 'gamma']));
+hr_assert('' === $groupDefinition[1]['filter'], 'Group definitions cannot retain an irrelevant endpoint filter');
+
 /* Missing report id operations fail cleanly rather than crashing */
 $missingRejected = false;
 try {

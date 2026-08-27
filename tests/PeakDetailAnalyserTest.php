@@ -15,6 +15,7 @@ function peak_detail_row(string $start, int $duration, string $trunk, string $su
 		'calldate' => $start,
 		'duration' => $duration,
 		'chan' => 'PJSIP/' . $trunk . '-' . $suffix,
+		'identity' => $trunk,
 	];
 }
 

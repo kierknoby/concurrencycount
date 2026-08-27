@@ -2,16 +2,22 @@
 	<rawname>concurrencycount</rawname>
 	<repo>unsupported</repo>
 	<name>Concurrency Count</name>
-	<version>2.0.1</version>
+	<version>2.1.0</version>
 	<publisher>20tele.com</publisher>
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
+		*2.1.0 (27 August 2026)* Adds Live View and Live Wall, persistent presentation and monitoring controls, authoritative FreePBX PJSIP identity with reversible unknown-endpoint classifications, and global reversible Historical call exclusions that never alter source CDRs.
+		- Live View and Live Wall are explicitly trunk-only in 2.1.0: Overall Live Concurrency now counts current attributable PJSIP trunk legs only, matching the capacity meaning of Historical Trunk Concurrency.
+		- Historic Report endpoint filters now affect the shared calculation used by GUI regeneration, CSV, email, graphs and detail; missing saved endpoints remain unresolved and never fall back to an unfiltered report.
+		- CLI today/yesterday boundaries are defined, incompatible management operations are rejected before mutation, and explicit invalid engine or Demo arguments fail instead of silently selecting defaults.
+		- Persisted custom dates receive strict calendar/range validation, Historical graph boundary state is corrected, and restart-monitor success reflects combined worker health.
+		- Nested Historical Peak and Activity occurrence surfaces remain neutral white across FreePBX and PBXact while parent Trunk highlighting is retained.
 	*2.0.1 (27 August 2026)* Historical Trunk Concurrency results show compact peak occurrences inline beneath each trunk with accessible lazy call details. Historical Report tabs are now created only when a validated report is run, support persistent custom names, and provide clearer hover and long-name handling.
 	*2.0.0 (26 August 2026)* Initial release. UI module port of the Concurrency Count CLI tool. Calculates maximum concurrent calls per PJSIP trunk, extension, or group within a date range, with a Live Command Centre (AMI-backed current state, threshold alerts via a supervised PM2 worker), persistent Historic Report tabs (up to five, saved report definitions restored across sessions), an optional 'sweep' calculation engine alongside the original per-second occupancy algorithm, and email/download output.
 	</changelog>
 	<category>Reports</category>
-	<description>Calculates maximum concurrent PJSIP calls per trunk, extension, or group across a date range. Companion to the Concurrency Count CLI tool (concurrency-count) shipped via IN1CLICK - NOT CURRENTLY SUITABLE FOR PRODUCTION. Read-only against asteriskcdrdb. Results can be viewed in the browser, downloaded as CSV, or emailed.</description>
+	<description>Live and historical PJSIP concurrency visibility with configurable Live View and read-only Live Wall dashboards, threshold monitoring and alerting, historical trunk, extension and PBX-wide group reporting, and GUI/CLI management. NOT CURRENTLY SUITABLE FOR PRODUCTION.</description>
 	<menuitems>
 		<concurrencycount>Concurrency Count</concurrencycount>
 	</menuitems>

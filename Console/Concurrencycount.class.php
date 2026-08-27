@@ -34,7 +34,7 @@ class Concurrencycount extends Command {
 			->addOption('compare', null, InputOption::VALUE_REQUIRED, 'Demo mode only: comma-separated engine list to compare')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text')
 			->addOption('live', null, InputOption::VALUE_NONE, 'Show one current AMI live-status snapshot and exit')
-			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live Command Centre and threshold settings')
+			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live View, monitoring and threshold settings')
 			->addOption('set-refresh', null, InputOption::VALUE_REQUIRED, 'Set browser refresh interval: 1, 5, 10, 15, 30 or 60 seconds')
 			->addOption('set-overall-threshold', null, InputOption::VALUE_REQUIRED, 'Set overall threshold; 0 disables it')
 			->addOption('overall-threshold', null, InputOption::VALUE_REQUIRED, 'Enable or disable the configured overall threshold: on|off')
@@ -43,6 +43,8 @@ class Concurrencycount extends Command {
 			->addOption('alerts', null, InputOption::VALUE_REQUIRED, 'Enable or disable threshold notifications globally: on|off')
 			->addOption('overall-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable overall threshold notifications: on|off')
 			->addOption('trunk-alert', null, InputOption::VALUE_REQUIRED, 'Enable or disable trunk notifications as TRUNK=on|off')
+			->addOption('start-monitoring', null, InputOption::VALUE_REQUIRED, 'Start unattended threshold monitoring for PJSIP trunk CHANNELID')
+			->addOption('stop-monitoring', null, InputOption::VALUE_REQUIRED, 'Stop unattended threshold monitoring for PJSIP trunk CHANNELID')
 			->addOption('recovery', null, InputOption::VALUE_REQUIRED, 'Enable or disable recovery notifications: on|off')
 			->addOption('alert-email', null, InputOption::VALUE_REQUIRED, 'Set threshold notification email address')
 			->addOption('historical-graph', null, InputOption::VALUE_REQUIRED, 'Return historical graph data for trunk or group mode')
@@ -164,10 +166,11 @@ class Concurrencycount extends Command {
 				}
 			}
 		} elseif ($results['mode'] === 'group') {
-			$output->writeln('<info>Maximum concurrent calls overall: ' . $results['max_concurrency'] . '</info>');
+			$output->writeln('<info>Exact highest simultaneous count overall: ' . $results['max_concurrency'] . '</info>');
+			if ((int)$results['max_concurrency'] === 1) $output->writeln('Activity detected, no concurrency.');
 			$output->writeln('');
 			if (!empty($results['peak_ranges'])) {
-				$output->writeln('Peak time ranges:');
+				$output->writeln(((int)$results['max_concurrency'] === 1 ? 'Activity' : 'Peak') . ' time ranges:');
 				foreach ($results['peak_ranges'] as $r) {
 					if ($r['from'] === $r['to']) {
 						$output->writeln('  ' . $r['from']);
@@ -178,10 +181,11 @@ class Concurrencycount extends Command {
 			}
 		} else {
 			$label = ($results['mode'] === 'trunk') ? 'Trunk' : 'Extension';
-			$output->writeln(sprintf('%-24s  %s', $label, 'Max concurrent'));
+			$output->writeln(sprintf('%-24s  %-10s  %s', $label, 'Exact peak', 'Status'));
 			foreach ($results['per_name'] as $name => $count) {
 				$marker = ($count === $results['global_max'] && $results['global_max'] > 0) ? '*' : ' ';
-				$output->writeln(sprintf('%s%-23s  %d', $marker, $name, $count));
+				$status = (int)$count === 0 ? 'No activity' : ((int)$count === 1 ? 'Activity only' : 'Concurrency');
+				$output->writeln(sprintf('%s%-23s  %-10d  %s', $marker, $name, $count, $status));
 			}
 			$output->writeln('');
 			$output->writeln('<info>Global maximum: ' . $results['global_max'] . '</info>');
@@ -195,9 +199,23 @@ class Concurrencycount extends Command {
 
 	private function handleManagementOperation(InputInterface $input, OutputInterface $output, $cc): ?int {
 		$json = (bool)$input->getOption('json');
+		$mutations = ['set-refresh', 'set-overall-threshold', 'overall-threshold', 'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert', 'start-monitoring', 'stop-monitoring', 'recovery', 'alert-email'];
+		$operations = ['live', 'monitor', 'monitor-status', 'restart-monitor', 'historical-graph', 'list-historical-reports', 'show-historical-report', 'delete-historical-report'];
+		$selectedOperations = [];
+		foreach ($operations as $option) if ($input->getOption($option) !== null && $input->getOption($option) !== false) $selectedOperations[] = '--' . $option;
+		$selectedMutations = [];
+		foreach ($mutations as $option) if ($input->getOption($option) !== null && $input->getOption($option) !== false) $selectedMutations[] = '--' . $option;
+		$settingsRequested = (bool)$input->getOption('settings');
+		if (count($selectedOperations) > 1 || (!empty($selectedOperations) && (!empty($selectedMutations) || $settingsRequested))) {
+			$conflicts = array_merge($selectedOperations, $selectedMutations);
+			if ($settingsRequested) $conflicts[] = '--settings';
+			$output->writeln('<error>Conflicting management options: ' . implode(', ', $conflicts) . '. Run one operation at a time; --json is an output modifier and --settings may accompany settings mutations only.</error>');
+			return 1;
+		}
 		$managementOptions = [
 			'live', 'settings', 'set-refresh', 'set-overall-threshold', 'overall-threshold',
 			'set-trunk-threshold', 'trunk-threshold', 'alerts', 'overall-alert', 'trunk-alert',
+			'start-monitoring', 'stop-monitoring',
 			'recovery', 'alert-email', 'historical-graph', 'monitor',
 			'monitor-status', 'restart-monitor',
 			'list-historical-reports', 'show-historical-report', 'delete-historical-report',
@@ -223,7 +241,7 @@ class Concurrencycount extends Command {
 		if ($input->getOption('restart-monitor')) {
 			$result = $cc->restartAlertMonitor();
 			$this->writeMonitorStatus($output, $result, $json);
-			return !empty($result['available']) && isset($result['pm2_status']) && $result['pm2_status'] === 'online' ? 0 : 1;
+			return !empty($result['available']) && isset($result['status']) && $result['status'] === 'online' ? 0 : 1;
 		}
 		if ($input->getOption('list-historical-reports')) {
 			$result = $cc->getHistoricalReports();
@@ -298,6 +316,16 @@ class Concurrencycount extends Command {
 				$settings['trunks'][$trunk]['alert_enabled'] = $value;
 				$changed = true;
 			}
+			if ($input->getOption('start-monitoring') !== null && $input->getOption('stop-monitoring') !== null) {
+				throw new \InvalidArgumentException('Choose either --start-monitoring or --stop-monitoring, not both.');
+			}
+			foreach (['start-monitoring' => true, 'stop-monitoring' => false] as $option => $monitored) {
+				if ($input->getOption($option) === null) continue;
+				$trunk = trim((string)$input->getOption($option));
+				if ($trunk === '' || !isset($settings['trunks'][$trunk])) throw new \InvalidArgumentException('Unknown PJSIP trunk channelid: ' . $trunk);
+				$settings['trunks'][$trunk]['monitored'] = $monitored;
+				$changed = true;
+			}
 			if ($input->getOption('recovery') !== null) {
 				$settings['recovery_enabled'] = $input->getOption('recovery');
 				$changed = true;
@@ -307,6 +335,8 @@ class Concurrencycount extends Command {
 				$changed = true;
 			}
 			if ($changed) $settings = $cc->saveLiveSettings($settings);
+			if (!$json && $input->getOption('start-monitoring') !== null) $output->writeln('<info>Monitoring started for ' . trim((string)$input->getOption('start-monitoring')) . '.</info>');
+			if (!$json && $input->getOption('stop-monitoring') !== null) $output->writeln('<info>Monitoring stopped for ' . trim((string)$input->getOption('stop-monitoring')) . '.</info>');
 		} catch (\Exception $exception) {
 			$output->writeln('<error>' . $exception->getMessage() . '</error>');
 			return 1;
@@ -359,7 +389,7 @@ class Concurrencycount extends Command {
 			$output->writeln('Message:     ' . $snapshot['message']);
 			return;
 		}
-		$output->writeln('Overall Live Concurrency (active monitored PJSIP legs): ' . $snapshot['overall']['current']);
+		$output->writeln('Overall Live Concurrency (active attributable PJSIP trunk legs): ' . $snapshot['overall']['current']);
 		foreach ($snapshot['overall']['calls'] as $call) $output->writeln('  ' . $call['channel'] . ' ' . $call['state'] . ' ' . $call['duration_seconds'] . 's');
 		foreach ($snapshot['trunks'] as $trunk => $result) {
 			$output->writeln(sprintf('%-24s %d (%d inbound, %d outbound, %d unknown)', $trunk, $result['current'], $result['direction_counts']['inbound'], $result['direction_counts']['outbound'], $result['direction_counts']['unknown']));
@@ -378,7 +408,7 @@ class Concurrencycount extends Command {
 		$output->writeln('Alert email:           ' . ($settings['alert_email'] !== '' ? $settings['alert_email'] : '(not configured)'));
 		$output->writeln(sprintf('Overall threshold:     %s %d; alert %s', $settings['overall']['enabled'] ? 'enabled' : 'disabled', $settings['overall']['threshold'], $settings['overall']['alert_enabled'] ? 'enabled' : 'disabled'));
 		foreach ($settings['trunks'] as $trunk => $scope) {
-			$output->writeln(sprintf('%-24s threshold %s %d; alert %s', $trunk, $scope['enabled'] ? 'enabled' : 'disabled', $scope['threshold'], $scope['alert_enabled'] ? 'enabled' : 'disabled'));
+			$output->writeln(sprintf('%-24s monitoring %s; threshold %s %d; alert %s', $trunk, !empty($scope['monitored']) ? 'active' : 'stopped', $scope['enabled'] ? 'enabled' : 'disabled', $scope['threshold'], $scope['alert_enabled'] ? 'enabled' : 'disabled'));
 		}
 	}
 

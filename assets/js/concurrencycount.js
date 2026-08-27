@@ -49,8 +49,8 @@ window._ccLoaded = true;
 	var guiRange = null;
 	var modeDescriptions = {
 		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
-		extension: 'Extensions measure overlapping CDRs assigned to each individual numeric PJSIP extension.',
-		group: 'Group measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
+		extension: 'Extensions measure overlapping CDR legs assigned to each configured or manually classified PJSIP device.',
+		group: 'Group measures attributable PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
 	};
 	var modeLabels = {
 		trunk: 'Trunk Concurrency',
@@ -63,8 +63,10 @@ window._ccLoaded = true;
 	var activeReportId = null;
 	var wizardTargetReportId = null; // which report the open wizard will run into
 	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
-	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-command-centre.js
+	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-view.js
 	var generatedReportName = '';
+	var pendingExcludedCallIdentity = null;
+	var pendingPersistedRefresh = false;
 
 	function selectedMode() {
 		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
@@ -170,6 +172,7 @@ window._ccLoaded = true;
 		// (Option B): it paints the shared results surface transiently and
 		// never reads or writes any report instance's saved state.
 		runTargetReportId = null;
+		showTransientDemoResult();
 		executeRun('demo', demoPlan.start, demoPlan.end, {
 			demo_report: report,
 			demo_size: demoPlan.size,
@@ -322,7 +325,7 @@ window._ccLoaded = true;
 		var body = $('#cc-results-body');
 		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
-			body.html(renderExplanation(r) + '<p class="text-muted">' + escapeHtml(r.empty_message) + '</p>');
+			body.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
 		} else if (r.mode === 'demo') {
 			renderDemo(body, r);
 		} else if (r.mode === 'group') {
@@ -330,11 +333,60 @@ window._ccLoaded = true;
 		} else {
 			renderPerName(body, r);
 		}
+		body.append(renderIdentityAnomalies(r.identity_anomalies || []));
 
 		$('#cc-results-warning').text(r.warning || '');
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
 		$(document).trigger('cc:historical-results', [r]);
+	}
+
+	function renderIdentityAnomalies(anomalies) {
+		if (!anomalies.length) return '';
+		var html = '<section class="alert alert-warning cc-identity-anomalies"><h4>Some PJSIP endpoints could not be identified</h4><p>Unresolved endpoints are excluded from classification-dependent totals. These choices affect Concurrency Count only and do not change FreePBX, Asterisk or CDR data.</p>';
+		anomalies.forEach(function (item) {
+			html += '<div class="cc-identity-anomaly"><code>' + escapeHtml(item.endpoint) + '</code> ';
+			if (item.type === 'conflict') html += '<span>is configured as both a FreePBX trunk and device. Resolve the FreePBX configuration conflict.</span>';
+			else html += '<span>is not a configured FreePBX PJSIP trunk or device.</span> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="trunk">Treat as Trunk</button> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="extension">Treat as Extension</button> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="ignore">Ignore</button> <span class="text-muted">Leave unresolved</span>';
+			html += '</div>';
+		});
+		return html + '</section>';
+	}
+
+	function invalidateAndRerunReports() {
+		Object.keys(historicalReports).forEach(function (id) {
+			historicalReports[id].result = null;
+			historicalReports[id].graphSeries = null;
+			historicalReports[id].occurrenceCache = {};
+		});
+		if (activeReportId && historicalReports[activeReportId]) { pendingPersistedRefresh = true; regenerateReport(historicalReports[activeReportId]); }
+	}
+
+	function saveIdentityClassification(endpoint, classification) {
+		ajax({command: 'saveidentityclassification', endpoint: endpoint, classification: classification}).done(function (response) {
+			if (!response.status) { setStatus(response.message || 'Unable to save endpoint classification.', 'error'); return; }
+			invalidateAndRerunReports();
+			loadIdentityClassifications();
+		});
+	}
+
+	function renderIdentityClassifications(entries) {
+		var body = $('#cc-identity-rows').empty();
+		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No endpoint classifications are remembered.</td></tr>'); return; }
+		entries.forEach(function (entry) {
+			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset to automatic</button></td></tr>');
+		});
+	}
+
+	function loadIdentityClassifications() {
+		return ajax({command: 'getidentityclassifications'}).done(function (response) {
+			if (response.status) renderIdentityClassifications(response.classifications || []);
+		});
+	}
+
+	function openIdentityClassifications() {
+		loadIdentityClassifications();
+		$('#cc-identity-modal').modal('show');
 	}
 
 	function renderExplanation(r) {
@@ -350,7 +402,7 @@ window._ccLoaded = true;
 		var engine = r.engine || (r.engines ? 'comparison' : 'original');
 		var overview = r.overview || {};
 		if (r.empty_message) {
-			return 'No matching answered PJSIP calls were found for this report, so there is no concurrency peak to show.';
+			return 'No eligible activity was found in the selected range.';
 		}
 		if (r.mode === 'demo') {
 			if (r.accuracy_status === 'pass' && r.engines) {
@@ -390,9 +442,11 @@ window._ccLoaded = true;
 		var average = parseFloat(overview.average_concurrency) || 0;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
-		var text = 'The highest total number of simultaneous numeric PJSIP extension legs in this date range was ' + max + '. Both numeric sides of one internal CDR can count.';
+		var text = max === 1
+			? 'Activity was present, but no eligible extension-side legs overlapped. The exact highest simultaneous count was 1.'
+			: 'The highest total number of simultaneous attributable PJSIP extension legs in this date range was ' + max + '. Both classified extension sides of one internal CDR can count.';
 		if (average > 0) {
-			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
+			text += ' For calls that started in the selected range, the average simultaneous count within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (peakPercent > 0) {
 			if (peakPercent < 1) {
@@ -413,11 +467,13 @@ window._ccLoaded = true;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var namesWithPeak = parseInt(overview.names_with_peak, 10) || 0;
 		var namesSeen = parseInt(overview.names_seen, 10) || 0;
-		var text = r.mode === 'trunk'
-			? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
-			: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.';
+		var text = max === 1
+			? 'Activity was present, but no calls overlapped for any one ' + label + '. The exact highest simultaneous count was 1.'
+			: (r.mode === 'trunk'
+				? 'The highest simultaneous matching trunk-leg count seen on any trunk in this date range was ' + max + '.'
+				: 'The highest simultaneous answered-CDR count assigned to any one extension in this date range was ' + max + '.');
 		if (average > 0) {
-			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
+			text += ' For calls that started in the selected range, the average simultaneous count within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
 		if (namesWithPeak === 1 && namesSeen > 1) {
 			text += ' The peak was concentrated on one ' + label + '.';
@@ -430,12 +486,12 @@ window._ccLoaded = true;
 
 	function renderGroup(el, r) {
 		var html = renderExplanation(r);
-		html += '<div class="cc-peak-summary">' +
-			'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
-			'<br><span>' + escapeHtml(r.max_concurrency) + ' numeric PJSIP extension legs active simultaneously across the PBX.</span>' +
-			'</div>';
+		var activityOnly = parseInt(r.max_concurrency, 10) === 1;
+		html += '<div class="cc-peak-summary' + (activityOnly ? ' cc-activity-summary' : '') + '">' +
+			(activityOnly ? 'Activity detected, no concurrency' : 'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>') +
+			'<br><span>' + (activityOnly ? 'Highest simultaneous count: 1 attributable PJSIP extension leg.' : escapeHtml(r.max_concurrency) + ' attributable PJSIP extension legs active simultaneously across the PBX.') + '</span></div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
-			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
+			html += '<h4>' + (activityOnly ? 'Activity time ranges' : 'Peak time ranges') + '</h4><ul class="cc-peak-ranges">';
 			r.peak_ranges.forEach(function (range) {
 				if (range.from === range.to) {
 					html += '<li>' + escapeHtml(range.from) + '</li>';
@@ -451,59 +507,75 @@ window._ccLoaded = true;
 	function renderPerName(el, r) {
 		var label = (r.mode === 'trunk') ? 'Trunk' : 'Extension';
 		var names = Object.keys(r.per_name);
-		if (!names.length) {
-			el.html(renderExplanation(r) + '<p class="text-muted">No calls found in the selected date range.</p>');
+		var concurrencyNames = names.filter(function (name) { return parseInt(r.per_name[name], 10) >= 2; });
+		var activityNames = names.filter(function (name) { return parseInt(r.per_name[name], 10) === 1; });
+		if (!concurrencyNames.length && !activityNames.length) {
+			el.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
 			return;
 		}
 		var html = renderExplanation(r);
 		if (r.mode === 'trunk') {
-			html += '<div class="cc-trunk-results">';
-			names.forEach(function (trunk, nameIndex) {
-				var count = r.per_name[trunk];
-				var isPeak = count === r.global_max && r.global_max > 0;
-				html += '<section class="panel panel-default cc-trunk-result' + (isPeak ? ' cc-peak-row' : '') + '" data-name-index="' + nameIndex + '">' +
-					'<div class="panel-heading cc-trunk-summary"><h4>' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>' +
-					'<p>Peak trunk concurrency: <strong>' + escapeHtml(count) + '</strong></p></div>' +
-					renderOccurrenceSection(trunk, nameIndex, r) + '</section>';
-			});
-			html += '</div>';
+			html += renderTrunkResults(concurrencyNames, names, r, false);
+			if (activityNames.length) html += renderActivityDisclosure(renderTrunkResults(activityNames, names, r, true), activityNames.length);
 		} else {
-		var peakColumn = r.mode === 'trunk' ? 'Peak trunk concurrency' : 'Peak assigned CDR concurrency';
-		html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr>' +
-			'<th>' + escapeHtml(label) + '</th>' +
-			'<th>' + escapeHtml(peakColumn) + '</th>' +
-			'</tr></thead><tbody>';
-		names.forEach(function (n) {
-			var count = r.per_name[n];
-			var isPeak = (count === r.global_max && r.global_max > 0);
-			var nameIndex = names.indexOf(n);
-			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '>' +
-				'<td>' + escapeHtml(n) + '</td>' +
-				'<td><strong>' + escapeHtml(count) + '</strong></td>' +
-				'</tr>';
-		});
-		html += '</tbody></table></div>';
+			html += renderExtensionTable(concurrencyNames, r, 'Peak assigned CDR concurrency');
+			if (activityNames.length) html += renderActivityDisclosure(renderExtensionTable(activityNames, r, 'Activity status'), activityNames.length);
 		}
-		var peakDetail = r.mode === 'trunk'
-			? r.global_max + ' trunk legs active simultaneously at the busiest point.'
-			: r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
-		html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong>' +
-			'<br><span>' + escapeHtml(peakDetail) + '</span></div>';
+		if (parseInt(r.global_max, 10) >= 2) {
+			var peakDetail = r.mode === 'trunk' ? r.global_max + ' trunk legs active simultaneously at the busiest point.' : r.global_max + ' assigned CDRs overlapping at the busiest point for one extension.';
+			html += '<div class="cc-peak-summary">Peak ' + escapeHtml(r.mode === 'trunk' ? 'trunk concurrency' : 'assigned extension concurrency') + ': <strong>' + escapeHtml(r.global_max) + '</strong><br><span>' + escapeHtml(peakDetail) + '</span></div>';
+		} else {
+			html += '<div class="cc-peak-summary cc-activity-summary">No concurrent calls detected.<br><span>Activity was present, but no calls overlapped. Highest simultaneous count: 1.</span></div>';
+		}
 		el.html(html);
 	}
 
-	function renderOccurrenceSection(trunk, nameIndex, r) {
-		var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
-		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No peak occurrences in this range.</p>';
-		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>Peak occurrences</h5>';
-		occurrences.forEach(function (occurrence, occurrenceIndex) {
-				var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
-				html += '<div class="panel panel-default cc-occurrence">' +
-					'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
-					'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatClockRange(occurrence.from, occurrence.to)) + '</strong><small>' + escapeHtml(occurrence.peak) + ' simultaneous trunk legs &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
-					'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
-					'</div>';
+	function renderTrunkResults(selectedNames, allNames, r, activityOnly) {
+		if (!selectedNames.length) return '';
+		var html = '<div class="cc-trunk-results">';
+		selectedNames.forEach(function (trunk) {
+			var nameIndex = allNames.indexOf(trunk);
+			var count = r.per_name[trunk];
+			var isPeak = count === r.global_max && r.global_max >= 2;
+			html += '<section class="panel panel-default cc-trunk-result' + (isPeak ? ' cc-peak-row' : '') + (activityOnly ? ' cc-activity-result' : '') + '" data-name-index="' + nameIndex + '">' +
+				'<div class="panel-heading cc-trunk-summary"><h4>' + renderEntity(r.trunk_entities ? r.trunk_entities[trunk] : null, trunk) + '</h4>' +
+				'<p>' + (activityOnly ? 'Activity detected, no concurrency' : 'Peak trunk concurrency: <strong>' + escapeHtml(count) + '</strong>') + '</p></div>' +
+				renderOccurrenceSection(trunk, nameIndex, r, activityOnly) + '</section>';
 		});
+		return html + '</div>';
+	}
+
+	function renderExtensionTable(selectedNames, r, heading) {
+		if (!selectedNames.length) return '';
+		var html = '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Extension</th><th>' + escapeHtml(heading) + '</th></tr></thead><tbody>';
+		selectedNames.forEach(function (name) {
+			var count = parseInt(r.per_name[name], 10) || 0;
+			var isPeak = count === r.global_max && r.global_max >= 2;
+			html += '<tr' + (isPeak ? ' class="cc-peak-row"' : '') + '><td>' + escapeHtml(name) + '</td><td>' + (count === 1 ? 'Activity detected, no concurrency' : '<strong>' + escapeHtml(count) + '</strong>') + '</td></tr>';
+		});
+		return html + '</tbody></table></div>';
+	}
+
+	function renderActivityDisclosure(content, count) {
+		return '<section class="cc-activity-only"><button type="button" class="btn btn-default cc-activity-toggle" aria-expanded="false" aria-controls="cc-activity-only-results"><span>Show activity-only results</span> <span class="badge">' + escapeHtml(count) + '</span></button><div id="cc-activity-only-results" class="cc-activity-only-results" hidden>' + content + '</div></section>';
+	}
+
+	function renderOccurrenceSection(trunk, nameIndex, r, activityOnly) {
+		var occurrences = r.peak_occurrences && r.peak_occurrences[trunk] ? r.peak_occurrences[trunk] : [];
+		if (!occurrences.length) return '<p class="panel-body text-muted cc-no-occurrences">No ' + (activityOnly ? 'activity' : 'peak') + ' occurrences in this range.</p>';
+		var html = '<div class="cc-occurrence-section" data-name-index="' + nameIndex + '"><h5>' + (activityOnly ? 'Activity occurrences' : 'Peak occurrences') + '</h5>';
+		occurrences.forEach(function (occurrence, occurrenceIndex) {
+			if (occurrenceIndex === 5) html += '<div id="cc-additional-occurrences-' + nameIndex + '" class="cc-additional-occurrences" hidden>';
+			var detailId = 'cc-occurrence-detail-' + nameIndex + '-' + occurrenceIndex;
+			html += '<div class="panel panel-default cc-occurrence">' +
+				'<div class="panel-heading"><button type="button" class="cc-occurrence-toggle" data-name-index="' + nameIndex + '" data-occurrence-index="' + occurrenceIndex + '" aria-expanded="false" aria-controls="' + detailId + '">' +
+				'<i class="fa fa-chevron-right" aria-hidden="true"></i><span><strong>' + escapeHtml(formatOccurrenceRange(occurrence.from, occurrence.to)) + '</strong><small>' + (activityOnly ? 'Activity occurrence' : escapeHtml(occurrence.peak) + ' simultaneous trunk legs') + ' &middot; ' + escapeHtml(formatDuration(occurrence.duration_seconds)) + '</small></span></button></div>' +
+				'<div id="' + detailId + '" class="panel-body cc-occurrence-detail" style="display:none"></div>' +
+				'</div>';
+		});
+		if (occurrences.length > 5) {
+			html += '</div><button type="button" class="btn btn-default btn-sm cc-occurrence-list-toggle" aria-expanded="false" aria-controls="cc-additional-occurrences-' + nameIndex + '">Show ' + escapeHtml(occurrences.length - 5) + ' more</button>';
+		}
 		html += '</div>';
 		return html;
 	}
@@ -522,10 +594,21 @@ window._ccLoaded = true;
 			: escapeHtml(label);
 	}
 
-	function formatClockRange(from, to) {
-		var fromClock = String(from || '').split(' ')[1] || from;
-		var toClock = String(to || '').split(' ')[1] || to;
-		return fromClock === toClock ? fromClock : fromClock + ' to ' + toClock;
+	function parseOccurrenceTimestamp(value) {
+		var match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2}:\d{2})$/);
+		if (!match) return null;
+		var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		var monthIndex = parseInt(match[2], 10) - 1;
+		if (monthIndex < 0 || monthIndex > 11) return null;
+		return {date: match[1] + '-' + match[2] + '-' + match[3], label: parseInt(match[3], 10) + ' ' + months[monthIndex] + ' ' + match[1], time: match[4]};
+	}
+
+	function formatOccurrenceRange(from, to) {
+		var fromParts = parseOccurrenceTimestamp(from);
+		var toParts = parseOccurrenceTimestamp(to);
+		if (!fromParts || !toParts) return String(from || '') === String(to || '') ? String(from || '') : String(from || '') + ' to ' + String(to || '');
+		if (fromParts.date === toParts.date) return fromParts.label + ', ' + fromParts.time + (fromParts.time === toParts.time ? '' : ' to ' + toParts.time);
+		return fromParts.label + ', ' + fromParts.time + ' to ' + toParts.label + ', ' + toParts.time;
 	}
 
 	function formatDuration(seconds) {
@@ -602,10 +685,95 @@ window._ccLoaded = true;
 				'<td>' + escapeHtml(caller) + '</td><td>' + escapeHtml(destination) + '</td>' +
 				'<td>' + escapeHtml(call.direction) + '</td><td>' + escapeHtml(formatDuration(call.duration)) + '</td>' +
 				'<td class="cc-call-path">' + path.join(' <span aria-hidden="true">&rarr;</span> ') + '</td>' +
-				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button></td></tr>';
+				'<td><button type="button" class="btn btn-default btn-sm cc-view-cdr" data-call-index="' + callIndex + '">View in CDR Reports</button>' +
+				(call.call_identity ? ' <button type="button" class="btn btn-warning btn-sm cc-exclude-call" data-call-index="' + callIndex + '">Exclude Call</button>' : '') + '</td></tr>';
 		});
 		html += '</tbody></table></div>';
 		return html;
+	}
+
+	function callFromDetailButton(button) {
+		var occurrence = button.closest('.cc-occurrence');
+		var callIndex = parseInt(button.data('call-index'), 10);
+		var detail = occurrence.find('.cc-occurrence-detail').data('detail');
+		return detail && detail.calls ? detail.calls[callIndex] : null;
+	}
+
+	function confirmExcludeCall(button) {
+		var call = callFromDetailButton(button);
+		if (!call || !call.call_identity) return;
+		pendingExcludedCallIdentity = call.call_identity;
+		$('#cc-exclude-call-error').hide().empty();
+		$('#cc-exclude-call-modal').modal('show');
+	}
+
+	function excludePendingCall() {
+		if (!pendingExcludedCallIdentity) return;
+		$('#cc-exclude-call-confirm').prop('disabled', true);
+		ajax({command: 'excludecall', call_identity: pendingExcludedCallIdentity}).done(function (response) {
+			if (!response.status) { $('#cc-exclude-call-error').text(response.message || 'Unable to exclude this call.').show(); return; }
+			pendingExcludedCallIdentity = null;
+			$('#cc-exclude-call-modal').modal('hide');
+			updateExcludedCount(response.excluded_count);
+			setStatus('Call excluded globally. The source CDR was not changed. Regenerating this report...', 'success');
+			invalidateAndRerunReports();
+		}).fail(function () {
+			$('#cc-exclude-call-error').text('Unable to save the call exclusion. The current report has not been changed.').show();
+		}).always(function () { $('#cc-exclude-call-confirm').prop('disabled', false); });
+	}
+
+	function updateExcludedCount(count) {
+		count = parseInt(count, 10) || 0;
+		$('#cc-excluded-count').text(count ? '(' + count + ')' : '');
+	}
+
+	function openExcludedCalls() {
+		$('#cc-excluded-calls-message').hide().empty();
+		ajax({command: 'listexcludedcalls', report_id: activeReportId || ''}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to load excluded calls.').show(); return; }
+			renderExcludedCalls(response.calls || [], !!response.has_report_context);
+			updateExcludedCount(response.excluded_count);
+			$('#cc-excluded-calls-modal').modal('show');
+		});
+	}
+
+	function renderExcludedCalls(calls, hasReportContext) {
+		$('#cc-excluded-relevance-heading').toggle(hasReportContext);
+		var body = $('#cc-excluded-calls-rows').empty();
+		if (!calls.length) {
+			body.append('<tr><td colspan="9" class="text-muted">No calls are currently excluded.</td></tr>');
+			$('#cc-restore-all-excluded').prop('disabled', true);
+			return;
+		}
+		$('#cc-restore-all-excluded').prop('disabled', false);
+		calls.forEach(function (entry) {
+			var summary = entry.summary || {};
+			var context = [summary.trunk, summary.extension].filter(Boolean).join(' / ') || '-';
+			var relevance = entry.matches_current_report === true ? 'Would be eligible' : (entry.matches_current_report === false ? 'Not in scope' : 'Relevance unavailable');
+			var relevanceClass = !hasReportContext ? 'cc-excluded-global' : (entry.matches_current_report === true ? 'cc-excluded-relevant' : (entry.matches_current_report === false ? 'cc-excluded-not-in-scope' : 'cc-excluded-unknown'));
+			var sourceState = entry.source_available ? '' : '<br><span class="text-muted">Source CDR unavailable</span>';
+			body.append('<tr class="' + relevanceClass + '"><td>' + escapeHtml(summary.calldate || '-') + '</td><td>' + escapeHtml(summary.src || '-') + '</td><td>' + escapeHtml(summary.dst || '-') + '</td><td>' + escapeHtml(context) + '</td><td>' + escapeHtml(formatDuration(summary.duration || 0)) + '</td><td><code>' + escapeHtml(entry.call_identity) + '</code>' + sourceState + '</td><td>' + escapeHtml(entry.excluded_at) + '</td>' + (hasReportContext ? '<td class="cc-excluded-relevance">' + escapeHtml(relevance) + '</td>' : '') + '<td><button type="button" class="btn btn-default btn-sm cc-restore-excluded" data-call-identity="' + escapeHtml(entry.call_identity) + '">Restore</button></td></tr>');
+		});
+	}
+
+	function restoreExcludedCall(identity) {
+		if (!window.confirm('Restore this call? It will become eligible for Historical Reports again.')) return;
+		ajax({command: 'restoreexcludedcall', call_identity: identity}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore this call.').show(); return; }
+			updateExcludedCount(response.excluded_count);
+			openExcludedCalls();
+			invalidateAndRerunReports();
+		});
+	}
+
+	function restoreAllExcludedCalls() {
+		if (!window.confirm('Restore all excluded calls? All calls will become eligible for Historical Reports again. No source CDR data will be changed.')) return;
+		ajax({command: 'restoreallexcludedcalls'}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore excluded calls.').show(); return; }
+			updateExcludedCount(0);
+			renderExcludedCalls([], !!activeReportId);
+			invalidateAndRerunReports();
+		});
 	}
 
 	function openCdrSearch(button) {
@@ -722,7 +890,7 @@ window._ccLoaded = true;
 	}
 
 	/* ---------- Historical report tabs ----------
-	 * Historic Report tabs are peers of Live Command Centre / Historical
+	 * Historic Report tabs are peers of Live View / Historical
 	 * Reports on the one top-level tab strip (#cc-workspace-tabs), not a
 	 * second-level control nested inside the Historical section. One shared
 	 * wizard/results DOM subtree (unchanged) is repainted from whichever
@@ -753,7 +921,7 @@ window._ccLoaded = true;
 			});
 			renderTopReportTabs();
 			// Deliberately does not change which top-level tab is active on
-			// load: Live Command Centre remains the default landing tab, and
+			// load: Live View remains the default landing tab, and
 			// each report tab regenerates lazily only when actually selected.
 		});
 	}
@@ -779,13 +947,24 @@ window._ccLoaded = true;
 		activeReportId = null;
 		$('#cc-report-landing').show();
 		$('#cc-report-active').hide();
+		$('#cc-report-active .cc-report-global-actions').show();
+	}
+
+	function showTransientDemoResult() {
+		// Demo owns the shared Historical result surface only for this page
+		// state. It has no report id, tab, persisted definition or cache.
+		activeReportId = null;
+		$('#cc-report-landing').hide();
+		$('#cc-report-active').show();
+		$('#cc-report-active .cc-report-global-actions').hide();
+		$('#cc-report-loading, #cc-report-empty, #cc-historical-graph, #cc-email-row').hide();
 	}
 
 	/**
-	 * Single point of top-level tab selection: Live Command Centre,
+	 * Single point of top-level tab selection: Live View,
 	 * Historical Reports (landing), or a Historic Report tab. Owns
 	 * aria-selected for the whole shared strip; delegates section
-	 * show/hide + Live polling to live-command-centre.js.
+	 * show/hide + Live polling to live-view.js.
 	 */
 	function selectTopTab(target) {
 		$('#cc-workspace-tabs [data-target]').attr('aria-selected', 'false');
@@ -837,6 +1016,7 @@ window._ccLoaded = true;
 		ajax({command: 'activatehistoricalreport', id: id});
 		$('#cc-report-landing').hide();
 		$('#cc-report-active').show();
+		$('#cc-report-active .cc-report-global-actions').show();
 		if (report.firstRunPending) {
 			$('#cc-report-empty, #cc-results').hide();
 			$('#cc-report-loading-text').text('Running ' + report.name + '...');
@@ -874,7 +1054,8 @@ window._ccLoaded = true;
 		} catch (error) {
 			$('#cc-report-loading').hide();
 			$('#cc-report-empty').show();
-			setStatus('Unable to regenerate ' + report.name + ': ' + (error.message || 'invalid saved date range.'), 'error');
+			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but ' : '') + 'Unable to regenerate ' + report.name + ': ' + (error.message || 'invalid saved date range.'), 'error');
+			pendingPersistedRefresh = false;
 		}
 	}
 
@@ -1223,6 +1404,7 @@ window._ccLoaded = true;
 		$('#cc-results').hide();
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end};
+		if (targetReportId && historicalReports[targetReportId]) params.filter = historicalReports[targetReportId].filter || '';
 		if (mode !== 'demo') {
 			params.engine = selectedEngine;
 		}
@@ -1237,7 +1419,8 @@ window._ccLoaded = true;
 			$('#cc-report-loading').hide();
 			if (!resp.status) {
 				if (discardFailedFirstRun(targetReportId, resp.message || 'Failed to run.')) return;
-				setStatus(resp.message || 'Failed to run.', 'error');
+				setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + (resp.message || 'Failed to run.'), 'error');
+				pendingPersistedRefresh = false;
 				return;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
@@ -1245,7 +1428,8 @@ window._ccLoaded = true;
 		}).fail(function () {
 			$('#cc-report-loading').hide();
 			if (discardFailedFirstRun(targetReportId, randomOops())) return;
-			setStatus(randomOops(), 'error');
+			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + randomOops(), 'error');
+			pendingPersistedRefresh = false;
 		});
 	}
 
@@ -1256,6 +1440,7 @@ window._ccLoaded = true;
 	 * if that report is still the one visibly active.
 	 */
 	function applyReportResult(targetReportId, results, engineUsed) {
+		pendingPersistedRefresh = false;
 		if (targetReportId && historicalReports[targetReportId]) {
 			var report = historicalReports[targetReportId];
 			report.result = results;
@@ -1294,6 +1479,7 @@ window._ccLoaded = true;
 			modal.modal('hide');
 			setStatus('Continuing despite estimated overrun...', 'running');
 			var params = {command: 'run', mode: mode, start_date: start, end_date: end, confirm_overrun: '1'};
+			if (targetReportId && historicalReports[targetReportId]) params.filter = historicalReports[targetReportId].filter || '';
 			if (mode !== 'demo') {
 				params.engine = selectedEngine || $('#cc-engine').val() || 'original';
 			}
@@ -1360,6 +1546,7 @@ window._ccLoaded = true;
 		var params = {
 			module: 'concurrencycount', command: 'download',
 			mode: finalMode, start_date: finalStart, end_date: finalEnd,
+			filter: activeReportId && historicalReports[activeReportId] ? (historicalReports[activeReportId].filter || '') : '',
 			token: $('.concurrencycount').attr('data-csrf-token') || ''
 		};
 		if (finalMode === 'demo') {
@@ -1404,6 +1591,7 @@ window._ccLoaded = true;
 			command: 'email', mode: finalMode,
 			start_date: finalStart, end_date: finalEnd, email: to
 		};
+		params.filter = activeReportId && historicalReports[activeReportId] ? (historicalReports[activeReportId].filter || '') : '';
 		if (finalMode === 'demo') {
 			params.demo_report = finalDemoReport || 'extension';
 			params.demo_size = finalDemoSize || 'light';
@@ -1434,6 +1622,19 @@ window._ccLoaded = true;
 		$('#cc-launch').off('click').on('click', openNewReportWizard);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
+		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
+		$('#cc-exclude-call-confirm').off('click').on('click', excludePendingCall);
+		$('#cc-restore-all-excluded').off('click').on('click', restoreAllExcludedCalls);
+		$('#cc-excluded-calls-rows').off('click.ccExcluded', '.cc-restore-excluded').on('click.ccExcluded', '.cc-restore-excluded', function () { restoreExcludedCall($(this).data('call-identity')); });
+		$('#cc-results-body').off('click.ccIdentity', '.cc-classify-endpoint').on('click.ccIdentity', '.cc-classify-endpoint', function () { saveIdentityClassification($(this).data('endpoint'), $(this).data('classification')); });
+		$('#cc-identity-rows').off('click.ccIdentity', '.cc-reset-identity').on('click.ccIdentity', '.cc-reset-identity', function () {
+			ajax({command: 'resetidentityclassification', endpoint: $(this).data('endpoint')}).done(function (response) { if (response.status) { renderIdentityClassifications(response.classifications || []); invalidateAndRerunReports(); } });
+		});
+		$('#cc-identity-reset-all').off('click').on('click', function () {
+			if (!window.confirm('Reset all remembered PJSIP endpoint classifications?')) return;
+			ajax({command: 'resetallidentityclassifications'}).done(function (response) { if (response.status) { renderIdentityClassifications([]); invalidateAndRerunReports(); } });
+		});
 		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
 			if ($(e.target).closest('.cc-report-tab-close').length) return;
 			selectTopTab($(this).data('target'));
@@ -1489,6 +1690,18 @@ window._ccLoaded = true;
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
+		}).off('click', '.cc-occurrence-list-toggle').on('click', '.cc-occurrence-list-toggle', function () {
+			var button = $(this);
+			var expanded = button.attr('aria-expanded') !== 'true';
+			button.attr('aria-expanded', expanded ? 'true' : 'false').text(expanded ? 'Show less' : 'Show ' + button.closest('.cc-occurrence-section').find('.cc-additional-occurrences .cc-occurrence').length + ' more');
+			button.closest('.cc-occurrence-section').find('.cc-additional-occurrences').prop('hidden', !expanded);
+		}).off('click', '.cc-activity-toggle').on('click', '.cc-activity-toggle', function () {
+			var button = $(this);
+			var expanded = button.attr('aria-expanded') !== 'true';
+			button.attr('aria-expanded', expanded ? 'true' : 'false').find('span:first').text(expanded ? 'Hide activity-only results' : 'Show activity-only results');
+			button.closest('.cc-activity-only').find('.cc-activity-only-results').prop('hidden', !expanded);
+		}).off('click', '.cc-exclude-call').on('click', '.cc-exclude-call', function () {
+			confirmExcludeCall($(this));
 		}).off('click', '.cc-view-cdr').on('click', '.cc-view-cdr', function () {
 			openCdrSearch($(this));
 		});
