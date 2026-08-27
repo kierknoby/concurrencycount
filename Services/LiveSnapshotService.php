@@ -3,9 +3,9 @@
 namespace FreePBX\modules\Concurrencycount\Services;
 
 class LiveSnapshotService {
-	public function analyse(array $channels, array $trunks, array $thresholds = [], ?int $now = null): array {
+	public function analyse(array $channels, PjsipIdentityService $identity, array $thresholds = [], ?int $now = null): array {
 		$now = $now === null ? time() : $now;
-		$trunkSet = array_fill_keys(array_values($trunks), true);
+		$trunks = array_keys($identity->configuredTrunks());
 		$overallCalls = [];
 		$trunkResults = [];
 		foreach ($trunks as $trunk) {
@@ -17,17 +17,26 @@ class LiveSnapshotService {
 			];
 		}
 
+		$anomalies = [];
 		foreach ($channels as $rawChannel) {
 			$channel = $this->normaliseChannel($rawChannel, $now);
 			if ($channel === null) continue;
 			$endpoint = $channel['endpoint'];
-			if (preg_match('/^[0-9]+$/', $endpoint)) {
+			$classification = $identity->classify($endpoint);
+			if ($classification['type'] === 'extension') {
 				$channel['scope'] = 'overall';
 				$channel['extension'] = $endpoint;
 				$overallCalls[] = $channel;
 				continue;
 			}
-			if (!isset($trunkSet[$endpoint])) continue;
+			if ($classification['type'] === 'unknown' || $classification['type'] === 'conflict') {
+				$anomalies[$endpoint] = $classification;
+				continue;
+			}
+			if ($classification['type'] !== 'trunk') continue;
+			if (!isset($trunkResults[$endpoint])) {
+				$trunkResults[$endpoint] = ['name' => $endpoint, 'current' => 0, 'direction_counts' => ['inbound' => 0, 'outbound' => 0, 'unknown' => 0], 'calls' => [], 'classification_source' => $classification['source']];
+			}
 			$channel['scope'] = 'trunk';
 			$channel['trunk'] = $endpoint;
 			$channel['direction'] = $this->classifyDirection($channel['context']);
@@ -57,6 +66,7 @@ class LiveSnapshotService {
 			'generated_ts' => $now,
 			'overall' => $overall,
 			'trunks' => $trunkResults,
+			'identity_anomalies' => array_values($anomalies),
 		];
 	}
 

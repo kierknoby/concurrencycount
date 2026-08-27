@@ -43,7 +43,7 @@ namespace {
 		 */
 		public function testRegisteredEnginesMatchExpectedExtensionPerName(array $rows): void {
 			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'extension']);
-			$engineRows = $this->toEngineRows($rows);
+			$engineRows = $this->toEngineRows($rows, 'extension');
 			$allNames = $this->callPrivateBuildAllNames('extension', $engineRows);
 			$expected['per_name'] = $this->shapeExpectedPerName($expected['per_name'], $allNames);
 
@@ -60,7 +60,7 @@ namespace {
 		 */
 		public function testRegisteredEnginesMatchExpectedTrunkPerName(array $rows, array $trunks): void {
 			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'trunk']);
-			$engineRows = $this->toEngineRows($rows);
+			$engineRows = $this->toEngineRows($rows, 'trunk');
 			$allNames = $this->callPrivateBuildAllNames('trunk', $engineRows, $trunks);
 			$expected['per_name'] = $this->shapeExpectedPerName($expected['per_name'], $allNames);
 
@@ -77,10 +77,11 @@ namespace {
 		 */
 		public function testRegisteredEnginesMatchExpectedGroup(array $rows): void {
 			$expected = $this->callPrivate('expectedDemoGroup', [$rows]);
+			$engineRows = $this->toEngineRows($rows, 'extension');
 
 			foreach (Registry::getAvailableEngines() as $id => $meta) {
 				$engine = new $meta['class']($this->engineOptions([]));
-				$actual = $engine->calculateGroup($rows);
+				$actual = $engine->calculateGroup($engineRows);
 				$this->assertSame($expected['max_concurrency'], $actual['max_concurrency'], $id . ' group max mismatch');
 				$this->assertSame($expected['peak_ranges'], $actual['peak_ranges'], $id . ' group peak ranges mismatch');
 			}
@@ -183,13 +184,17 @@ namespace {
 			];
 		}
 
-		private function toEngineRows(array $rows): array {
+		private function toEngineRows(array $rows, string $mode): array {
 			$engineRows = [];
 			foreach ($rows as $row) {
-				$engineRows[] = [
+			$endpoint = preg_match('|^PJSIP/([^/ ]+)-[0-9a-f]+$|i', $row['channel'], $match) ? $match[1] : '';
+			$classified = ($mode === 'extension' && preg_match('/^[0-9]+$/', $endpoint)) || ($mode === 'trunk' && $endpoint !== '' && !preg_match('/^[0-9]+$/', $endpoint));
+			$engineRows[] = [
 					'calldate' => $row['calldate'],
 					'duration' => $row['duration'],
 					'chan' => $row['channel'],
+					'identity' => $classified ? $endpoint : '',
+					'extension_legs' => preg_match('|^PJSIP/[0-9]+-|', $row['channel']) ? 1 : 0,
 				];
 			}
 			return $engineRows;

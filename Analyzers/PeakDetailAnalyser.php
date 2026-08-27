@@ -8,8 +8,8 @@ class PeakDetailAnalyser {
 		foreach ($rows as $index => $row) {
 			$calldate = isset($row['calldate']) ? (string)$row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
-			$channel = isset($row['chan']) ? (string)$row['chan'] : '';
-			if ($calldate === '' || $duration <= 0 || !$this->channelBelongsToTrunk($channel, $trunk)) {
+			$identity = isset($row['identity']) ? (string)$row['identity'] : '';
+			if ($calldate === '' || $duration <= 0 || !hash_equals($trunk, $identity)) {
 				continue;
 			}
 
@@ -71,13 +71,6 @@ class PeakDetailAnalyser {
 		}
 
 		return ['peak' => $peak, 'occurrences' => $this->coalescePeakSegments($segments, $trunk, $peak)];
-	}
-
-	private function channelBelongsToTrunk(string $channel, string $trunk): bool {
-		if (!preg_match('|^PJSIP/([^ ]+)-[0-9a-f]+$|', $channel, $match)) {
-			return false;
-		}
-		return hash_equals($trunk, $match[1]);
 	}
 
 	private function coalescePeakSegments(array $segments, string $trunk, int $peak): array {

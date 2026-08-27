@@ -94,7 +94,7 @@ Only CDRs with an `ANSWERED` disposition and a start time inside the selected ra
 
 **What it measures:** Trunks reports the busiest simultaneous use of each discovered non-numeric PJSIP trunk endpoint. It counts matching trunk legs from both `channel` and `dstchannel`. A peak of 4 for a trunk means that, at the busiest instant in the selected period, four included CDR legs were occupying that trunk simultaneously. It is a trunk-capacity measure, not necessarily four answered conversations at that instant.
 
-**How calls are identified:** The module discovers PJSIP endpoints from Asterisk and treats non-numeric endpoint names as trunks. It then accepts only CDR legs whose channel name exactly belongs to one of those discovered trunks. Purely numeric trunk names are treated as extensions by the established matching rules and should be avoided. If the same trunk appears on both sides of one CDR, both matching legs can count.
+**How calls are identified:** The module uses FreePBX Core's configured PJSIP trunk inventory and matches the endpoint in each actual CDR `channel`/`dstchannel` leg. Numeric trunk channelids are supported. If the same trunk appears on both sides of one CDR, both matching legs can count.
 
 **What concurrent means here:** Matching legs for the same trunk have overlapping inclusive CDR intervals. Trunks are evaluated separately; activity on another trunk does not add to this trunk's peak.
 
@@ -108,9 +108,9 @@ Where a CDR proves a FreePBX object, the drill-down links to its native administ
 
 ### Extension Concurrency
 
-**What it measures:** Extensions reports a separate maximum for each numeric PJSIP extension selected from CDR data. A peak of 2 for extension 203 means two included CDR records assigned to extension 203 overlap at their busiest instant.
+**What it measures:** Extensions reports a separate maximum for each configured FreePBX PJSIP device endpoint selected from CDR channel data. A peak of 2 for extension 203 means two included extension legs assigned to 203 overlap at their busiest instant.
 
-**How calls are identified:** Each answered CDR contributes to at most one extension. The destination PJSIP leg is preferred when it is numeric; otherwise the source PJSIP leg is used when numeric. This allows inbound, outbound and internal CDRs to contribute, but an internal CDR with numeric extensions at both ends is assigned only to its destination extension in this mode. The established query also excludes CDR destinations beginning with `1` or `9`.
+**How calls are identified:** Each answered CDR `channel` and `dstchannel` is parsed as an actual PJSIP endpoint and classified against FreePBX's configured PJSIP devices. Preserving established per-extension semantics, at most one extension is assigned per CDR: a classified destination endpoint is preferred, otherwise a classified source endpoint is used. Numeric and alphanumeric device IDs are supported. The dialled `dst` value is metadata, not endpoint identity, so destinations such as 999, 911, 111 or other 1XX values neither create an extension nor suppress a genuine configured extension leg.
 
 **What concurrent means here:** CDR intervals assigned to the same extension overlap under the shared inclusive rule. Records assigned to different extensions are not added together in the per-extension peak.
 
@@ -118,17 +118,17 @@ Where a CDR proves a FreePBX object, the drill-down links to its native administ
 
 ### Group Concurrency
 
-**What it measures:** The internal mode name is `group`, but it does not mean a configured FreePBX Ring Group, queue, department or chosen member list. It is a PBX-wide total of all numeric PJSIP extension legs found in the selected answered CDRs.
+**What it measures:** The internal mode name is `group`, but it does not mean a configured FreePBX Ring Group, queue, department or chosen member list. It is a PBX-wide total of all attributable configured or manually classified PJSIP extension legs found in the selected answered CDRs.
 
-**How calls are identified:** Every numeric PJSIP side in `channel` and `dstchannel` contributes independently. One CDR can therefore add two to the total when both sides are numeric extensions, as with an internal call. There is no configurable membership and no per-member result in this mode. To limit anomalously long data, each CDR contributes for at most 24 hours.
+**How calls are identified:** Every PJSIP side in `channel` and `dstchannel` classified as an extension contributes independently. One CDR can therefore add two to the total when both sides are configured extensions, as with an internal call. There is no configurable membership and no per-member result in this mode. To limit anomalously long data, each CDR contributes for at most 24 hours.
 
 **What concurrent means here:** All overlapping numeric PJSIP legs are added into one PBX-wide total using the shared inclusive boundary rule. This is the only current mode that aggregates different extensions into one peak.
 
-**What the result means:** The single reported maximum is the largest number of numeric extension legs active across the PBX at the same instant. Peak time ranges show when that overall maximum was sustained. For example, an internal call from 201 to 202 contributes two legs; at the same time extension 203 is on an external call and contributes one leg. Group Concurrency is 3, even though there are only two CDR conversations. This mode does not currently provide contributing-call drill-down.
+**What the result means:** The single reported maximum is the largest number of attributable extension legs active across the PBX at the same instant. Peak time ranges show when that overall maximum was sustained. For example, an internal call from 201 to 202 contributes two legs; at the same time extension 203 is on an external call and contributes one leg. Group Concurrency is 3, even though there are only two CDR conversations. This mode does not currently provide contributing-call drill-down.
 
 ### Trunk capacity versus overall extension activity
 
-Trunk Concurrency and Group Concurrency are different views of activity and should not be added together. An inbound call may contribute a trunk leg to the selected trunk's external-capacity result and a numeric PJSIP extension leg to the PBX-wide extension-side result. Trunk mode asks how much external SIP capacity was in use; Group mode asks how much numeric extension-side activity was occurring. The exact CDR topology determines which legs appear in each view.
+Trunk Concurrency and Group Concurrency are different views of activity and should not be added together. An inbound call may contribute a trunk leg to the selected trunk's external-capacity result and a PJSIP extension leg to the PBX-wide extension-side result. Trunk mode asks how much external SIP capacity was in use; Group mode asks how much extension-side activity was occurring. The exact CDR topology determines which legs appear in each view.
 
 ### Demo and engine comparison
 
@@ -161,13 +161,17 @@ These preferences use the current FreePBX Core PJSIP trunk `channelid`. Changing
 - a call using only a configured trunk leg (no concurrent extension leg) counts as **1**;
 - an inbound or outbound call with both a trunk leg and an extension leg counts as **2**;
 - an internal call between two extensions counts as **2** (both extension legs);
-- Local channels, other non-PJSIP technologies, and PJSIP endpoints which are neither a configured trunk nor a numeric extension are excluded and never inflate the total.
+- Local channels, other non-PJSIP technologies, ignored endpoints, unresolved endpoints and configuration conflicts are excluded and never inflate the total.
 
-It is not a total of every Asterisk channel — only active attributable PJSIP legs are included: configured PJSIP trunk legs plus numeric PJSIP extension legs. Hidden trunks and monitoring-stopped trunks still contribute; dashboard presentation and per-trunk monitoring state do not change Overall Live Concurrency.
+It is not a total of every Asterisk channel — only active attributable PJSIP legs are included: configured or manually classified PJSIP trunk legs plus configured or manually classified PJSIP device legs. Hidden trunks and monitoring-stopped trunks still contribute; dashboard presentation and per-trunk monitoring state do not change Overall Live Concurrency.
 
 **Trunk Concurrency** counts current `PJSIP/<trunk>-<channel-id>` channels which exactly match configured non-numeric PJSIP trunk endpoint names. Similar names remain separate. Trunk direction uses observed AMI context where it is reliable and otherwise remains unknown.
 
-Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts numeric extension-side legs only and excludes trunks; it has no exact equivalent to Live "Overall Live Concurrency", which deliberately includes configured PJSIP trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+Live and historical values answer related capacity questions but are not semantically identical. Historical **Group Concurrency** (`group` mode) deliberately counts classified extension-side legs only and excludes trunks; it has no exact equivalent to Live "Overall Live Concurrency", which deliberately includes attributable PJSIP trunk legs. Live sees channels before their calls finish, while Historical reports reconstruct answered CDR intervals afterwards. These figures should not be added together or treated as the same measurement under different names.
+
+### PJSIP endpoint identity and anomalies
+
+Concurrency Count identifies trunks from FreePBX Core trunk configuration and devices/extensions from `devices` rows whose technology is PJSIP. It does not infer type from digits or letters: numeric trunk channelids and alphanumeric PJSIP device IDs are supported. Unrecognised or deleted endpoints seen in historical CDRs are shown as anomalies and excluded until an administrator chooses Trunk, Extension or Ignore. These choices are stored only by Concurrency Count under `pjsip_identity_overrides`, can be reset individually or together, never alter source CDRs or FreePBX/Asterisk configuration, and are superseded whenever current authoritative FreePBX configuration identifies the endpoint. A trunk/device collision is reported as a conflict and cannot be hidden by an override.
 
 "Recent peak" shown under each Live metric is a rolling maximum kept only in the current browser session's in-memory series (the same series drawn on that metric's chart); it is not the backend threshold-episode peak and resets when the page is reloaded. A value recorded for a single browser sample can appear as a very narrow spike on the chart rather than a visibly sustained rise.
 

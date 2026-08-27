@@ -31,23 +31,14 @@ class Original implements EngineInterface {
 
 			$calldate = $row['calldate'];
 			$duration = (int)$row['duration'];
-			$chan = $row['chan'];
+			$name = isset($row['identity']) ? (string)$row['identity'] : '';
 
-			if ($calldate === '' || $duration <= 0 || $chan === '') {
+			if ($calldate === '' || $duration <= 0 || $name === '') {
 				continue;
 			}
 
 			$start_ts = strtotime($calldate);
 			$end_ts = $start_ts + $duration;
-
-			if ($mode === 'extension') {
-				if (!preg_match('|PJSIP/([0-9]+)-|', $chan, $m)) continue;
-				$name = $m[1];
-			} else {
-				if (!preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $chan, $m)) continue;
-				$name = $m[1];
-				if (preg_match('/^[0-9]+$/', $name)) continue;
-			}
 
 			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
 				$key = $name . ',' . $ts;
@@ -97,8 +88,7 @@ class Original implements EngineInterface {
 
 			$calldate = $row['calldate'];
 			$duration = (int)$row['duration'];
-			$chan = $row['channel'];
-			$dstchan = $row['dstchannel'];
+			$extension_legs = isset($row['extension_legs']) ? max(0, (int)$row['extension_legs']) : 0;
 
 			if ($calldate === '' || $duration <= 0) continue;
 
@@ -108,22 +98,8 @@ class Original implements EngineInterface {
 				$end_ts = $start_ts + 86400;
 			}
 
-			$ext1 = '';
-			$ext2 = '';
-			if (preg_match('|^PJSIP/([0-9]+)-|', $chan, $m)) {
-				$ext1 = $m[1];
-			}
-			if (preg_match('|^PJSIP/([0-9]+)-|', $dstchan, $m)) {
-				$ext2 = $m[1];
-			}
-
 			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				if ($ext1 !== '') {
-					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
-				}
-				if ($ext2 !== '') {
-					$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
-				}
+				if ($extension_legs > 0) $per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + $extension_legs : $extension_legs;
 			}
 		}
 

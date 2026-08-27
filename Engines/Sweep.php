@@ -30,18 +30,9 @@ class Sweep implements EngineInterface {
 
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
-			$chan = isset($row['chan']) ? $row['chan'] : '';
-			if ($calldate === '' || $duration <= 0 || $chan === '') {
+			$name = isset($row['identity']) ? (string)$row['identity'] : '';
+			if ($calldate === '' || $duration <= 0 || $name === '') {
 				continue;
-			}
-
-			if ($mode === 'extension') {
-				if (!preg_match('|PJSIP/([0-9]+)-|', $chan, $m)) continue;
-				$name = $m[1];
-			} else {
-				if (!preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $chan, $m)) continue;
-				$name = $m[1];
-				if (preg_match('/^[0-9]+$/', $name)) continue;
 			}
 
 			$start_ts = strtotime($calldate);
@@ -117,8 +108,7 @@ class Sweep implements EngineInterface {
 
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
-			$chan = isset($row['channel']) ? $row['channel'] : '';
-			$dstchan = isset($row['dstchannel']) ? $row['dstchannel'] : '';
+			$extension_legs = isset($row['extension_legs']) ? max(0, (int)$row['extension_legs']) : 0;
 			if ($calldate === '' || $duration <= 0) continue;
 
 			$start_ts = strtotime($calldate);
@@ -127,13 +117,9 @@ class Sweep implements EngineInterface {
 				$end_ts = $start_ts + 86400;
 			}
 
-			if (preg_match('|^PJSIP/([0-9]+)-|', $chan)) {
-				$events[] = [$start_ts, 1];
-				$events[] = [$end_ts + 1, -1];
-			}
-			if (preg_match('|^PJSIP/([0-9]+)-|', $dstchan)) {
-				$events[] = [$start_ts, 1];
-				$events[] = [$end_ts + 1, -1];
+			if ($extension_legs > 0) {
+				$events[] = [$start_ts, $extension_legs];
+				$events[] = [$end_ts + 1, -$extension_legs];
 			}
 		}
 

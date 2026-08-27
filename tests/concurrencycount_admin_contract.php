@@ -22,6 +22,7 @@ $readme = file_get_contents($root . '/README.md');
 $registry = file_get_contents($root . '/Engines/Registry.php');
 $liveSnapshotService = file_get_contents($root . '/Services/LiveSnapshotService.php');
 $historicalReportsService = file_get_contents($root . '/Services/HistoricalReportsService.php');
+$identityService = file_get_contents($root . '/Services/PjsipIdentityService.php');
 $module = simplexml_load_file($root . '/module.xml');
 
 function admin_contract_assert($condition, $message) {
@@ -29,7 +30,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport'] as $command) {
+foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -155,7 +156,11 @@ foreach (['OVERALL LIVE CONCURRENCY', 'active attributable PJSIP call legs now']
 	admin_contract_assert(strpos($view, $overallLabel) !== false, 'Overall Live Concurrency wording missing: ' . $overallLabel);
 }
 admin_contract_assert(strpos($view, 'OVERALL EXTENSION CONCURRENCY') === false, 'Live Overall metric must not be labelled as extension-only now that trunk legs are included');
-admin_contract_assert(substr_count($liveSnapshotService, '$overallCalls[] = $channel;') === 2, 'Configured trunk legs must contribute to Overall Live Concurrency alongside numeric extension legs');
+admin_contract_assert(strpos($liveSnapshotService, '$classification[\'type\'] === \'extension\'') !== false && strpos($liveSnapshotService, '$classification[\'type\'] !== \'trunk\'') !== false, 'Live Overall must attribute both classifier-approved extension and trunk legs');
+foreach (['freepbx-trunk', 'freepbx-device', 'manual-override', 'unresolved', 'freepbx-conflict'] as $source) admin_contract_assert(strpos($identityService, $source) !== false, 'Identity provenance missing: ' . $source);
+admin_contract_assert(strpos($class, "SELECT id FROM devices WHERE LOWER(tech) = 'pjsip' AND id <> ''") !== false, 'Authoritative FreePBX PJSIP device query missing');
+admin_contract_assert(strpos($class, 'pjsip show endpoints') === false && strpos($class, "NOT REGEXP '^[19]'") === false, 'Obsolete endpoint/destination heuristics remain in runtime code');
+admin_contract_assert(strpos($view, 'PJSIP Endpoint Classifications') !== false && strpos($javascript, 'invalidateAndRerunReports') !== false, 'Classification management and report cache invalidation are required');
 admin_contract_assert(strpos($view, 'Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.') !== false, 'GUI opening description must represent both Live and Historical functionality');
 admin_contract_assert(strpos($console, "'Overall Live Concurrency (active attributable PJSIP legs): ' . \$snapshot['overall']['current']") !== false, 'CLI must print the same Overall field the GUI reads, not a separately computed value');
 admin_contract_assert(strpos($liveJavascript, "appendPoint(history.overall, data.generated_ts, data.overall.current)") !== false && strpos($liveJavascript, 'function renderSnapshot(data)') !== false, 'Overall and trunk rolling series must be derived from the same live snapshot object');

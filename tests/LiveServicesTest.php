@@ -3,10 +3,20 @@
 require_once __DIR__ . '/../Services/LiveSnapshotService.php';
 require_once __DIR__ . '/../Services/ThresholdService.php';
 require_once __DIR__ . '/../Services/HistoricalGraphService.php';
+require_once __DIR__ . '/../Services/PjsipIdentityService.php';
 
 use FreePBX\modules\Concurrencycount\Services\LiveSnapshotService;
 use FreePBX\modules\Concurrencycount\Services\ThresholdService;
 use FreePBX\modules\Concurrencycount\Services\HistoricalGraphService;
+use FreePBX\modules\Concurrencycount\Services\PjsipIdentityService;
+
+function live_identity(array $trunks, array $devices = [], array $overrides = []): PjsipIdentityService {
+	$trunkMap = [];
+	foreach ($trunks as $id) $trunkMap[$id] = ['channelid' => $id];
+	$deviceMap = [];
+	foreach ($devices as $id) $deviceMap[$id] = ['id' => $id];
+	return new PjsipIdentityService($trunkMap, $deviceMap, $overrides);
+}
 
 function live_assert_same($expected, $actual, string $message): void {
 	if ($expected !== $actual) {
@@ -42,7 +52,7 @@ $snapshot = $live->analyse([
 	live_channel('PJSIP/gamma-backup-e1f2a3', 'custom-context'),
 	live_channel('Local/203@from-internal-0001;1', 'from-internal'),
 	live_channel('PJSIP/unconfigured-f1a2b3', 'from-trunk'),
-], ['gamma', 'gamma-backup'], [
+], live_identity(['gamma', 'gamma-backup'], ['203', '204']), [
 	'overall' => ['enabled' => true, 'threshold' => 2],
 	'trunks' => [
 		'gamma' => ['enabled' => true, 'threshold' => 3],
@@ -63,7 +73,7 @@ live_assert_same('unavailable', $live->unavailable('AMI unavailable', 1787730000
 // Example A: an attributable configured PJSIP trunk leg alone must contribute to Overall Live Concurrency.
 $trunkOnly = $live->analyse([
 	live_channel('PJSIP/MAGRATHEA-IN-2-00000123', 'from-trunk'),
-], ['MAGRATHEA-IN-2'], [], 1787730100);
+], live_identity(['MAGRATHEA-IN-2']), [], 1787730100);
 live_assert_same(1, $trunkOnly['overall']['current'], 'A lone monitored trunk leg must count toward Overall Live Concurrency');
 live_assert_same(1, $trunkOnly['trunks']['MAGRATHEA-IN-2']['current'], 'The same leg is still reported on its trunk card');
 
@@ -71,21 +81,21 @@ live_assert_same(1, $trunkOnly['trunks']['MAGRATHEA-IN-2']['current'], 'The same
 $inbound = $live->analyse([
 	live_channel('PJSIP/gamma-10000001', 'from-trunk-gamma'),
 	live_channel('PJSIP/203-10000002', 'from-internal'),
-], ['gamma'], [], 1787730200);
+], live_identity(['gamma'], ['203']), [], 1787730200);
 live_assert_same(2, $inbound['overall']['current'], 'Inbound trunk leg + extension leg counts as two active PJSIP legs');
 
 // Example D: outbound call with an extension leg and a trunk leg is also two active PJSIP legs.
 $outbound = $live->analyse([
 	live_channel('PJSIP/204-10000003', 'from-internal'),
 	live_channel('PJSIP/gamma-10000004', 'macro-dialout-trunk'),
-], ['gamma'], [], 1787730300);
+], live_identity(['gamma'], ['204']), [], 1787730300);
 live_assert_same(2, $outbound['overall']['current'], 'Outbound extension leg + trunk leg counts as two active PJSIP legs');
 
 // Example C: an internal call between two extensions is two extension legs (unchanged historical-style leg counting).
 $internal = $live->analyse([
 	live_channel('PJSIP/201-10000005', 'from-internal'),
 	live_channel('PJSIP/202-10000006', 'from-internal'),
-], [], [], 1787730400);
+], live_identity([], ['201', '202']), [], 1787730400);
 live_assert_same(2, $internal['overall']['current'], 'Internal extension-to-extension call counts as two legs');
 
 // Example E: Local/helper channels alongside a trunk leg must not inflate Overall.
@@ -93,15 +103,27 @@ $withHelpers = $live->analyse([
 	live_channel('PJSIP/gamma-10000007', 'from-trunk-gamma'),
 	live_channel('Local/203@from-internal-0002;1', 'from-internal'),
 	live_channel('Local/203@from-internal-0002;2', 'from-internal'),
-], ['gamma'], [], 1787730500);
+], live_identity(['gamma']), [], 1787730500);
 live_assert_same(1, $withHelpers['overall']['current'], 'Local/helper channels do not inflate Overall Live Concurrency');
 
 // A custom PJSIP endpoint which is neither a configured trunk nor a numeric extension is excluded entirely.
 $customEndpoint = $live->analyse([
 	live_channel('PJSIP/unrelated-endpoint-10000008', 'from-trunk'),
-], ['gamma'], [], 1787730600);
+], live_identity(['gamma']), [], 1787730600);
 live_assert_same(0, $customEndpoint['overall']['current'], 'Unrelated custom PJSIP endpoint is excluded from Overall Live Concurrency');
 live_assert_same(0, $customEndpoint['trunks']['gamma']['current'], 'Unrelated custom PJSIP endpoint is not attributed to an unrelated trunk');
+live_assert_same('unknown', $customEndpoint['identity_anomalies'][0]['type'], 'Unknown live endpoint is surfaced non-blockingly');
+
+$authoritativeShapes = $live->analyse([
+	live_channel('PJSIP/123456-10000009', 'from-trunk'),
+	live_channel('PJSIP/warehouse-phone-1000000a', 'from-internal'),
+	live_channel('PJSIP/custom-gateway-1000000b', 'from-trunk'),
+	live_channel('PJSIP/ignored-peer-1000000c', 'from-trunk'),
+], live_identity(['123456'], ['warehouse-phone'], ['custom-gateway' => 'trunk', 'ignored-peer' => 'ignore']), [], 1787730650);
+live_assert_same(3, $authoritativeShapes['overall']['current'], 'Numeric trunk, alphanumeric device and manual trunk are attributable');
+live_assert_same(1, $authoritativeShapes['trunks']['123456']['current'], 'Numeric authoritative trunk has a trunk result');
+live_assert_same(1, $authoritativeShapes['trunks']['custom-gateway']['current'], 'Manual custom trunk has a trunk result without fabricating FreePBX metadata');
+live_assert_same([], $authoritativeShapes['identity_anomalies'], 'Ignored endpoint is excluded without repeated anomaly');
 
 $thresholds = new ThresholdService();
 $defaults = $thresholds->defaults();
@@ -181,7 +203,7 @@ live_assert_same(['one', 'two', 'three'], $malformedStored['live_wall_featured_t
 $presentationAndMonitoring = $live->analyse([
 	live_channel('PJSIP/gamma-20000001', 'from-trunk-gamma'),
 	live_channel('PJSIP/205-20000002', 'from-internal'),
-], ['gamma'], ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'live_wall_featured_trunks' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
+], live_identity(['gamma'], ['205']), ['hidden_trunks' => ['gamma'], 'trunk_order' => ['gamma'], 'live_wall_featured_trunks' => ['gamma'], 'trunks' => ['gamma' => ['monitored' => false]]], 1787730700);
 live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall alongside numeric extension legs');
 live_assert_same(1, $presentationAndMonitoring['trunks']['gamma']['current'], 'Presentation and monitoring preferences do not alter underlying trunk counts');
 
@@ -220,15 +242,15 @@ foreach ([-1, 10001] as $invalidThreshold) {
 
 $graphs = new HistoricalGraphService();
 $trunkGraph = $graphs->trunkSeries([
-	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'chan' => 'PJSIP/gamma-aaaaaa'],
-	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'chan' => 'PJSIP/gamma-bbbbbb'],
-	['calldate' => '2026-08-26 10:00:00', 'duration' => 20, 'chan' => 'PJSIP/gamma-backup-cccccc'],
+	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'identity' => 'gamma'],
+	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'identity' => 'gamma'],
+	['calldate' => '2026-08-26 10:00:00', 'duration' => 20, 'identity' => 'gamma-backup'],
 ], ['gamma', 'gamma-backup'], '2026-08-26 10:00:00', '2026-08-26 10:01:00');
 live_assert_same(2, $trunkGraph['series']['gamma']['exact_peak'], 'Historical trunk exact peak');
 live_assert_same('exact_events', $trunkGraph['series']['gamma']['display_resolution'], 'Short historical graph uses exact events');
 $overallGraph = $graphs->overallSeries([
-	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'channel' => 'PJSIP/201-aaaaaa', 'dstchannel' => 'PJSIP/202-bbbbbb'],
-	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'channel' => 'PJSIP/gamma-cccccc', 'dstchannel' => 'PJSIP/203-dddddd'],
+	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'extension_legs' => 2],
+	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'extension_legs' => 1],
 ], '2026-08-26 10:00:00', '2026-08-26 10:01:00');
 live_assert_same(3, $overallGraph['series']['overall']['exact_peak'], 'Historical overall counts both numeric PJSIP legs');
 
@@ -237,7 +259,7 @@ for ($index = 0; $index < 1300; $index++) {
 	$manyRows[] = [
 		'calldate' => date('Y-m-d H:i:s', strtotime('2026-01-01 00:00:00') + ($index * 20)),
 		'duration' => 10,
-		'chan' => 'PJSIP/gamma-' . sprintf('%06x', $index + 1),
+		'identity' => 'gamma',
 	];
 }
 $aggregated = $graphs->trunkSeries($manyRows, ['gamma'], '2026-01-01 00:00:00', '2026-01-02 00:00:00');

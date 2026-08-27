@@ -105,6 +105,7 @@ $_ccAssetVer = max(
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
 								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+								<button type="button" id="cc-identity-manage" class="btn btn-default" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
 								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>
@@ -149,6 +150,14 @@ $_ccAssetVer = max(
 		<div id="cc-wall-trunks" class="cc-wall-trunk-grid"></div>
 	</div>
 </section>
+
+<div class="modal fade concurrencycount" id="cc-identity-modal" tabindex="-1" role="dialog" aria-labelledby="cc-identity-title">
+	<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+		<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button><h4 id="cc-identity-title" class="modal-title"><?php echo _('PJSIP Endpoint Classifications'); ?></h4></div>
+		<div class="modal-body"><p><?php echo _('Concurrency Count normally identifies PJSIP trunks and devices from FreePBX configuration. Classifications remembered here apply only to Concurrency Count reporting and do not change FreePBX, Asterisk or source CDR data.'); ?></p><div id="cc-identity-message" class="alert" style="display:none;"></div><div class="table-responsive"><table class="table table-striped"><thead><tr><th><?php echo _('Endpoint'); ?></th><th><?php echo _('Manual classification'); ?></th><th><?php echo _('Status'); ?></th><th><?php echo _('Action'); ?></th></tr></thead><tbody id="cc-identity-rows"></tbody></table></div></div>
+		<div class="modal-footer"><button type="button" id="cc-identity-reset-all" class="btn btn-danger"><?php echo _('Reset all classifications'); ?></button><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Close'); ?></button></div>
+	</div></div>
+</div>
 
 <div class="modal fade concurrencycount" id="cc-live-settings-modal" tabindex="-1" role="dialog" aria-labelledby="cc-live-settings-title">
 	<div class="modal-dialog modal-lg" role="document">
@@ -290,7 +299,7 @@ $_ccAssetVer = max(
 							<span class="cc-mode-copy">
 								<span class="cc-mode-scope"><?php echo _('PBX extension-side load'); ?></span>
 								<strong><?php echo _('Group Concurrency'); ?></strong>
-								<span><?php echo _('Choose this for one PBX-wide view of simultaneous numeric PJSIP extension legs.'); ?></span>
+								<span><?php echo _('Choose this for one PBX-wide view of simultaneous attributable PJSIP extension legs.'); ?></span>
 								<small><?php echo _('Example: Peak 12 means 12 extension legs were active across the PBX at once.'); ?></small>
 							</span>
 						</label>

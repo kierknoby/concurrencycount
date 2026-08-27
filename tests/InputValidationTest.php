@@ -325,15 +325,15 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertSame('exact', $search['fields']['did_mod']);
 	}
 
-	public function testTrunkRowsOnlyContainDiscoveredTrunks(): void {
-		$rows = [
-			['chan' => 'PJSIP/voipfone-aaaaaa'],
-			['chan' => 'PJSIP/voipfonebackup-bbbbbb'],
-			['chan' => 'PJSIP/endpoint-cccccc'],
-		];
-		$result = $this->invokePrivate('filterTrunkRows', [$rows, ['voipfone']]);
-		$this->assertCount(1, $result);
-		$this->assertSame('PJSIP/voipfone-aaaaaa', $result[0]['chan']);
+	public function testAuthoritativeIdentityDoesNotGuessSimilarEndpoints(): void {
+		$identity = new \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService(
+			['voipfone' => ['channelid' => 'voipfone']],
+			[],
+			[]
+		);
+		$this->assertSame('trunk', $identity->classify('voipfone')['type']);
+		$this->assertSame('unknown', $identity->classify('voipfonebackup')['type']);
+		$this->assertSame('unknown', $identity->classify('endpoint')['type']);
 	}
 
 	/* ---------- normaliseEndDate ---------- */

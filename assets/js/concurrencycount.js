@@ -49,8 +49,8 @@ window._ccLoaded = true;
 	var guiRange = null;
 	var modeDescriptions = {
 		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
-		extension: 'Extensions measure overlapping CDRs assigned to each individual numeric PJSIP extension.',
-		group: 'Group measures numeric PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
+		extension: 'Extensions measure overlapping CDR legs assigned to each configured or manually classified PJSIP device.',
+		group: 'Group measures attributable PJSIP extension-leg activity across the PBX, not a Ring Group or selected member list.'
 	};
 	var modeLabels = {
 		trunk: 'Trunk Concurrency',
@@ -330,11 +330,60 @@ window._ccLoaded = true;
 		} else {
 			renderPerName(body, r);
 		}
+		body.append(renderIdentityAnomalies(r.identity_anomalies || []));
 
 		$('#cc-results-warning').text(r.warning || '');
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
 		$(document).trigger('cc:historical-results', [r]);
+	}
+
+	function renderIdentityAnomalies(anomalies) {
+		if (!anomalies.length) return '';
+		var html = '<section class="alert alert-warning cc-identity-anomalies"><h4>Some PJSIP endpoints could not be identified</h4><p>Unresolved endpoints are excluded from classification-dependent totals. These choices affect Concurrency Count only and do not change FreePBX, Asterisk or CDR data.</p>';
+		anomalies.forEach(function (item) {
+			html += '<div class="cc-identity-anomaly"><code>' + escapeHtml(item.endpoint) + '</code> ';
+			if (item.type === 'conflict') html += '<span>is configured as both a FreePBX trunk and device. Resolve the FreePBX configuration conflict.</span>';
+			else html += '<span>is not a configured FreePBX PJSIP trunk or device.</span> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="trunk">Treat as Trunk</button> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="extension">Treat as Extension</button> <button class="btn btn-default btn-xs cc-classify-endpoint" data-endpoint="' + escapeHtml(item.endpoint) + '" data-classification="ignore">Ignore</button> <span class="text-muted">Leave unresolved</span>';
+			html += '</div>';
+		});
+		return html + '</section>';
+	}
+
+	function invalidateAndRerunReports() {
+		Object.keys(historicalReports).forEach(function (id) {
+			historicalReports[id].result = null;
+			historicalReports[id].graphSeries = null;
+			historicalReports[id].occurrenceCache = {};
+		});
+		if (activeReportId && historicalReports[activeReportId]) regenerateReport(historicalReports[activeReportId]);
+	}
+
+	function saveIdentityClassification(endpoint, classification) {
+		ajax({command: 'saveidentityclassification', endpoint: endpoint, classification: classification}).done(function (response) {
+			if (!response.status) { setStatus(response.message || 'Unable to save endpoint classification.', 'error'); return; }
+			invalidateAndRerunReports();
+			loadIdentityClassifications();
+		});
+	}
+
+	function renderIdentityClassifications(entries) {
+		var body = $('#cc-identity-rows').empty();
+		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No endpoint classifications are remembered.</td></tr>'); return; }
+		entries.forEach(function (entry) {
+			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset to automatic</button></td></tr>');
+		});
+	}
+
+	function loadIdentityClassifications() {
+		return ajax({command: 'getidentityclassifications'}).done(function (response) {
+			if (response.status) renderIdentityClassifications(response.classifications || []);
+		});
+	}
+
+	function openIdentityClassifications() {
+		loadIdentityClassifications();
+		$('#cc-identity-modal').modal('show');
 	}
 
 	function renderExplanation(r) {
@@ -390,7 +439,7 @@ window._ccLoaded = true;
 		var average = parseFloat(overview.average_concurrency) || 0;
 		var ratio = parseFloat(overview.peak_to_average_ratio) || 0;
 		var peakPercent = parseFloat(overview.peak_period_percent) || 0;
-		var text = 'The highest total number of simultaneous numeric PJSIP extension legs in this date range was ' + max + '. Both numeric sides of one internal CDR can count.';
+		var text = 'The highest total number of simultaneous attributable PJSIP extension legs in this date range was ' + max + '. Both classified extension sides of one internal CDR can count.';
 		if (average > 0) {
 			text += ' For calls that started in the selected range, average concurrency within the displayed window was ' + formatDecimal(average) + ', so the observed peak was ' + formatDecimal(ratio) + 'x that average.';
 		}
@@ -432,7 +481,7 @@ window._ccLoaded = true;
 		var html = renderExplanation(r);
 		html += '<div class="cc-peak-summary">' +
 			'Peak group concurrency: <strong>' + escapeHtml(r.max_concurrency) + '</strong>' +
-			'<br><span>' + escapeHtml(r.max_concurrency) + ' numeric PJSIP extension legs active simultaneously across the PBX.</span>' +
+			'<br><span>' + escapeHtml(r.max_concurrency) + ' attributable PJSIP extension legs active simultaneously across the PBX.</span>' +
 			'</div>';
 		if (r.peak_ranges && r.peak_ranges.length) {
 			html += '<h4>Peak time ranges</h4><ul class="cc-peak-ranges">';
@@ -1434,6 +1483,15 @@ window._ccLoaded = true;
 		$('#cc-launch').off('click').on('click', openNewReportWizard);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
+		$('#cc-results-body').off('click.ccIdentity', '.cc-classify-endpoint').on('click.ccIdentity', '.cc-classify-endpoint', function () { saveIdentityClassification($(this).data('endpoint'), $(this).data('classification')); });
+		$('#cc-identity-rows').off('click.ccIdentity', '.cc-reset-identity').on('click.ccIdentity', '.cc-reset-identity', function () {
+			ajax({command: 'resetidentityclassification', endpoint: $(this).data('endpoint')}).done(function (response) { if (response.status) { renderIdentityClassifications(response.classifications || []); invalidateAndRerunReports(); } });
+		});
+		$('#cc-identity-reset-all').off('click').on('click', function () {
+			if (!window.confirm('Reset all remembered PJSIP endpoint classifications?')) return;
+			ajax({command: 'resetallidentityclassifications'}).done(function (response) { if (response.status) { renderIdentityClassifications([]); invalidateAndRerunReports(); } });
+		});
 		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
 			if ($(e.target).closest('.cc-report-tab-close').length) return;
 			selectTopTab($(this).data('target'));
