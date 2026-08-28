@@ -2,23 +2,34 @@
 
 **NOT CURRENTLY SUITABLE FOR PRODUCTION.**
 
-## What Concurrency Count does
+## Overview
 
-Concurrency Count shows how much PJSIP calling capacity is being used now and how much eligible activity was present historically.
+Concurrency Count helps FreePBX and PBXact administrators understand how much simultaneous calling activity their system is handling.
 
-- **Live View** asks how many attributable PJSIP trunk legs are active now.
-- **Historical Reports** ask which eligible answered CDR activity overlapped during a selected period.
-- **Live Wall** is a read-only large-screen presentation of the same current snapshot as Live View.
+It provides both a live view of current PJSIP trunk usage and Historical Reports built from Asterisk CDR data, making it easier to answer questions such as:
 
-Historical Reports provide three measurements:
+- How many PJSIP trunk legs are active right now?
+- What was the highest simultaneous trunk usage last month?
+- When did that peak occur, and which calls contributed to it?
+- Are particular extensions regularly handling overlapping calls?
+- How much extension-side activity was happening across the PBX at the busiest point?
+- Is current trunk usage approaching a level where an administrator should be alerted?
 
-| Mode | Question answered |
+The module has three main areas:
+
+- **Live View** shows current attributable PJSIP trunk-leg concurrency, with per-trunk counts, Overall Live Concurrency, thresholds and unattended alerts.
+- **Historical Reports** reconstruct past concurrency from answered CDRs and provide Trunk, Extension and Group measurements, graphs, occurrence detail, exclusions, CSV and email output.
+- **Live Wall** provides a read-only full-screen presentation of the same live data for wallboards and monitoring displays.
+
+Historical Reports provide three different measurements:
+
+| Mode | What it measures |
 | --- | --- |
-| **Trunk Concurrency** | How much external SIP trunk capacity was simultaneously occupied? |
-| **Extension Concurrency** | How many overlapping answered CDRs were assigned to one extension? |
-| **Group Concurrency** | How many attributable extension-side legs were active across the PBX? |
+| **Trunk Concurrency** | Simultaneous external PJSIP trunk legs, useful for understanding trunk capacity. |
+| **Extension Concurrency** | Overlapping answered CDRs assigned to an individual extension. |
+| **Group Concurrency** | PBX-wide simultaneous extension-side legs, independent of configured FreePBX Ring Groups. |
 
-The module also provides Live thresholds and unattended notifications, persistent Historic Report workspaces, PJSIP Endpoint Classifications, reversible Excluded Calls, graphs, CSV/email output, and GUI and CLI management.
+Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
 
 ## Requirements
 
@@ -166,7 +177,7 @@ git config --global --add safe.directory /var/www/html/admin/modules/concurrency
 
 This changes Git's trust configuration only; it does not change module directory ownership.
 
-## How the module thinks about concurrency
+## Concurrency definitions
 
 Live values come from the current Asterisk channel snapshot. Historical values are reconstructed from completed CDRs. For an included Historical CDR, the occupied interval runs from `calldate` through `calldate + duration`, including both boundary seconds. A CDR ending at exactly the second another begins overlaps with it at that timestamp.
 
@@ -267,11 +278,15 @@ If projected completion would exceed the fixed 3,600-second (1 hour) runtime all
 
 The Historical estimator measures engine work rather than projecting from a tiny first sample. ETA remains **Estimating...** until at least 0.5 seconds and a sufficient row/work sample have completed; this avoids misleading early multi-hour projections. Elapsed time and the remaining 3,600-second runtime allowance remain visible during that warm-up. This changes estimation and protection only: Original still walks inclusive occupied seconds, while Sweep retains its inclusive event-based calculation semantics and both produce the same result definitions as before.
 
+#### Runtime enforcement and memory
+
 `MAX_RUNTIME` protects the complete engine calculation rather than only the gaps between CDR rows. Original checks during long occupied-second loops and its later Group peak scan. Sweep checks while constructing events and, in batches of 4,096 operations, during event sorting, event traversal and the additional Group peak traversal. The batching keeps the hard limit enforceable during expensive post-ingestion work without adding a timer call to every iteration.
 
 Original retains its straightforward inclusive per-second result contract but processes timestamp state in aligned 3,600-second windows. Calls crossing a window are clipped to each window's inclusive bounds, compact peak/range summaries are merged across boundaries, and the temporary seconds map is then discarded. This bounds the timestamp dimension of working memory without imposing a new duration cap on Trunk or Extension; Group retains its existing 86,400-second contribution cap. Estimator progress remains actual occupied-second work, not chunks completed.
 
 At calculation checkpoints, Concurrency Count also observes its PHP process allocation without changing `memory_limit`. For a finite configured limit it reserves the larger of 16 MiB or 20 percent, capped at half the limit for unusually small limits, and stops at the resulting safe ceiling. This is preventive headroom for structured failure handling, serialization, cleanup and FreePBX; it does not claim that PHP hard memory exhaustion can always be recovered afterward. A soft-memory stop retains any previous completed report and suggests Sweep, a shorter range or a narrower endpoint filter. Unlimited or invalid memory-limit values disable this secondary guard rather than inventing a ceiling.
+
+#### Stop and terminal behavior
 
 An active GUI Historical calculation has a cooperative **Stop** control tied to its validated, unique calculation ID. Stop is present only while that calculation is active or stopping; pressing it disables the button, records backend cancellation and lets the shared engine checkpoints stop work cleanly. Aborting the browser request alone is not treated as backend cancellation. After backend cancellation is acknowledged, explicit GUI Stop closes that Historic Report through the normal close path, removing its persisted definition and freeing its slot. Resource-limit, runtime and ordinary calculation failures remain visible and do not automatically close the report. Calculation ID plus browser sequence checks prevent stale or superseded responses from replacing or recreating a newer state.
 
@@ -287,13 +302,19 @@ Navigating away from Concurrency Count abandons the active GUI calculation. The 
 
 An abandoned calculation does not return or save a partial result. A newly created report definition already allocated before its first engine run remains available after browser abandonment because no browser response is present to perform the normal failed-first-run cleanup; it can be retried or closed explicitly. Regeneration abandonment likewise leaves the existing persisted report definition unchanged and does not replace a previously completed browser result before navigation. Immediately after refresh, a new run may briefly receive **A previous Historical calculation is still stopping. Please try again shortly.** until the old process observes cancellation/lease expiry and completes cleanup.
 
+#### CLI cancellation
+
 The CLI traps `SIGINT` (Ctrl+C) and `SIGTERM` when PHP PCNTL asynchronous signals are available. Those signals request the same cooperative checkpoint cancellation, allowing `finally` cleanup such as removal of temporary Demo CDR rows to run where possible; `SIGINT` exits 130 and `SIGTERM` exits 143. Without PCNTL, the previous OS-level interrupt behaviour remains, so graceful checkpoint cancellation and cleanup cannot be guaranteed.
+
+#### Active calculation telemetry
 
 While a GUI Historical calculation is active or stopping, a temporary panel presents **Stop**, a separate Calculation timing group, and a System resources group. It is absent while idle and disappears after success, failure, runtime abort or cancellation. ETA remains **Estimating...** until reliable, and a positive estimate below one second is shown as **< 1 second** rather than zero. **Excluded Calls** is genuinely disabled while calculation or stopping is active and restored at the terminal outcome.
 
 A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data. **System load (5 min)** is the average number of tasks running or waiting for CPU/resources over that period—not a percentage—and is shown with the number of logical CPUs derived from native phpSysInfo `CpuCore` entries. Memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), native swap used/total is shown when available, and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
 
 During an active GUI Historical calculation, elapsed, maximum-runtime and reliable ETA clocks update locally once per second between the two-second backend telemetry synchronizations. Backend telemetry remains authoritative and resource values still change only when an actual telemetry response arrives.
+
+#### AJAX scope and security
 
 The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` module actions are authenticated, CSRF-protected, explicitly allowlisted and non-remote. Calculation IDs must be exactly 32 hexadecimal characters. The actions expose neither ownership hashes, PIDs nor arbitrary process, filesystem, shell, `exec`, `kill` or `pkill` access. Telemetry, leases and GUI cancellation remain GUI-scoped; CLI signals remain local to the running CLI command.
 
