@@ -459,6 +459,10 @@ admin_contract_assert(strpos($javascript, "String(target) !== String(workspaceLo
 admin_contract_assert(strpos($javascript, "command: 'calculationheartbeat', calculation_id: run.id") !== false, 'Heartbeat must renew only the exact calculation ID');
 admin_contract_assert(strpos($javascript, "command', 'cancelcalculation'") !== false && strpos($javascript, 'navigator.sendBeacon') !== false, 'Unload fast path must send exact cooperative cancellation through sendBeacon');
 admin_contract_assert(strpos($historicalRunStateJavascript, "intentionalAbortReason === 'abandoned'") !== false, 'Intentional abandonment abort must remain narrowly suppressed');
+admin_contract_assert(strpos($view, 'id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"') !== false, 'Historical result warning must start hidden and absent from accessibility APIs');
+admin_contract_assert(strpos($historicalRunStateJavascript, 'function hasMeaningfulMessage(') !== false, 'Historical result notices require a shared empty/whitespace classifier');
+admin_contract_assert(strpos($javascript, 'function renderResultWarning(message)') !== false && strpos($javascript, "renderResultWarning(r.warning)") !== false, 'Every rendered Historical result must clear/hide or show its own warning state');
+admin_contract_assert(strpos($javascript, ".prop('hidden', !meaningful).attr('aria-hidden', meaningful ? 'false' : 'true')") !== false, 'Empty Historical result warnings must be visually and accessibly hidden');
 admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_gui_historical', 5)") !== false, 'GUI calculation admission/cancel/heartbeat mutations must be serialized server-side');
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long GUI calculations must continue releasing the PHP session lock');
 admin_contract_assert(strpos($class, 'admitGui($calculationId, $owner)') !== false && strpos($class, "'admission_busy' => true") !== false, 'Backend must reject a second owned GUI run before engine entry');

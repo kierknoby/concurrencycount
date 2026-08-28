@@ -22,5 +22,13 @@
 		return isIntentionalAbort(run, 'abort') && run.intentionalAbortReason === 'stop';
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged};
+	function hasMeaningfulMessage(value) {
+		if (value === null || value === undefined) return false;
+		return String(value)
+			.replace(/<[^>]*>/g, '')
+			.replace(/&nbsp;|&#160;|&#xA0;/gi, ' ')
+			.replace(/[\s\u00a0]+/g, '') !== '';
+	}
+
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, hasMeaningfulMessage: hasMeaningfulMessage};
 }));

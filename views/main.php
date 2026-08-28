@@ -142,7 +142,7 @@ $_ccAssetVer = max(
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"></div></div></div>
 								<div class="row"><div class="col-sm-12">
 									<button type="button" id="cc-download" class="btn btn-default"><i class="fa fa-download"></i> <?php echo _('Download CSV'); ?></button>
 									<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;"><i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?></button>

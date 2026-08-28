@@ -23,4 +23,12 @@ assert(!state.cancellationAcknowledged({status: false, cancelled: false}, stoppi
 assert(state.cancellationAcknowledged({status: true, cancelled: true}, stoppingRun), 'Acknowledged Stop must still close its old report after the user starts a newer run');
 assert(!state.cancellationAcknowledged({status: true, cancelled: true}, {id, sequence: 7, intentionalAbortReason: 'superseded'}), 'Supersession must never use explicit Stop-and-close semantics');
 
+assert(!state.hasMeaningfulMessage(''), 'Empty report notice must remain hidden');
+assert(!state.hasMeaningfulMessage(null), 'Null report notice must remain hidden');
+assert(!state.hasMeaningfulMessage(undefined), 'Undefined report notice must remain hidden');
+assert(!state.hasMeaningfulMessage(' \t\n '), 'Whitespace-only report notice must remain hidden');
+assert(!state.hasMeaningfulMessage('<span> \n&nbsp;</span>'), 'Empty generated markup must remain hidden');
+assert(state.hasMeaningfulMessage('Some calls were omitted.'), 'Meaningful report warning must remain visible');
+assert(state.hasMeaningfulMessage('<strong>Partial data:</strong> one source was unavailable.'), 'Meaningful notice text inside markup must remain visible');
+
 console.log('Historical run-state tests passed');

@@ -319,6 +319,11 @@ window._ccLoaded = true;
 	}
 
 	/* ---------- Results rendering ---------- */
+	function renderResultWarning(message) {
+		var warning = $('#cc-results-warning');
+		var meaningful = window.CCHistoricalRunState.hasMeaningfulMessage(message);
+		warning.text(meaningful ? String(message) : '').prop('hidden', !meaningful).attr('aria-hidden', meaningful ? 'false' : 'true');
+	}
 
 	function renderResults(r) {
 		currentResults = r;
@@ -354,7 +359,7 @@ window._ccLoaded = true;
 		}
 		body.append(renderIdentityAnomalies(r.identity_anomalies || []));
 
-		$('#cc-results-warning').text(r.warning || '');
+		renderResultWarning(r.warning);
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
 		$(document).trigger('cc:historical-results', [r]);
