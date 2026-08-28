@@ -98,14 +98,21 @@ window._ccLoaded = true;
 		return $('<div>').text(String(s)).html();
 	}
 
-	function ajax(params) {
+	function ajax(params, requestOptions) {
 		params = $.extend({}, params, {token: $('.concurrencycount').attr('data-csrf-token') || ''});
-		return $.ajax({
+		var settings = $.extend({
 			url: 'ajax.php?module=concurrencycount',
 			method: 'POST',
 			data: params,
 			dataType: 'json'
-		});
+		}, requestOptions || {});
+		var request = $.ajax(settings);
+		request.ccAjaxSettings = settings;
+		return request;
+	}
+
+	function reportUnexpectedHistoricalAjaxFailure(request, textStatus, errorThrown) {
+		$(document).trigger('ajaxError', [request, request.ccAjaxSettings || {}, errorThrown || textStatus]);
 	}
 
 	/**
@@ -1448,9 +1455,11 @@ window._ccLoaded = true;
 
 	function pollCalculationTelemetry(run) {
 		if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
-		run.telemetryRequest = ajax({command: 'calculationtelemetry', calculation_id: run.id}).done(function (response) {
+		run.telemetryRequest = ajax({command: 'calculationtelemetry', calculation_id: run.id}, {global: false}).done(function (response) {
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
 			if (response.status && response.active) renderCalculationTelemetry(response);
+		}).fail(function (request, textStatus, errorThrown) {
+			if (window.CCHistoricalRunState.shouldReportFailure(run, textStatus)) reportUnexpectedHistoricalAjaxFailure(request, textStatus, errorThrown);
 		}).always(function () {
 			run.telemetryRequest = null;
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
@@ -1474,6 +1483,7 @@ window._ccLoaded = true;
 
 	function stopCalculationTelemetry(run) {
 		if (run && run.telemetryTimer) window.clearTimeout(run.telemetryTimer);
+		if (run && !run.intentionalAbortReason) run.intentionalAbortReason = 'terminal';
 		if (run && run.telemetryRequest && typeof run.telemetryRequest.abort === 'function') run.telemetryRequest.abort();
 		if (run) { run.telemetryTimer = null; run.telemetryRequest = null; }
 		$('#cc-calculation-panel').hide();
@@ -1487,13 +1497,14 @@ window._ccLoaded = true;
 		if (activeCalculation && !activeCalculation.stopping) {
 			var superseded = activeCalculation;
 			superseded.stopping = true;
+			superseded.intentionalAbortReason = 'superseded';
 			ajax({command: 'cancelcalculation', calculation_id: superseded.id});
 			if (superseded.request && typeof superseded.request.abort === 'function') superseded.request.abort();
 			stopCalculationTelemetry(superseded);
 		}
 		var targetReportId = runTargetReportId;
 		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
-		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, telemetryTimer: null, telemetryRequest: null};
+		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null};
 		activeCalculation = run;
 		if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
@@ -1511,7 +1522,7 @@ window._ccLoaded = true;
 		if (extraParams) {
 			$.extend(params, extraParams);
 		}
-		run.request = ajax(params).done(function (resp) {
+		run.request = ajax(params, {global: false}).done(function (resp) {
 			if (run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			if (resp.overrun_warning) {
 				stopCalculationTelemetry(run);
@@ -1543,8 +1554,10 @@ window._ccLoaded = true;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
 			applyReportResult(targetReportId, resp.results, selectedEngine);
-		}).fail(function () {
-			if (run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence) return;
+		}).fail(function (request, textStatus, errorThrown) {
+			if (!window.CCHistoricalRunState.shouldReportFailure(run, textStatus)) return;
+			reportUnexpectedHistoricalAjaxFailure(request, textStatus, errorThrown);
+			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
 			restoreExcludedCallsAfterCalculation();
@@ -1570,6 +1583,7 @@ window._ccLoaded = true;
 		var run = activeCalculation;
 		if (!run || run.stopping) return;
 		run.stopping = true;
+		run.intentionalAbortReason = 'stop';
 		$('#cc-calculation-stop').prop('disabled', true);
 		$('#cc-calculation-panel-title').text('Stopping calculation...');
 		$('#cc-report-loading-text').text('');

@@ -31,6 +31,7 @@ $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
@@ -432,6 +433,7 @@ $_ccAssetVer = max(
 
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

@@ -542,6 +542,7 @@ php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
 node tests/DateRangeTest.js
+node tests/HistoricalRunStateTest.js
 node tests/TelemetryFormatTest.js
 ```
 
@@ -552,6 +553,7 @@ node --check assets/js/concurrencycount.js
 node --check assets/js/live-view.js
 node --check assets/js/date-range.js
 node --check assets/js/concurrency-charts.js
+node --check assets/js/historical-run-state.js
 node --check assets/js/telemetry-format.js
 find . -path './.git' -prune -o -type f -name '*.php' -print | while IFS= read -r file; do php -l "$file"; done
 git diff --check

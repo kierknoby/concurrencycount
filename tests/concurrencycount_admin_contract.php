@@ -12,6 +12,7 @@ $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
 $telemetryJavascript = file_get_contents($root . '/assets/js/telemetry-format.js');
+$historicalRunStateJavascript = file_get_contents($root . '/assets/js/historical-run-state.js');
 $monitor = file_get_contents($root . '/alert-monitor.php');
 $console = file_get_contents($root . '/Console/Concurrencycount.class.php');
 $mailer = file_get_contents($root . '/alert-mailer.php');
@@ -251,6 +252,10 @@ admin_contract_assert(strpos($view, 'aria-live="polite"') !== false, 'Historical
 admin_contract_assert(strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") !== false, 'Stop must target the active opaque calculation ID');
 admin_contract_assert(strpos($javascript, "params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id}") !== false, 'Every GUI Historical run must send its calculation ID');
 admin_contract_assert(strpos($javascript, 'run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence') !== false, 'Stopped or stale calculation responses must not replace newer report state');
+admin_contract_assert(strpos($javascript, "intentionalAbortReason = 'stop'") !== false && strpos($javascript, "intentionalAbortReason = 'superseded'") !== false, 'Historical aborts must record an explicit Stop or supersession reason');
+admin_contract_assert(substr_count($javascript, '{global: false}') >= 2 && strpos($javascript, "trigger('ajaxError'") !== false, 'Historical XHRs must suppress automatic global abort warnings while re-emitting unexpected failures');
+admin_contract_assert(strpos($javascript, 'CCHistoricalRunState.shouldReportFailure(run, textStatus)') !== false, 'Historical failure reporting must use the calculation-scoped abort classifier');
+admin_contract_assert(strpos($historicalRunStateJavascript, "textStatus !== 'abort'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'stop'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'superseded'") !== false, 'Only explicit Historical abort states may suppress the global warning');
 admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 'running')") !== false && strpos($javascript, "setStatus('Calculation stopped.', 'warning')") !== false, 'Stop must expose coherent stopping/stopped states');
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
 admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
