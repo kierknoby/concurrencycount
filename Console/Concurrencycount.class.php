@@ -18,6 +18,9 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use FreePBX\modules\Concurrencycount\HistoricalCalculationCancelled;
+use FreePBX\modules\Concurrencycount\Services\CliCancellationControl;
+use FreePBX\modules\Concurrencycount\Services\HistoricalResourceLimitException;
 
 class Concurrencycount extends Command {
 
@@ -95,6 +98,8 @@ class Concurrencycount extends Command {
 			if ($end === null) { $output->writeln('<error>Invalid end date.</error>'); return 1; }
 		}
 
+		$cliCancellation = new CliCancellationControl();
+		$cliCancellation->install();
 		try {
 			$results = $cc->calculate($mode, $start, $end, true, [
 				'demo_report' => $demo_report,
@@ -102,10 +107,19 @@ class Concurrencycount extends Command {
 				'demo_seed' => $demo_seed,
 				'engine' => $engine,
 				'demo_engines' => ($mode === 'demo' && $compare) ? explode(',', $compare) : [$engine],
+				'cancellation_check' => function () use ($cliCancellation): bool { return $cliCancellation->isInterrupted(); },
 			]);
+		} catch (HistoricalCalculationCancelled $cancelled) {
+			$output->writeln('<comment>Calculation cancelled.</comment>');
+			return $cliCancellation->signal() > 0 ? 128 + $cliCancellation->signal() : 130;
+		} catch (HistoricalResourceLimitException $resourceLimit) {
+			$output->writeln("<error>This calculation reached Concurrency Count's safe memory allowance. Try Sweep, a shorter date range, or a more specific endpoint filter.</error>");
+			return 1;
 		} catch (\Exception $e) {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');
 			return 1;
+		} finally {
+			$cliCancellation->uninstall();
 		}
 
 		if ($csv) {

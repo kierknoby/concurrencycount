@@ -12,11 +12,12 @@ function contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
 
-contract_assert((string)$module->version === '2.1.0', 'Unexpected module version');
+contract_assert((string)$module->version === '2.1.1', 'Unexpected module version');
+contract_assert(strpos((string)$module->changelog, '*2.1.1 (28 August 2026)*') !== false, '2.1.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.1.0 (27 August 2026)*') !== false, '2.1.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.0.1 (27 August 2026)*') !== false, '2.0.1 release history missing');
 $mainClass = file_get_contents($root . '/Concurrencycount.class.php');
-contract_assert(strpos($mainClass, "const VERSION = '2.1.0';") !== false, 'Fallback PHP version mismatch');
+contract_assert(strpos($mainClass, "const VERSION = '2.1.1';") !== false, 'Fallback PHP version mismatch');
 $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');
@@ -41,6 +42,12 @@ $runtimeFiles = [
 	'Analyzers/PeakDetailAnalyser.php', 'Resolvers/FreepbxEntityResolver.php',
 	'Services/LiveSnapshotService.php', 'Services/ThresholdService.php',
 	'Services/SettingsRepository.php', 'Services/HistoricalGraphService.php',
+	'Services/HistoricalRuntimeEstimator.php',
+	'Services/HistoricalCalculationControl.php',
+	'Services/CliCancellationControl.php',
+	'Services/SystemResourceTelemetry.php',
+	'Services/HistoricalResourceLimitException.php',
+	'Services/HistoricalMemoryGuard.php',
 	'Services/HistoricalReportsService.php',
 	'Services/PjsipIdentityService.php',
 	'Services/HistoricalCallExclusionService.php',
@@ -56,7 +63,7 @@ foreach ($runtimeFiles as $file) {
 }
 
 $readme = file_get_contents($root . '/README.md');
-contract_assert(strpos($readme, '# Concurrency Count 2.1.0 ') === 0, 'README release heading mismatch');
+contract_assert(strpos($readme, '# Concurrency Count 2.1.1 ') === 0, 'README release heading mismatch');
 contract_assert(strpos($readme, 'FreePBX/PBXact 16 and 17') !== false, 'README compatibility claim missing');
 contract_assert(strpos($readme, 'FreePBX/PBXact ' . '17 only') === false, 'README still excludes FreePBX 16');
 echo "Release compatibility contract passed\n";

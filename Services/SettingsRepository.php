@@ -45,6 +45,13 @@ class SettingsRepository {
 		$stmt->execute([':key' => $key]);
 	}
 
+	public function findKeys(string $prefix): array {
+		$stmt = $this->db->prepare('SELECT setting_key FROM `' . self::TABLE . '` WHERE setting_key LIKE :prefix');
+		$stmt->execute([':prefix' => $prefix . '%']);
+		$keys = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+		return is_array($keys) ? array_values(array_map('strval', $keys)) : [];
+	}
+
 	public function transaction(callable $callback) {
 		$this->db->beginTransaction();
 		try {

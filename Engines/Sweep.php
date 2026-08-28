@@ -3,6 +3,7 @@
 namespace FreePBX\modules\Concurrencycount\Engines;
 
 class Sweep implements EngineInterface {
+	const RUNTIME_CHECK_INTERVAL = 4096;
 	private $allNames;
 	private $coalesceRanges;
 	private $checkOverrun;
@@ -20,18 +21,19 @@ class Sweep implements EngineInterface {
 	public function calculatePerName(string $mode, array $rows): array {
 		$events = [];
 		$total_rows = count($rows);
+		$event_count = $this->countEvents($rows, false);
+		$sort_work = $this->sortWork($event_count);
+		$total_work = max(1, $total_rows + $sort_work + $event_count);
 		$processed = 0;
+		if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, 0, $total_work);
 
 		foreach ($rows as $row) {
 			$processed++;
-			if ($this->checkOverrun !== null) {
-				call_user_func($this->checkOverrun, $processed, $total_rows);
-			}
-
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
 			$name = isset($row['identity']) ? (string)$row['identity'] : '';
 			if ($calldate === '' || $duration <= 0 || $name === '') {
+				if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $processed, $total_work);
 				continue;
 			}
 
@@ -39,20 +41,29 @@ class Sweep implements EngineInterface {
 			$end_ts = $start_ts + $duration;
 			$events[] = [$start_ts, 1, $name];
 			$events[] = [$end_ts + 1, -1, $name];
+			if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $processed, $total_work);
 		}
 
-		usort($events, function ($a, $b) {
+		$comparisons = 0;
+		usort($events, function ($a, $b) use (&$comparisons, $total_rows, $sort_work, $total_work) {
+			$comparisons++;
+			if (($comparisons % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint($total_rows + min($comparisons, $sort_work), $total_work, 'sweep-sort');
 			if ($a[0] === $b[0]) return $b[1] <=> $a[1];
 			return $a[0] <=> $b[0];
 		});
+		$base_work = $total_rows + $sort_work;
+		if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $base_work, $total_work);
 
 		$current = [];
 		$max_concurrent = [];
 		$count = count($events);
+		$traversed = 0;
 		for ($i = 0; $i < $count; $i++) {
 			$ts = $events[$i][0];
 			$changed = [];
 			while ($i < $count && $events[$i][0] === $ts) {
+				$traversed++;
+				if (($traversed % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint($base_work + $traversed, $total_work, 'sweep-event-traversal');
 				$name = $events[$i][2];
 				$current[$name] = isset($current[$name]) ? $current[$name] + $events[$i][1] : $events[$i][1];
 				if ($current[$name] < 0) {
@@ -98,18 +109,21 @@ class Sweep implements EngineInterface {
 	public function calculateGroup(array $rows): array {
 		$events = [];
 		$total_rows = count($rows);
+		$event_count = $this->countEvents($rows, true);
+		$sort_work = $this->sortWork($event_count);
+		$total_work = max(1, $total_rows + $sort_work + ($event_count * 2));
 		$processed = 0;
+		if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, 0, $total_work);
 
 		foreach ($rows as $row) {
 			$processed++;
-			if ($this->checkOverrun !== null) {
-				call_user_func($this->checkOverrun, $processed, $total_rows);
-			}
-
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
 			$extension_legs = isset($row['extension_legs']) ? max(0, (int)$row['extension_legs']) : 0;
-			if ($calldate === '' || $duration <= 0) continue;
+			if ($calldate === '' || $duration <= 0) {
+				if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $processed, $total_work);
+				continue;
+			}
 
 			$start_ts = strtotime($calldate);
 			$end_ts = $start_ts + $duration;
@@ -121,19 +135,28 @@ class Sweep implements EngineInterface {
 				$events[] = [$start_ts, $extension_legs];
 				$events[] = [$end_ts + 1, -$extension_legs];
 			}
+			if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $processed, $total_work);
 		}
 
-		usort($events, function ($a, $b) {
+		$comparisons = 0;
+		usort($events, function ($a, $b) use (&$comparisons, $total_rows, $sort_work, $total_work) {
+			$comparisons++;
+			if (($comparisons % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint($total_rows + min($comparisons, $sort_work), $total_work, 'sweep-sort');
 			if ($a[0] === $b[0]) return $b[1] <=> $a[1];
 			return $a[0] <=> $b[0];
 		});
+		$base_work = $total_rows + $sort_work;
+		if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, $base_work, $total_work);
 
 		$current = 0;
 		$max = 0;
 		$count = count($events);
+		$traversed = 0;
 		for ($i = 0; $i < $count; $i++) {
 			$ts = $events[$i][0];
 			while ($i < $count && $events[$i][0] === $ts) {
+				$traversed++;
+				if (($traversed % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint($base_work + $traversed, $total_work, 'sweep-event-traversal');
 				$current += $events[$i][1];
 				$i++;
 			}
@@ -147,9 +170,12 @@ class Sweep implements EngineInterface {
 
 		$current = 0;
 		$peak_ranges = [];
+		$traversed = 0;
 		for ($i = 0; $i < $count; $i++) {
 			$ts = $events[$i][0];
 			while ($i < $count && $events[$i][0] === $ts) {
+				$traversed++;
+				if (($traversed % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint($base_work + $event_count + $traversed, $total_work, 'sweep-group-peak-traversal');
 				$current += $events[$i][1];
 				$i++;
 			}
@@ -181,5 +207,25 @@ class Sweep implements EngineInterface {
 			'peak_ranges' => $ranges,
 			'rows_processed' => $processed,
 		];
+	}
+
+	private function countEvents(array $rows, bool $group): int {
+		$count = 0;
+		foreach ($rows as $row) {
+			if (empty($row['calldate']) || !isset($row['duration']) || (int)$row['duration'] <= 0) continue;
+			if ($group && (!isset($row['extension_legs']) || (int)$row['extension_legs'] <= 0)) continue;
+			if (!$group && (!isset($row['identity']) || (string)$row['identity'] === '')) continue;
+			$count += 2;
+		}
+		return $count;
+	}
+
+	private function sortWork(int $eventCount): int {
+		if ($eventCount < 2) return 0;
+		return $eventCount * (int)ceil(log($eventCount, 2));
+	}
+
+	private function checkpoint(int $processed, int $total, string $stage): void {
+		if ($this->checkOverrun !== null) call_user_func($this->checkOverrun, min($processed, $total), $total, $stage);
 	}
 }

@@ -11,6 +11,8 @@ $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
+$telemetryJavascript = file_get_contents($root . '/assets/js/telemetry-format.js');
+$historicalRunStateJavascript = file_get_contents($root . '/assets/js/historical-run-state.js');
 $monitor = file_get_contents($root . '/alert-monitor.php');
 $console = file_get_contents($root . '/Console/Concurrencycount.class.php');
 $mailer = file_get_contents($root . '/alert-mailer.php');
@@ -22,6 +24,7 @@ $readme = file_get_contents($root . '/README.md');
 $registry = file_get_contents($root . '/Engines/Registry.php');
 $liveSnapshotService = file_get_contents($root . '/Services/LiveSnapshotService.php');
 $historicalReportsService = file_get_contents($root . '/Services/HistoricalReportsService.php');
+$historicalCalculationControl = file_get_contents($root . '/Services/HistoricalCalculationControl.php');
 $identityService = file_get_contents($root . '/Services/PjsipIdentityService.php');
 $exclusionService = file_get_contents($root . '/Services/HistoricalCallExclusionService.php');
 $module = simplexml_load_file($root . '/module.xml');
@@ -31,7 +34,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'] as $command) {
+foreach (['wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -245,8 +248,69 @@ admin_contract_assert(preg_match('/<\/section>\s*<\/div>\s*<\/div>\s*<\/div>\s*<
 admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && strpos($chartJavascript, 'onSelect') !== false, 'Chart threshold/interaction support missing');
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
+admin_contract_assert(strpos($view, 'id="cc-calculation-stop"') !== false && strpos($view, "_('Stop')") !== false, 'Active Historical calculation Stop control missing');
+admin_contract_assert(strpos($view, 'aria-live="polite"') !== false, 'Historical calculation status must be announced accessibly');
+admin_contract_assert(strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") !== false, 'Stop must target the active opaque calculation ID');
+admin_contract_assert(strpos($javascript, "params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id}") !== false, 'Every GUI Historical run must send its calculation ID');
+admin_contract_assert(strpos($javascript, 'run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence') !== false, 'Stopped or stale calculation responses must not replace newer report state');
+admin_contract_assert(strpos($javascript, "intentionalAbortReason = 'stop'") !== false && strpos($javascript, "intentionalAbortReason = 'superseded'") !== false, 'Historical aborts must record an explicit Stop or supersession reason');
+admin_contract_assert(substr_count($javascript, '{global: false}') >= 2 && strpos($javascript, "trigger('ajaxError'") !== false, 'Historical XHRs must suppress automatic global abort warnings while re-emitting unexpected failures');
+admin_contract_assert(strpos($javascript, 'CCHistoricalRunState.shouldReportFailure(run, textStatus)') !== false, 'Historical failure reporting must use the calculation-scoped abort classifier');
+admin_contract_assert(strpos($historicalRunStateJavascript, "textStatus !== 'abort'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'stop'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'superseded'") !== false, 'Only explicit Historical abort states may suppress the global warning');
+admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 'running')") !== false && strpos($javascript, 'Calculation still running') !== false, 'Stop must expose coherent pending and failed-cancellation states');
+admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
+admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
+admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
+foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
+	admin_contract_assert(strpos($view, 'id="' . $telemetryId . '"') !== false, 'Historical telemetry field missing: ' . $telemetryId);
+}
+admin_contract_assert(strpos($javascript, "command: 'calculationtelemetry', calculation_id: run.id") !== false, 'Telemetry polling must target the active opaque calculation ID');
+admin_contract_assert(strpos($javascript, 'activeCalculation.id !== run.id') !== false && strpos($javascript, 'activeCalculation.sequence !== run.sequence') !== false, 'Stale telemetry responses must not repaint a newer calculation');
+admin_contract_assert(strpos($javascript, 'window.setTimeout(function () { pollCalculationTelemetry(run); }, 2000)') !== false, 'Telemetry polling interval must remain conservative and non-overlapping');
+admin_contract_assert(substr_count($javascript, "command: 'calculationtelemetry'") === 1, 'Local timer interpolation must not add telemetry requests');
+admin_contract_assert(strpos($javascript, 'function monotonicNow()') !== false && strpos($javascript, 'window.performance.now') !== false, 'Historical timer interpolation must use monotonic browser time where available');
+admin_contract_assert(strpos($javascript, 'function scheduleCalculationTimerRender(run)') !== false && strpos($javascript, '}, 1000)') !== false, 'Active Historical clocks require a one-second local repaint trigger');
+admin_contract_assert(strpos($javascript, 'function synchronizeCalculationTimers(run, response)') !== false && strpos($javascript, 'CCTelemetryFormat.synchronize') !== false, 'Every telemetry response must authoritatively resynchronize local timers');
+admin_contract_assert(strpos($javascript, 'function stopCalculationTimerRenderer(run)') !== false && strpos($javascript, 'stopCalculationTimerRenderer(run);') !== false, 'Terminal telemetry cleanup must stop the local timer renderer');
+admin_contract_assert(strpos($view, 'id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title" aria-live=') === false, 'Once-per-second timer values must not live in a noisy aria-live region');
+admin_contract_assert(strpos($view, 'id="cc-status" class="alert" role="status" aria-live="polite"') !== false, 'Important calculation state messages must retain their accessible live region');
+admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run)') !== false && strpos($javascript, "$('#cc-calculation-panel').hide()") !== false, 'Every terminal calculation path must remove the temporary panel');
+admin_contract_assert(substr_count($javascript, "$('#cc-calculation-panel').show()") === 1 && substr_count($view, 'id="cc-calculation-panel"') === 1, 'Telemetry panel may only be created/shown by the active calculation lifecycle');
+admin_contract_assert(substr_count($view, 'id="cc-calculation-stop"') === 1 && strpos($view, '<section id="cc-calculation-panel"') < strpos($view, 'id="cc-calculation-stop"'), 'Stop must exist only inside the temporary panel');
+admin_contract_assert(substr_count($javascript, 'stopCalculationTelemetry(run);') >= 4, 'Success, failure, runtime abort and cancellation must stop telemetry');
+admin_contract_assert(strpos($javascript, "$('#cc-calculation-stop').prop('disabled', true)") !== false, 'Stop must disable immediately while cancellation is pending');
+admin_contract_assert(strpos($javascript, 'renderCalculationTelemetry(response)') !== false && strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") !== false, 'Telemetry must remain observational and cancellation must remain an explicit Stop action');
+admin_contract_assert(strpos($class, '\\FreePBX::Dashboard()') !== false && strpos($class, 'getSysInfo()') !== false, 'Resource telemetry must use the native FreePBX Dashboard source');
+admin_contract_assert(strpos($class, 'shell_exec') === false, 'Resource telemetry must not add shell sampling');
+admin_contract_assert(strpos($javascript, 'memory_get_usage') === false, 'Browser telemetry must not report the polling PHP process as calculation memory');
+admin_contract_assert(strpos($class, 'catch (\\FreePBX\\modules\\Concurrencycount\\Services\\HistoricalResourceLimitException $resourceLimit)') !== false && strpos($class, "'resource_limit' => true") !== false, 'Predictable soft-memory stops must become a structured module response instead of escaping to FreePBX');
+admin_contract_assert(strpos($javascript, 'if (resp.resource_limit)') !== false && strpos($javascript, 'restoreStoppedReport(targetReportId)') !== false, 'GUI must handle resource stops while retaining a prior completed result');
+admin_contract_assert(strpos($javascript, "setStatus('Historical calculation stopped. '") !== false, 'GUI resource stop needs module-owned failure wording');
+admin_contract_assert(strpos($view, 'cc-telemetry-resources-title') !== false && strpos($view, 'cc-telemetry-calculation-title') !== false, 'Resources and calculation timings must have distinct semantic groups');
+$panelStart = strpos($view, '<section id="cc-calculation-panel"');
+$panelEnd = strpos($view, '</section>', $panelStart);
+$panel = substr($view, $panelStart, $panelEnd - $panelStart);
+admin_contract_assert(strpos($panel, 'id="cc-calculation-stop"') < strpos($panel, 'id="cc-report-loading"'), 'Stop must precede the calculating status');
+admin_contract_assert(strpos($view, 'System load (5 min)') !== false && strpos($view, 'this is not a percentage') !== false, 'System load needs accurate five-minute wording and concise explanation');
+admin_contract_assert(strpos($javascript, "load += ' across '") !== false && strpos($javascript, "' CPUs'") !== false, 'System load must include native logical CPU context when available');
+admin_contract_assert(strpos($javascript, "$('#cc-telemetry-swap-item').toggle(!!swap)") !== false, 'Swap must appear only when native data is valid');
+admin_contract_assert(strpos($telemetryJavascript, "if (seconds < 1) return '< 1 second';") !== false && strpos($telemetryJavascript, 'telemetry.eta_reliable === true') !== false, 'Reliable sub-second ETA requires explicit authoritative state and must not render as zero');
+admin_contract_assert(strpos($javascript, "$('#cc-excluded-calls').prop('disabled', true)") !== false, 'Excluded Calls must become genuinely disabled at calculation start');
+admin_contract_assert(strpos($javascript, 'function restoreExcludedCallsAfterCalculation()') !== false && strpos($javascript, 'function finishCalculationUi(run)') !== false && strpos($javascript, 'restoreExcludedCallsAfterCalculation();') !== false, 'Every terminal calculation path must restore Excluded Calls through shared unlock cleanup');
+$executeRunStart = strpos($javascript, 'function executeRun(mode, start, end, extraParams, engineOverride, continuationRun)');
+admin_contract_assert($executeRunStart !== false && strpos(substr($javascript, $executeRunStart, 240), 'activeCalculation !== continuationRun') !== false, 'Frontend must refuse a second GUI Historical run while allowing only the exact warning continuation');
+admin_contract_assert(strpos($historicalRunStateJavascript, 'function cancellationAcknowledged(') !== false, 'Stop-and-close requires an exact backend acknowledgement classifier');
+$stopHandlerStart = strpos($javascript, 'function stopActiveCalculation()');
+$stopHandlerEnd = strpos($javascript, '/**', $stopHandlerStart);
+$stopHandler = substr($javascript, $stopHandlerStart, $stopHandlerEnd - $stopHandlerStart);
+admin_contract_assert(strpos($stopHandler, "ajax({command: 'cancelcalculation', calculation_id: run.id}).done") !== false, 'Stop must wait for successful cancellation response rather than closing from always');
+admin_contract_assert(strpos($stopHandler, 'cancellationAcknowledged(response, run)') < strpos($stopHandler, 'closeReportTab(run.targetReportId)'), 'Normal report close must occur only after exact cancellation acknowledgement');
+admin_contract_assert(strpos($stopHandler, 'ownsActiveCalculation') !== false, 'An old acknowledged Stop must not clean up a newer active calculation UI');
+admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancellation. The report remains open.', 'error')") !== false, 'Cancellation transport failure must retain the report with an error');
+admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
+admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -339,10 +403,12 @@ foreach (['hidden_trunks', 'trunk_order', 'live_wall_featured_trunks', 'monitore
 }
 admin_contract_assert(strpos($class, "empty(\$settings['trunks'][\$trunk]['monitored'])") !== false, 'Background monitor must gate per-trunk evaluation on monitored state');
 admin_contract_assert(strpos($class, "unset(\$states['trunk:' . \$trunk])") !== false, 'Stopping monitoring must clear stale per-trunk episode state');
-foreach (['cc-hide-trunk', 'cc-unhide-trunk', 'cc-toggle-monitoring', 'cc-move-earlier', 'cc-move-later', 'cc-drag-handle'] as $control) {
+foreach (['cc-hide-trunk', 'cc-unhide-trunk', 'cc-toggle-monitoring', 'cc-drag-handle'] as $control) {
 	admin_contract_assert(strpos($liveJavascript, $control) !== false, 'Live View control missing: ' . $control);
 }
-admin_contract_assert(strpos($liveJavascript, 'aria-label="Move ') !== false, 'Accessible non-drag reorder labels missing');
+admin_contract_assert(strpos($liveJavascript, 'cc-move-earlier') === false && strpos($liveJavascript, 'cc-move-later') === false, 'Normal Live View must not retain redundant reorder arrows');
+admin_contract_assert(strpos($liveJavascript, "event.key !== 'ArrowLeft'") !== false && strpos($liveJavascript, "event.key !== 'ArrowRight'") !== false, 'The drag handle must retain keyboard-operable reordering');
+admin_contract_assert(strpos($liveJavascript, ".attr('data-trunk')") !== false && strpos($liveJavascript, ".data('trunk')") === false, 'Trunk controls must preserve numeric-looking channelids as strings');
 admin_contract_assert(strpos($liveJavascript, 'function orderedTrunks') !== false && strpos($liveJavascript, 'function renderHiddenTrunks') !== false, 'Shared visibility/order renderer missing');
 admin_contract_assert(substr_count($liveJavascript, "command: 'livestatus'") === 1, 'Live Wall must not introduce a second live-status acquisition path');
 admin_contract_assert(strpos($liveJavascript, 'renderLiveWall(snapshot)') !== false || strpos($liveJavascript, 'renderLiveWall(data)') !== false, 'Live Wall must render from the shared latest snapshot');
@@ -362,6 +428,17 @@ admin_contract_assert(strpos($liveJavascript, 'var names = orderedTrunks(data.tr
 admin_contract_assert(strpos($liveJavascript, 'Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk)') !== false, 'Hidden or unavailable featured trunks must be suppressed without substitution');
 admin_contract_assert(strpos($liveJavascript, "card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped')") !== false, 'Monitoring-stopped featured trunks must remain visible with textual state');
 admin_contract_assert(strpos($liveJavascript, 'function setHidden') !== false && strpos($liveJavascript, 'settings.live_wall_featured_trunks =') === false, 'Hide/Unhide must not rewrite featured-trunk preferences');
+$setHiddenStart = strpos($liveJavascript, 'function setHidden');
+$setHiddenEnd = strpos($liveJavascript, 'function toggleMonitoring', $setHiddenStart);
+$setHiddenBody = substr($liveJavascript, $setHiddenStart, $setHiddenEnd - $setHiddenStart);
+admin_contract_assert(strpos($setHiddenBody, 'saveSettings(settings, false)') !== false && strpos($setHiddenBody, 'persistPreferences()') === false, 'Hide/Unhide must save immediately instead of waiting for the reorder debounce');
+admin_contract_assert(strpos($liveJavascript, 'settingsSaveQueue') !== false && strpos($liveJavascript, 'settingsSaveInFlight') !== false && strpos($liveJavascript, 'drainSettingsSaveQueue') !== false, 'Whole-settings saves must be serialized');
+admin_contract_assert(strpos($liveJavascript, 'pending.sequence === latestSettingsSaveSequence') !== false, 'A stale save response must not replace newer in-memory settings');
+admin_contract_assert(strpos($liveJavascript, 'saveSequenceWhenRequested !== latestSettingsSaveSequence') !== false, 'A stale settings reload must not replace newer in-memory preferences');
+$saveSettingsStart = strpos($liveJavascript, 'function saveSettings(candidate');
+$saveSettingsEnd = strpos($liveJavascript, 'function loadHistoricalGraph', $saveSettingsStart);
+$saveSettingsBody = substr($liveJavascript, $saveSettingsStart, $saveSettingsEnd - $saveSettingsStart);
+admin_contract_assert(strpos($saveSettingsBody, 'if (pending.pollAfterSave) startPolling(true)') !== false && strpos($saveSettingsBody, "\n\t\t\tstartPolling(true);") === false, 'Settings saves must poll only when the caller explicitly requires a refreshed snapshot');
 admin_contract_assert(strpos($liveJavascript, 'featuredDraft.length >= 3') !== false && strpos($liveJavascript, 'Deselect one to choose another.') !== false, 'Configure Live Wall must enforce and explain the three-trunk limit');
 admin_contract_assert(strpos($liveJavascript, 'cc-featured-earlier') !== false && strpos($liveJavascript, 'cc-featured-later') !== false, 'Featured trunks require accessible left-to-right ordering controls');
 admin_contract_assert(strpos($liveJavascript, 'live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice()') !== false, 'Threshold settings saves must preserve featured-trunk preferences');
@@ -377,5 +454,35 @@ admin_contract_assert(strpos($configModal, 'aria-labelledby="cc-live-wall-config
 admin_contract_assert(strpos($css, '.cc-wall-trunk-grid[data-count="3"]') !== false && strpos($css, 'repeat(3,minmax(0,1fr))') !== false, 'Live Wall must compose three equal featured cards for desktop');
 admin_contract_assert(strpos($readme, 'Changing a trunk channelid') !== false, 'README must document channelid preference identity limitation');
 admin_contract_assert(strpos($readme, 'only monitored PJSIP trunk and extension legs') === false && strpos($readme, 'includes monitored trunk legs') === false, 'README must not use operational monitored wording for Overall Live Concurrency attribution');
+
+/* Strict single-active GUI Historical calculation policy. */
+foreach (['setHistoricalWorkspaceLocked', 'workspaceLockReportId', 'pollCalculationHeartbeat', 'sendAbandonmentCancellation', 'pagehide.ccHistoricalLease'] as $symbol) {
+	admin_contract_assert(strpos($javascript, $symbol) !== false, 'GUI Historical lock/lease path missing: ' . $symbol);
+}
+foreach (['#cc-tab-live', '#cc-tab-historical', '#cc-launch', '#cc-live-wall-launch', '#cc-excluded-calls'] as $selector) {
+	admin_contract_assert(strpos($javascript, $selector) !== false, 'Calculation workspace lock must address ' . $selector);
+}
+admin_contract_assert(strpos($javascript, "String(target) !== String(workspaceLockReportId)") !== false, 'Locked tab selection must be rejected before activation/regeneration');
+admin_contract_assert(strpos($javascript, "command: 'calculationheartbeat', calculation_id: run.id") !== false, 'Heartbeat must renew only the exact calculation ID');
+admin_contract_assert(strpos($javascript, "command', 'cancelcalculation'") !== false && strpos($javascript, 'navigator.sendBeacon') !== false, 'Unload fast path must send exact cooperative cancellation through sendBeacon');
+admin_contract_assert(strpos($historicalRunStateJavascript, "intentionalAbortReason === 'abandoned'") !== false, 'Intentional abandonment abort must remain narrowly suppressed');
+admin_contract_assert(strpos($view, 'id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"') !== false, 'Historical result warning must start hidden and absent from accessibility APIs');
+admin_contract_assert(strpos($historicalRunStateJavascript, 'function hasMeaningfulMessage(') !== false, 'Historical result notices require a shared empty/whitespace classifier');
+admin_contract_assert(strpos($javascript, 'function renderResultWarning(message)') !== false && strpos($javascript, "renderResultWarning(r.warning)") !== false, 'Every rendered Historical result must clear/hide or show its own warning state');
+admin_contract_assert(strpos($javascript, ".prop('hidden', !meaningful).attr('aria-hidden', meaningful ? 'false' : 'true')") !== false, 'Empty Historical result warnings must be visually and accessibly hidden');
+admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_gui_historical', 5)") !== false, 'GUI calculation admission/cancel/heartbeat mutations must be serialized server-side');
+admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long GUI calculations must continue releasing the PHP session lock');
+admin_contract_assert(strpos($class, 'admitGui($calculationId, $owner)') !== false && strpos($class, "'admission_busy' => true") !== false, 'Backend must reject a second owned GUI run before engine entry');
+admin_contract_assert(strpos($historicalCalculationControl, 'const GUI_LEASE_SECONDS = 20') !== false && strpos($historicalCalculationControl, 'function heartbeat(') !== false && strpos($historicalCalculationControl, 'function shouldStop(') !== false, 'Calculation-specific twenty-second GUI lease is incomplete');
+admin_contract_assert(strpos($console, 'admitGui') === false && strpos($console, 'calculationheartbeat') === false, 'GUI admission and heartbeat must not affect CLI calculations');
+admin_contract_assert(strpos($class, "'runtime_started_at'") !== false && strpos($class, '$control->runtimeStartedAt($calculationId, $owner)') !== false, 'GUI calculations must use the server-owned original runtime origin');
+admin_contract_assert(strpos($javascript, 'runtime_started_at') === false && strpos($javascript, 'runtime_deadline') === false, 'The browser must not supply or extend authoritative runtime state');
+admin_contract_assert(strpos($class, '$confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner)') !== false, 'Confirmed Continue must resume the same registered GUI calculation instead of receiving fresh admission');
+admin_contract_assert(strpos($historicalCalculationControl, 'function pauseForWarning(') !== false && strpos($historicalCalculationControl, 'function resumeGui(') !== false, 'Predictive warning control state must survive and resume safely');
+admin_contract_assert(strpos($javascript, "'Based on current progress, this report may not finish within the fixed 3,600-second (1 hour) calculation limit. '") !== false, 'Long-running warning must state the fixed numeric limit');
+admin_contract_assert(strpos($javascript, "'Estimated time remaining: '") !== false && strpos($javascript, 'Maximum runtime remaining: ') !== false, 'Long-running warning must show ETA and hard-runtime remainder separately');
+admin_contract_assert(strpos($javascript, "'Continuing restarts the count using the remaining time in the same one-hour allowance.'") !== false, 'Continue wording must explain that work restarts without extending runtime');
+admin_contract_assert(strpos($javascript, 'selectedEngine, run);') !== false && strpos($javascript, 'calculation_id: run.id') !== false, 'Continue must reuse the exact calculation ID and browser run object');
+admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run);') > strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") || strpos($javascript, 'stopCalculationTelemetry(run);') !== false, 'Warning Abort must clean the retained calculation UI only after cooperative cancellation');
 
 echo "Administrative contract passed\n";

@@ -30,6 +30,8 @@ $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
 $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
@@ -111,14 +113,36 @@ $_ccAssetVer = max(
 						</div>
 						<div id="cc-report-active" style="display:none;">
 							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
-							<div id="cc-report-loading" class="text-muted" style="display:none;"><span class="cc-spinner"></span> <span id="cc-report-loading-text"></span></div>
-							<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
+							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title">
+								<div class="cc-calculation-panel-heading">
+									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
+									<div id="cc-report-loading" class="text-muted"><span class="cc-spinner"></span> <strong id="cc-calculation-panel-title"><?php echo _('Calculating...'); ?></strong> <span id="cc-report-loading-text"></span></div>
+								</div>
+								<div class="cc-telemetry-group cc-telemetry-resources" aria-labelledby="cc-telemetry-resources-title">
+									<h4 id="cc-telemetry-resources-title"><?php echo _('System resources'); ?></h4>
+									<dl class="cc-telemetry-grid">
+										<div><dt id="cc-telemetry-cpu-label" title="<?php echo _('Average tasks running or waiting for CPU or resources over five minutes; this is not a percentage.'); ?>"><?php echo _('System load (5 min)'); ?></dt><dd id="cc-telemetry-cpu">--</dd></div>
+										<div><dt id="cc-telemetry-memory-label"><?php echo _('Memory (applications)'); ?></dt><dd id="cc-telemetry-memory">--</dd></div>
+										<div id="cc-telemetry-swap-item" style="display:none;"><dt id="cc-telemetry-swap-label"><?php echo _('Swap'); ?></dt><dd id="cc-telemetry-swap">--</dd></div>
+										<div><dt id="cc-telemetry-disk-label"><?php echo _('Disk (/)'); ?></dt><dd id="cc-telemetry-disk">--</dd></div>
+									</dl>
+								</div>
+								<div class="cc-telemetry-group cc-telemetry-calculation" aria-labelledby="cc-telemetry-calculation-title">
+									<h4 id="cc-telemetry-calculation-title"><?php echo _('Calculation'); ?></h4>
+									<dl class="cc-telemetry-grid">
+										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
+										<div><dt><?php echo _('Estimated remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Estimating...'); ?></dd></div>
+									</dl>
+								</div>
+							</section>
+							<div id="cc-status" class="alert" role="status" aria-live="polite" style="display:none; margin-top:20px;"></div>
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning"></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"></div></div></div>
 								<div class="row"><div class="col-sm-12">
 									<button type="button" id="cc-download" class="btn btn-default"><i class="fa fa-download"></i> <?php echo _('Download CSV'); ?></button>
 									<button type="button" id="cc-download-cdr" class="btn btn-default" style="display:none;"><i class="fa fa-table"></i> <?php echo _('Preview fixture CSV'); ?></button>
@@ -397,7 +421,7 @@ $_ccAssetVer = max(
 					<strong><?php echo _('Warning:'); ?></strong>
 					<span id="cc-overrun-message"></span>
 				</div>
-				<p><?php echo _('The count is likely to abort before completion. Continue anyway?'); ?></p>
+				<p><?php echo _('Continue anyway?'); ?></p>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" id="cc-overrun-no"><?php echo _('No, abort'); ?></button>
@@ -408,6 +432,8 @@ $_ccAssetVer = max(
 </div>
 
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

@@ -27,14 +27,19 @@ require_once __DIR__ . '/Services/AlertOutboxService.php';
 require_once __DIR__ . '/Services/HistoricalReportsService.php';
 require_once __DIR__ . '/Services/PjsipIdentityService.php';
 require_once __DIR__ . '/Services/HistoricalCallExclusionService.php';
+require_once __DIR__ . '/Services/HistoricalCalculationControl.php';
+require_once __DIR__ . '/Services/CliCancellationControl.php';
+require_once __DIR__ . '/Services/SystemResourceTelemetry.php';
+require_once __DIR__ . '/Services/HistoricalResourceLimitException.php';
+require_once __DIR__ . '/Services/HistoricalMemoryGuard.php';
 
 class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.1.0';
+	const VERSION = '2.1.1';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -246,6 +251,12 @@ class Concurrencycount implements \BMO {
 				return $this->handleWizardStep();
 			case 'run':
 				return $this->handleRun();
+			case 'cancelcalculation':
+				return $this->handleCancelCalculation();
+			case 'calculationheartbeat':
+				return $this->handleCalculationHeartbeat();
+			case 'calculationtelemetry':
+				return $this->handleCalculationTelemetry();
 			case 'peakdetails':
 				return $this->handlePeakDetails();
 			case 'livestatus':
@@ -1346,10 +1357,45 @@ class Concurrencycount implements \BMO {
 		$confirm_overrun = !empty($_REQUEST['confirm_overrun']);
 		$options = $this->requestDemoOptions();
 		$options['filter'] = isset($_REQUEST['filter']) ? trim((string)$_REQUEST['filter']) : '';
-
-		if ($mode === null) {
-			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
+		$calculationId = isset($_REQUEST['calculation_id']) ? trim((string)$_REQUEST['calculation_id']) : '';
+		$control = null;
+		$previousIgnoreUserAbort = null;
+		$preserveControlForWarning = false;
+		if ($mode === null) return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
+		if ($calculationId !== '') {
+			try {
+				$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+				$calculationId = $control->validateId($calculationId);
+				$owner = $this->guiCalculationOwner();
+				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner, $confirm_overrun): bool {
+					return $confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner);
+				});
+				if (!$admitted) return ['status' => false, 'admission_busy' => true, 'message' => _('A previous Historical calculation is still stopping. Please try again shortly.')];
+				$options['runtime_started_at'] = $control->runtimeStartedAt($calculationId, $owner);
+				$lastCancellationCheck = 0.0;
+				$options['cancellation_check'] = function () use ($control, $calculationId, &$lastCancellationCheck): bool {
+					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+					if (($now - $lastCancellationCheck) < 0.25) return false;
+					$lastCancellationCheck = $now;
+					return $control->shouldStop($calculationId);
+				};
+				$lastTelemetryUpdate = 0.0;
+				$options['progress_update'] = function (array $assessment) use ($control, $calculationId, &$lastTelemetryUpdate): void {
+					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+					if (($now - $lastTelemetryUpdate) < 1.0) return;
+					$lastTelemetryUpdate = $now;
+					$control->updateTelemetry($calculationId, (float)$assessment['overall_elapsed'], isset($assessment['estimated_remaining']) ? (float)$assessment['estimated_remaining'] : null, !empty($assessment['reliable']));
+				};
+				$previousIgnoreUserAbort = ignore_user_abort(true);
+			} catch (\Exception $exception) {
+				return ['status' => false, 'message' => $exception->getMessage()];
+			}
 		}
+
+		// Authentication and CSRF validation have completed. Release PHP's
+		// session lock so the same administrator's Stop request can run in
+		// parallel with this long calculation.
+		if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
 
 		try {
 			if ($mode !== 'demo') {
@@ -1359,7 +1405,20 @@ class Concurrencycount implements \BMO {
 			}
 			$results = $this->calculate($mode, $start, $end, $confirm_overrun, $options);
 			return ['status' => true, 'results' => $results];
+		} catch (HistoricalCalculationCancelled $cancelled) {
+			return ['status' => false, 'cancelled' => true, 'message' => _('Calculation stopped.')];
+		} catch (\FreePBX\modules\Concurrencycount\Services\HistoricalResourceLimitException $resourceLimit) {
+			return [
+				'status' => false,
+				'resource_limit' => true,
+				'message' => _("This calculation reached Concurrency Count's safe memory allowance."),
+				'advice' => _('No completed report result was changed. Try Sweep, a shorter date range, or a more specific endpoint filter.'),
+			];
 		} catch (RuntimeOverrunPending $rop) {
+			if ($control !== null) {
+				$owner = $this->guiCalculationOwner();
+				$preserveControlForWarning = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner): bool { return $control->pauseForWarning($calculationId, $owner); });
+			}
 			return [
 				'status' => false,
 				'overrun_warning' => true,
@@ -1369,7 +1428,86 @@ class Concurrencycount implements \BMO {
 			];
 		} catch (\Exception $e) {
 			return ['status' => false, 'message' => $e->getMessage()];
+		} finally {
+			if ($control !== null && !$preserveControlForWarning) $this->withGuiCalculationLock(function () use ($control, $calculationId): void { $control->finish($calculationId); });
+			if ($previousIgnoreUserAbort !== null) ignore_user_abort($previousIgnoreUserAbort);
 		}
+	}
+
+	private function handleCancelCalculation(): array {
+		try {
+			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
+			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+			$id = $control->validateId($id);
+			return ['status' => true, 'cancelled' => $this->withGuiCalculationLock(function () use ($control, $id): bool { return $control->cancel($id); })];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function handleCalculationHeartbeat(): array {
+		try {
+			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
+			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+			$id = $control->validateId($id);
+			$owner = $this->guiCalculationOwner();
+			$renewed = $this->withGuiCalculationLock(function () use ($control, $id, $owner): bool { return $control->heartbeat($id, $owner); });
+			return ['status' => true, 'renewed' => $renewed];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function guiCalculationOwner(): string {
+		$id = session_id();
+		if ($id === '') throw new \RuntimeException(_('An authenticated GUI session is required for Historical calculations.'));
+		return hash('sha256', 'concurrencycount-gui:' . $id);
+	}
+
+	private function withGuiCalculationLock(callable $callback) {
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_gui_historical', 5)")->fetchColumn();
+		if ((int)$lock !== 1) throw new \RuntimeException(_('Historical calculation control is busy. Please try again.'));
+		try { return call_user_func($callback); }
+		finally { $this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_gui_historical')"); }
+	}
+
+	private function handleCalculationTelemetry(): array {
+		try {
+			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
+			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+			$id = $control->validateId($id);
+			$record = $control->status($id);
+			if ($record === null) return ['status' => true, 'active' => false, 'resources' => ['available' => false]];
+			$resources = ['available' => false];
+			try {
+				$dashboard = \FreePBX::Dashboard();
+				if (is_object($dashboard) && method_exists($dashboard, 'getSysInfo')) {
+					$resources = (new \FreePBX\modules\Concurrencycount\Services\SystemResourceTelemetry())->fromDashboard((array)$dashboard->getSysInfo());
+				}
+			} catch (\Throwable $exception) {
+				// Dashboard telemetry is optional; calculation state remains available.
+			}
+			return ['status' => true] + $this->buildCalculationTelemetryPayload($record, $resources, microtime(true));
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function buildCalculationTelemetryPayload(array $record, array $resources, float $now): array {
+		$active = isset($record['status']) && in_array($record['status'], ['active', 'awaiting_confirmation'], true);
+		$elapsed = isset($record['elapsed']) && is_numeric($record['elapsed']) ? max(0.0, (float)$record['elapsed']) : 0.0;
+		if (isset($record['started_at']) && is_numeric($record['started_at'])) $elapsed = max($elapsed, $now - (float)$record['started_at']);
+		$estimate = isset($record['estimated_remaining']) && is_numeric($record['estimated_remaining']) ? (float)$record['estimated_remaining'] : null;
+		$reliable = $active && !empty($record['eta_reliable']) && $estimate !== null && is_finite($estimate) && $estimate > 0.0;
+		return [
+			'active' => $active,
+			'elapsed' => $elapsed,
+			'max_runtime' => self::MAX_RUNTIME,
+			'runtime_remaining' => max(0.0, self::MAX_RUNTIME - $elapsed),
+			'estimated_remaining' => $reliable ? $estimate : null,
+			'eta_reliable' => $reliable,
+			'resources' => $resources,
+		];
 	}
 
 	private function handlePeakDetails(): array {
@@ -1599,18 +1737,22 @@ class Concurrencycount implements \BMO {
 	 */
 	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
 		set_time_limit(self::MAX_RUNTIME + 60);
-		$started_at = time();
+		$started_at = isset($options['runtime_started_at']) && is_numeric($options['runtime_started_at'])
+			? (float)$options['runtime_started_at']
+			: \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
 		$filter = isset($options['filter']) ? trim((string)$options['filter']) : '';
+		$cancellationCheck = isset($options['cancellation_check']) && is_callable($options['cancellation_check']) ? $options['cancellation_check'] : null;
+		$progressUpdate = isset($options['progress_update']) && is_callable($options['progress_update']) ? $options['progress_update'] : null;
 
 		if ($mode === 'demo') {
 			return $this->calculateDemo($start, $end, $started_at, $options);
 		}
 		if ($mode === 'group') {
 			if ($filter !== '') throw new \InvalidArgumentException(_('Group reports do not support an endpoint filter.'));
-			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id);
+			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id, $cancellationCheck, $progressUpdate);
 		}
-		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id, $filter);
+		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id, $filter, $cancellationCheck, $progressUpdate);
 	}
 
 	public function getAvailableEngines(): array {
@@ -1634,16 +1776,39 @@ class Concurrencycount implements \BMO {
 		return new $class($options);
 	}
 
-	private function engineOptions(array $all_names, int $started_at, bool $confirm_overrun): array {
-		$did_overrun_prompt = $confirm_overrun;
+	private function engineOptions(array $all_names, float $started_at, bool $confirm_overrun, ?callable $cancellationCheck = null, ?callable $progressUpdate = null): array {
+		$estimator = new \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator(
+			self::MAX_RUNTIME,
+			$started_at,
+			\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now(),
+			$confirm_overrun
+		);
+		$memoryGuard = new \FreePBX\modules\Concurrencycount\Services\HistoricalMemoryGuard();
 		return [
 			'all_names' => $all_names,
+			'resource_check' => function () use ($memoryGuard, $cancellationCheck): void {
+				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+				$memoryGuard->checkpoint();
+			},
 			'coalesce_ranges' => function (array $times): array {
 				return $this->coalesceRanges($times);
 			},
-			'check_overrun' => function (int $processed, int $total) use ($started_at, &$did_overrun_prompt): void {
-				$elapsed = time() - $started_at;
-				$this->checkOverrun($elapsed, $processed, $total, $started_at, $did_overrun_prompt);
+			'check_overrun' => function (int $processed, int $total, string $stage = 'progress') use ($estimator, $memoryGuard, $cancellationCheck, $progressUpdate): void {
+				$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+				$memoryGuard->checkpoint();
+				if ($processed === 0) $estimator->beginEngine($now);
+				$assessment = $estimator->evaluate($processed, $total, $now);
+				if ($progressUpdate !== null) call_user_func($progressUpdate, $assessment);
+				if ($assessment['abort']) {
+					throw new \Exception(sprintf(_('Script exceeded the maximum runtime of %d seconds. Aborting to protect system stability.'), self::MAX_RUNTIME));
+				}
+				if ($assessment['warn']) {
+					$ex = new RuntimeOverrunPending(_('Estimated time exceeds the maximum runtime.'));
+					$ex->estimatedRemaining = (int)round($assessment['estimated_remaining']);
+					$ex->runtimeRemaining = (int)floor($assessment['runtime_remaining']);
+					throw $ex;
+				}
 			},
 		];
 	}
@@ -1652,12 +1817,14 @@ class Concurrencycount implements \BMO {
 	 * Temporary demo fixture. Rows are inserted with a unique accountcode,
 	 * counted via the normal CDR queries, then removed in a finally block.
 	 */
-	private function calculateDemo(string $start, string $end, int $started_at, array $options): array {
+	private function calculateDemo(string $start, string $end, float $started_at, array $options): array {
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 		$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
 		$demo_engines = $this->normaliseDemoEngines(isset($options['demo_engines']) ? $options['demo_engines'] : ['original']);
 		$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
+		$cancellationCheck = isset($options['cancellation_check']) && is_callable($options['cancellation_check']) ? $options['cancellation_check'] : null;
+		$progressUpdate = isset($options['progress_update']) && is_callable($options['progress_update']) ? $options['progress_update'] : null;
 		if ($seed === 0) {
 			$seed = random_int(1, 0x7fffffff);
 		}
@@ -1685,6 +1852,9 @@ class Concurrencycount implements \BMO {
 			foreach ($rows as $row) {
 				$this->insertDemoCdrRow($row);
 				$inserted++;
+				if (($inserted % 100) === 0 && $cancellationCheck !== null && call_user_func($cancellationCheck)) {
+					throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+				}
 			}
 
 			$engine_results = [];
@@ -1695,10 +1865,10 @@ class Concurrencycount implements \BMO {
 				$before_memory = memory_get_usage(true);
 				$wall_start = microtime(true);
 				if ($report === 'group') {
-					$actual = $this->calculateGroup($start, $end, $started_at, true, $accountcode, $engine_id);
+					$actual = $this->calculateGroup($start, $end, $started_at, true, $accountcode, $engine_id, $cancellationCheck, $progressUpdate);
 					$accuracy = $this->assessDemoGroupAccuracy($expected, $actual);
 				} else {
-					$actual = $this->calculatePerName($report, $start, $end, $started_at, true, $accountcode, $engine_id);
+					$actual = $this->calculatePerName($report, $start, $end, $started_at, true, $accountcode, $engine_id, '', $cancellationCheck, $progressUpdate);
 					$accuracy = $this->assessDemoPerNameAccuracy($expected, $actual);
 				}
 				$wall_ms = (int)round((microtime(true) - $wall_start) * 1000);
@@ -1755,6 +1925,7 @@ class Concurrencycount implements \BMO {
 			}
 		} finally {
 			$cleanup = $this->cleanupDemoCdrRows($accountcode);
+			if ($cleanup['cleanup_remaining'] > 0) throw new \Exception(sprintf(_('Demo cleanup incomplete: %d synthetic CDR rows remain.'), $cleanup['cleanup_remaining']));
 		}
 		if ($result === null) {
 			throw new \Exception(_('Demo run failed before results were produced.'));
@@ -2097,7 +2268,7 @@ class Concurrencycount implements \BMO {
 	 * Per-name (trunk or extension) concurrency.
 	 * Mirrors bash calculate_concurrency().
 	 */
-	private function calculatePerName(string $mode, string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original', string $filter = ''): array {
+	private function calculatePerName(string $mode, string $start, string $end, float $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original', string $filter = '', ?callable $cancellationCheck = null, ?callable $progressUpdate = null): array {
 		$identity = $this->identityForOperation($accountcode);
 		$filter = trim($filter);
 		$trunks = $mode === 'trunk' ? ($accountcode === '' ? $this->getTrunks() : array_keys($identity->configuredTrunks())) : [];
@@ -2120,7 +2291,7 @@ class Concurrencycount implements \BMO {
 		}
 
 		$all_names = $this->buildAllNames($mode, $rows, $trunks);
-		$engine = $this->buildEngine($engine_id, $this->engineOptions($all_names, $started_at, $confirm_overrun));
+		$engine = $this->buildEngine($engine_id, $this->engineOptions($all_names, $started_at, $confirm_overrun, $cancellationCheck, $progressUpdate));
 		$calculated = $engine->calculatePerName($mode, $rows);
 
 		if (empty($calculated['per_name'])) {
@@ -2184,7 +2355,7 @@ class Concurrencycount implements \BMO {
 	/**
 	 * Group mode. Mirrors bash calculate_group_concurrency().
 	 */
-	private function calculateGroup(string $start, string $end, int $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original'): array {
+	private function calculateGroup(string $start, string $end, float $started_at, bool $confirm_overrun, string $accountcode = '', string $engine_id = 'original', ?callable $cancellationCheck = null, ?callable $progressUpdate = null): array {
 		$identity = $this->identityForOperation($accountcode);
 		$classified = $this->classifyGroupRows($this->fetchPjsipCdrRows($start, $end, $accountcode), $identity);
 		$rows = $classified['rows'];
@@ -2195,7 +2366,7 @@ class Concurrencycount implements \BMO {
 			return $empty;
 		}
 
-		$engine = $this->buildEngine($engine_id, $this->engineOptions([], $started_at, $confirm_overrun));
+		$engine = $this->buildEngine($engine_id, $this->engineOptions([], $started_at, $confirm_overrun, $cancellationCheck, $progressUpdate));
 		$calculated = $engine->calculateGroup($rows);
 
 		if ((int)$calculated['max_concurrency'] === 0) {
@@ -2300,29 +2471,6 @@ class Concurrencycount implements \BMO {
 			$total += max(0, strtotime($range['to']) - strtotime($range['from']) + 1);
 		}
 		return $total;
-	}
-
-	/**
-	 * Runtime overrun guard. Mirrors bash:
-	 *   est_remain = elapsed/processed * (total - processed)
-	 *   if elapsed + est_remain > MAX_RUNTIME and prompt not shown -> warn
-	 *   if elapsed > MAX_RUNTIME -> abort
-	 */
-	private function checkOverrun(int $elapsed, int $processed, int $total, int $started_at, bool &$did_prompt): void {
-		if ($elapsed > self::MAX_RUNTIME) {
-			throw new \Exception(sprintf(_('Script exceeded the maximum runtime of %d seconds. Aborting to protect system stability.'), self::MAX_RUNTIME));
-		}
-		if ($did_prompt || $processed === 0) return;
-
-		$est_remain = (int)round(($elapsed / max($processed, 1)) * ($total - $processed));
-		if (($elapsed + $est_remain) > self::MAX_RUNTIME) {
-			$max_left = self::MAX_RUNTIME - $elapsed;
-			if ($max_left < 0) $max_left = 0;
-			$ex = new RuntimeOverrunPending(_('Estimated time exceeds the maximum runtime.'));
-			$ex->estimatedRemaining = $est_remain;
-			$ex->runtimeRemaining = $max_left;
-			throw $ex;
-		}
 	}
 
 	private function coalesceRanges(array $sorted): array {
@@ -2941,3 +3089,5 @@ class RuntimeOverrunPending extends \Exception {
 	public $estimatedRemaining = 0;
 	public $runtimeRemaining = 0;
 }
+
+class HistoricalCalculationCancelled extends \Exception {}
