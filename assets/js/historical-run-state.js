@@ -10,7 +10,7 @@
 		if (textStatus !== 'abort' || !run) return false;
 		var sequence = Number(run.sequence);
 		if (!/^[a-f0-9]{32}$/.test(String(run.id || '')) || run.sequence === null || !isFinite(sequence) || sequence <= 0 || Math.floor(sequence) !== sequence) return false;
-		return run.intentionalAbortReason === 'stop' || run.intentionalAbortReason === 'superseded' || run.intentionalAbortReason === 'terminal';
+		return run.intentionalAbortReason === 'stop' || run.intentionalAbortReason === 'superseded' || run.intentionalAbortReason === 'abandoned' || run.intentionalAbortReason === 'terminal';
 	}
 
 	function shouldReportFailure(run, textStatus) {

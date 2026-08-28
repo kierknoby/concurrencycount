@@ -9,6 +9,8 @@ function assert(condition, message) {
 
 assert(!state.shouldReportFailure({id, sequence: 1, intentionalAbortReason: 'stop'}, 'abort'), 'Stop-triggered run abort must be suppressed');
 assert(!state.shouldReportFailure({id, sequence: 2, intentionalAbortReason: 'superseded'}, 'abort'), 'Superseded run abort must be suppressed');
+assert(!state.shouldReportFailure({id, sequence: 8, intentionalAbortReason: 'abandoned'}, 'abort'), 'Page/module abandonment abort must be suppressed');
+assert(state.shouldReportFailure({id, sequence: 8, intentionalAbortReason: 'abandoned'}, 'error'), 'A real transport failure remains reportable even for abandonment state');
 assert(state.shouldReportFailure({id, sequence: 3, intentionalAbortReason: null}, 'abort'), 'Unexpected abort must still be reported');
 assert(state.shouldReportFailure({id, sequence: 4, intentionalAbortReason: 'stop'}, 'error'), 'A genuine network/server failure must still be reported even after Stop state');
 assert(state.shouldReportFailure({id, sequence: 5, intentionalAbortReason: 'superseded'}, 'parsererror'), 'Malformed responses must still be reported');

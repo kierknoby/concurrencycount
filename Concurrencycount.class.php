@@ -39,7 +39,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.1.1';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'cancelcalculation', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -253,6 +253,8 @@ class Concurrencycount implements \BMO {
 				return $this->handleRun();
 			case 'cancelcalculation':
 				return $this->handleCancelCalculation();
+			case 'calculationheartbeat':
+				return $this->handleCalculationHeartbeat();
 			case 'calculationtelemetry':
 				return $this->handleCalculationTelemetry();
 			case 'peakdetails':
@@ -1358,17 +1360,22 @@ class Concurrencycount implements \BMO {
 		$calculationId = isset($_REQUEST['calculation_id']) ? trim((string)$_REQUEST['calculation_id']) : '';
 		$control = null;
 		$previousIgnoreUserAbort = null;
+		if ($mode === null) return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
 		if ($calculationId !== '') {
 			try {
 				$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 				$calculationId = $control->validateId($calculationId);
-				$control->begin($calculationId);
+				$owner = $this->guiCalculationOwner();
+				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner): bool {
+					return $control->admitGui($calculationId, $owner);
+				});
+				if (!$admitted) return ['status' => false, 'admission_busy' => true, 'message' => _('A previous Historical calculation is still stopping. Please try again shortly.')];
 				$lastCancellationCheck = 0.0;
 				$options['cancellation_check'] = function () use ($control, $calculationId, &$lastCancellationCheck): bool {
 					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 					if (($now - $lastCancellationCheck) < 0.25) return false;
 					$lastCancellationCheck = $now;
-					return $control->isCancelled($calculationId);
+					return $control->shouldStop($calculationId);
 				};
 				$lastTelemetryUpdate = 0.0;
 				$options['progress_update'] = function (array $assessment) use ($control, $calculationId, &$lastTelemetryUpdate): void {
@@ -1383,9 +1390,6 @@ class Concurrencycount implements \BMO {
 			}
 		}
 
-		if ($mode === null) {
-			return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
-		}
 		// Authentication and CSRF validation have completed. Release PHP's
 		// session lock so the same administrator's Stop request can run in
 		// parallel with this long calculation.
@@ -1419,7 +1423,7 @@ class Concurrencycount implements \BMO {
 		} catch (\Exception $e) {
 			return ['status' => false, 'message' => $e->getMessage()];
 		} finally {
-			if ($control !== null) $control->finish($calculationId);
+			if ($control !== null) $this->withGuiCalculationLock(function () use ($control, $calculationId): void { $control->finish($calculationId); });
 			if ($previousIgnoreUserAbort !== null) ignore_user_abort($previousIgnoreUserAbort);
 		}
 	}
@@ -1429,10 +1433,36 @@ class Concurrencycount implements \BMO {
 			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
 			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 			$id = $control->validateId($id);
-			return ['status' => true, 'cancelled' => $control->cancel($id)];
+			return ['status' => true, 'cancelled' => $this->withGuiCalculationLock(function () use ($control, $id): bool { return $control->cancel($id); })];
 		} catch (\Exception $exception) {
 			return ['status' => false, 'message' => $exception->getMessage()];
 		}
+	}
+
+	private function handleCalculationHeartbeat(): array {
+		try {
+			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
+			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+			$id = $control->validateId($id);
+			$owner = $this->guiCalculationOwner();
+			$renewed = $this->withGuiCalculationLock(function () use ($control, $id, $owner): bool { return $control->heartbeat($id, $owner); });
+			return ['status' => true, 'renewed' => $renewed];
+		} catch (\Exception $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
+	private function guiCalculationOwner(): string {
+		$id = session_id();
+		if ($id === '') throw new \RuntimeException(_('An authenticated GUI session is required for Historical calculations.'));
+		return hash('sha256', 'concurrencycount-gui:' . $id);
+	}
+
+	private function withGuiCalculationLock(callable $callback) {
+		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_gui_historical', 5)")->fetchColumn();
+		if ((int)$lock !== 1) throw new \RuntimeException(_('Historical calculation control is busy. Please try again.'));
+		try { return call_user_func($callback); }
+		finally { $this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_gui_historical')"); }
 	}
 
 	private function handleCalculationTelemetry(): array {

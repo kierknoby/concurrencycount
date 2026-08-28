@@ -69,6 +69,9 @@ window._ccLoaded = true;
 	var pendingPersistedRefresh = false;
 	var activeCalculation = null;
 	var calculationSequence = 0;
+	var calculationHeartbeatInterval = 5000;
+	var workspaceLockReportId = null;
+	var calculationUnavailableTitle = 'Unavailable while a Historical calculation is running.';
 
 	function newCalculationId() {
 		var bytes = new Uint8Array(16);
@@ -370,6 +373,7 @@ window._ccLoaded = true;
 	}
 
 	function invalidateAndRerunReports() {
+		if (activeCalculation) return;
 		Object.keys(historicalReports).forEach(function (id) {
 			historicalReports[id].result = null;
 			historicalReports[id].graphSeries = null;
@@ -952,6 +956,33 @@ window._ccLoaded = true;
 				'</div>';
 		}).join('');
 		$('#cc-tab-historical').after(html);
+		if (workspaceLockReportId) setHistoricalWorkspaceLocked(true, workspaceLockReportId);
+	}
+
+	function setHistoricalWorkspaceLocked(locked, reportId) {
+		workspaceLockReportId = locked ? reportId : null;
+		var fixedControls = $('#cc-tab-live, #cc-tab-historical, #cc-launch, #cc-demo-launch, #cc-identity-manage, #cc-live-wall-launch, #cc-live-wall-configure');
+		fixedControls.prop('disabled', locked).attr('aria-disabled', locked ? 'true' : 'false');
+		fixedControls.each(function () {
+			var control = $(this);
+			if (locked) {
+				if (control.data('cc-lock-title') === undefined) control.data('cc-lock-title', control.attr('title') || '');
+				control.attr('title', calculationUnavailableTitle);
+			} else {
+				var originalTitle = control.data('cc-lock-title');
+				if (originalTitle) control.attr('title', originalTitle); else control.removeAttr('title');
+				control.removeData('cc-lock-title');
+			}
+		});
+		$('#cc-workspace-tabs .cc-report-tab-top').each(function () {
+			var tab = $(this);
+			var isOwner = String(tab.data('target')) === String(reportId);
+			var disabled = locked && !isOwner;
+			tab.toggleClass('cc-calculation-locked', disabled).attr('aria-disabled', disabled ? 'true' : 'false');
+			tab.find('.cc-report-tab-select').prop('disabled', disabled).attr('aria-disabled', disabled ? 'true' : 'false').attr('title', disabled ? calculationUnavailableTitle : '');
+			tab.find('.cc-report-tab-close').prop('disabled', locked).attr('aria-disabled', locked ? 'true' : 'false').attr('title', locked ? calculationUnavailableTitle : '');
+		});
+		$('.concurrencycount').toggleClass('cc-historical-calculation-locked', locked);
 	}
 
 	function showReportLimitMessage() {
@@ -983,6 +1014,7 @@ window._ccLoaded = true;
 	 * show/hide + Live polling to live-view.js.
 	 */
 	function selectTopTab(target) {
+		if (workspaceLockReportId && String(target) !== String(workspaceLockReportId)) return;
 		$('#cc-workspace-tabs [data-target]').attr('aria-selected', 'false');
 		$('#cc-workspace-tabs [data-target="' + target + '"]').attr('aria-selected', 'true');
 		if (window.CCLiveWorkspace) window.CCLiveWorkspace.switchSection(target === 'live' ? 'live' : 'historical');
@@ -1011,6 +1043,7 @@ window._ccLoaded = true;
 	}
 
 	function closeReportTab(id) {
+		if (workspaceLockReportId) return;
 		if (!historicalReports[id]) return;
 		var closingActive = id === activeReportId;
 		ajax({command: 'closehistoricalreport', id: id}).always(function () {
@@ -1486,6 +1519,37 @@ window._ccLoaded = true;
 		pollCalculationTelemetry(run);
 	}
 
+	function pollCalculationHeartbeat(run) {
+		if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
+		run.heartbeatRequest = ajax({command: 'calculationheartbeat', calculation_id: run.id}, {global: false}).always(function () {
+			run.heartbeatRequest = null;
+			if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
+			run.heartbeatTimer = window.setTimeout(function () { pollCalculationHeartbeat(run); }, calculationHeartbeatInterval);
+		});
+	}
+
+	function stopCalculationHeartbeat(run) {
+		if (run && run.heartbeatTimer) window.clearTimeout(run.heartbeatTimer);
+		if (run && run.heartbeatRequest && typeof run.heartbeatRequest.abort === 'function') run.heartbeatRequest.abort();
+		if (run) { run.heartbeatTimer = null; run.heartbeatRequest = null; }
+	}
+
+	function sendAbandonmentCancellation(run) {
+		if (!run || run.abandonmentSent) return;
+		run.abandonmentSent = true;
+		run.stopping = true;
+		run.intentionalAbortReason = 'abandoned';
+		var data = new window.FormData();
+		data.append('command', 'cancelcalculation');
+		data.append('calculation_id', run.id);
+		data.append('token', $('.concurrencycount').attr('data-csrf-token') || '');
+		if (window.navigator && typeof window.navigator.sendBeacon === 'function') {
+			window.navigator.sendBeacon('ajax.php?module=concurrencycount', data);
+		} else if (window.fetch) {
+			window.fetch('ajax.php?module=concurrencycount', {method: 'POST', body: data, credentials: 'same-origin', keepalive: true});
+		}
+	}
+
 	function stopCalculationTelemetry(run) {
 		if (run && run.telemetryTimer) window.clearTimeout(run.telemetryTimer);
 		if (run && !run.intentionalAbortReason) run.intentionalAbortReason = 'terminal';
@@ -1494,29 +1558,31 @@ window._ccLoaded = true;
 		if (!activeCalculation || !run || activeCalculation.sequence === run.sequence) $('#cc-calculation-panel').hide();
 	}
 
+	function finishCalculationUi(run) {
+		stopCalculationHeartbeat(run);
+		setHistoricalWorkspaceLocked(false);
+		restoreExcludedCallsAfterCalculation();
+	}
+
 	function restoreExcludedCallsAfterCalculation() {
 		$('#cc-excluded-calls').prop('disabled', false).removeAttr('aria-disabled');
 	}
 
 	function executeRun(mode, start, end, extraParams, engineOverride) {
-		if (activeCalculation && !activeCalculation.stopping) {
-			var superseded = activeCalculation;
-			superseded.stopping = true;
-			superseded.intentionalAbortReason = 'superseded';
-			ajax({command: 'cancelcalculation', calculation_id: superseded.id});
-			if (superseded.request && typeof superseded.request.abort === 'function') superseded.request.abort();
-			stopCalculationTelemetry(superseded);
-		}
+		if (activeCalculation) return;
 		var targetReportId = runTargetReportId;
 		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
-		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null};
+		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false};
 		activeCalculation = run;
+		if (targetReportId) selectTopTab(targetReportId);
+		setHistoricalWorkspaceLocked(true, targetReportId);
 		if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
 			setStatus('Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...', 'running');
 		}
 		startCalculationTelemetry(run);
+		pollCalculationHeartbeat(run);
 		$('#cc-results').hide();
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id};
@@ -1532,13 +1598,20 @@ window._ccLoaded = true;
 			if (resp.overrun_warning) {
 				stopCalculationTelemetry(run);
 				activeCalculation = null;
-				restoreExcludedCallsAfterCalculation();
+				finishCalculationUi(run);
 				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine);
 				return;
 			}
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
-			restoreExcludedCallsAfterCalculation();
+			finishCalculationUi(run);
+			if (resp.admission_busy) {
+				var waitingReport = targetReportId && historicalReports[targetReportId] ? historicalReports[targetReportId] : null;
+				if (waitingReport) waitingReport.firstRunPending = false;
+				restoreStoppedReport(targetReportId);
+				setStatus(resp.message || 'A previous Historical calculation is still stopping. Please try again shortly.', 'warning');
+				return;
+			}
 			if (resp.cancelled) {
 				restoreStoppedReport(targetReportId);
 				setStatus('Calculation stopped.', 'warning');
@@ -1565,7 +1638,7 @@ window._ccLoaded = true;
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
-			restoreExcludedCallsAfterCalculation();
+			finishCalculationUi(run);
 			if (discardFailedFirstRun(targetReportId, randomOops())) return;
 			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + randomOops(), 'error');
 			pendingPersistedRefresh = false;
@@ -1607,7 +1680,7 @@ window._ccLoaded = true;
 			stopCalculationTelemetry(run);
 			if (ownsActiveCalculation) {
 				activeCalculation = null;
-				restoreExcludedCallsAfterCalculation();
+				finishCalculationUi(run);
 			}
 			if (!ownsActiveCalculation && activeCalculation && activeCalculation.targetReportId === run.targetReportId) {
 				var replacementForClosingReport = activeCalculation;
@@ -1616,8 +1689,9 @@ window._ccLoaded = true;
 				ajax({command: 'cancelcalculation', calculation_id: replacementForClosingReport.id});
 				if (replacementForClosingReport.request && typeof replacementForClosingReport.request.abort === 'function') replacementForClosingReport.request.abort();
 				stopCalculationTelemetry(replacementForClosingReport);
+				stopCalculationHeartbeat(replacementForClosingReport);
 				activeCalculation = null;
-				restoreExcludedCallsAfterCalculation();
+				finishCalculationUi(replacementForClosingReport);
 			}
 			if (run.targetReportId && historicalReports[run.targetReportId]) closeReportTab(run.targetReportId);
 			else selectTopTab('historical');
@@ -1816,9 +1890,11 @@ window._ccLoaded = true;
 		});
 		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
 			if ($(e.target).closest('.cc-report-tab-close').length) return;
+			if ($(this).attr('aria-disabled') === 'true' || workspaceLockReportId && String($(this).data('target')) !== String(workspaceLockReportId)) { e.preventDefault(); return; }
 			selectTopTab($(this).data('target'));
 		}).off('click.ccTabsClose', '.cc-report-tab-close').on('click.ccTabsClose', '.cc-report-tab-close', function (e) {
 			e.stopPropagation();
+			if (workspaceLockReportId) return;
 			closeReportTab($(this).data('report-id'));
 		});
 		$(document).off('cc:historical-graph-loaded').on('cc:historical-graph-loaded', function (event, series) {
@@ -1868,6 +1944,16 @@ window._ccLoaded = true;
 		$('#cc-email-toggle').off('click').on('click', onEmailToggle);
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-calculation-stop').off('click').on('click', stopActiveCalculation);
+		$(window).off('pagehide.ccHistoricalLease').on('pagehide.ccHistoricalLease', function () {
+			if (activeCalculation) sendAbandonmentCancellation(activeCalculation);
+		});
+		$(document).off('click.ccHistoricalLeave', 'a[href]').on('click.ccHistoricalLeave', 'a[href]', function (event) {
+			if (!activeCalculation) return;
+			if (event.isDefaultPrevented() || event.which !== 1 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || $(this).is('[download]') || String($(this).attr('target') || '').toLowerCase() === '_blank') return;
+			var href = String($(this).attr('href') || '');
+			if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href) || /[?&]display=concurrencycount(?:&|$)/.test(href)) return;
+			sendAbandonmentCancellation(activeCalculation);
+		});
 		$('#cc-results-body').off('click', '.cc-occurrence-toggle').on('click', '.cc-occurrence-toggle', function () {
 			loadOccurrence($(this));
 		}).off('click', '.cc-occurrence-list-toggle').on('click', '.cc-occurrence-list-toggle', function () {
