@@ -189,6 +189,24 @@ $unhiddenConfig = $thresholds->normalise($visibilityConfig, ['gamma']);
 live_assert_same([], $unhiddenConfig['hidden_trunks'], 'Unhide preference survives settings normalisation');
 live_assert_same(['gamma'], $unhiddenConfig['live_wall_featured_trunks'], 'Unhiding restores a retained featured trunk choice');
 live_assert_same(false, $unhiddenConfig['trunks']['gamma']['monitored'], 'Unhiding does not resume monitoring');
+$numericPreferences = [
+	'hidden_trunks' => ['100'],
+	'trunk_order' => ['200', '100'],
+	'live_wall_featured_trunks' => ['100'],
+	'trunks' => ['100' => ['monitored' => false]],
+];
+$numericReconciled = $thresholds->reconcileStored($numericPreferences, ['100', '200']);
+live_assert_same(['100'], $numericReconciled['hidden_trunks'], 'Numeric-looking channelid remains a string and hidden during discovery reconciliation');
+live_assert_same(['200', '100'], $numericReconciled['trunk_order'], 'Numeric-looking channelid order survives discovery reconciliation');
+live_assert_same(false, $numericReconciled['trunks']['100']['monitored'], 'Existing numeric-looking channelid retains monitored=false during discovery reconciliation');
+live_assert_same(true, $numericReconciled['trunks']['200']['monitored'], 'Genuinely new trunk defaults to visible monitoring-active state');
+$rapidCombined = $numericReconciled;
+$rapidCombined['hidden_trunks'][] = '200';
+$rapidCombined['trunks']['200']['monitored'] = false;
+$rapidCombined = $thresholds->normalise($rapidCombined, ['100', '200']);
+live_assert_same(['100', '200'], $rapidCombined['hidden_trunks'], 'Rapid Hide and Stop preserve both hidden preferences');
+live_assert_same(false, $rapidCombined['trunks']['100']['monitored'], 'A second trunk action does not reset an existing stopped-monitoring preference');
+live_assert_same(false, $rapidCombined['trunks']['200']['monitored'], 'Rapid Hide followed by Stop retains monitored=false');
 $featuredConfig = $thresholds->normalise([
 	'live_wall_featured_trunks' => ['gamma-backup', 'gamma', 'gamma-backup'],
 	'trunks' => [
@@ -247,6 +265,12 @@ $presentationAndMonitoring = $live->analyse([
 live_assert_same(2, $presentationAndMonitoring['overall']['current'], 'Hidden and monitoring-stopped trunk legs still contribute to Overall without extension legs');
 live_assert_same(1, $presentationAndMonitoring['trunks']['gamma']['current'], 'Presentation and monitoring preferences do not alter underlying trunk counts');
 live_assert_same(1, $presentationAndMonitoring['trunks']['gamma-backup']['current'], 'Unfeatured trunk card count remains available to Overall');
+$numericSnapshotSettings = $numericReconciled;
+$numericSnapshot = $live->analyse([
+	live_channel('PJSIP/100-20000004', 'from-trunk'),
+], live_identity(['100', '200']), $numericSnapshotSettings, 1787730750);
+live_assert_same(1, $numericSnapshot['trunks']['100']['current'], 'Numeric-looking channelid remains the snapshot trunk key');
+live_assert_same($numericReconciled, $numericSnapshotSettings, 'Live snapshot reconstruction does not mutate presentation or monitoring settings');
 
 $state = [];
 $first = $thresholds->evaluate('overall', 2, $config['overall'], $state, true, true, 1000);

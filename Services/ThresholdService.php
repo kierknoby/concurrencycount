@@ -29,6 +29,7 @@ class ThresholdService {
 
 	private function normaliseInternal(array $input, array $trunks, bool $rejectUnknownTrunks): array {
 		$defaults = $this->defaults();
+		$trunks = array_values(array_unique(array_map('strval', $trunks)));
 		$refresh = isset($input['refresh_interval']) ? (int)$input['refresh_interval'] : $defaults['refresh_interval'];
 		if (!in_array($refresh, self::ALLOWED_REFRESH_INTERVALS, true)) {
 			throw new \InvalidArgumentException('Refresh interval must be 1, 5, 10, 15, 30 or 60 seconds.');
@@ -51,9 +52,10 @@ class ThresholdService {
 		$allowed = array_fill_keys($trunks, true);
 		$provided = isset($input['trunks']) && is_array($input['trunks']) ? $input['trunks'] : [];
 		foreach ($provided as $trunk => $scope) {
-			if (!is_string($trunk) || !is_array($scope)) {
+			if ((!is_string($trunk) && !is_int($trunk)) || !is_array($scope)) {
 				throw new \InvalidArgumentException('Threshold configuration contains an invalid trunk.');
 			}
+			$trunk = (string)$trunk;
 			if (!isset($allowed[$trunk])) {
 				if ($rejectUnknownTrunks) throw new \InvalidArgumentException('Threshold configuration contains an invalid trunk.');
 				continue;

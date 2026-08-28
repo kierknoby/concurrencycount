@@ -359,7 +359,7 @@ These controls are independent and never alter SIP configuration:
 | **Threshold enabled** | Whether the configured threshold is active | Its value, monitoring, alert preference, current count or SIP configuration |
 | **Alert enabled** | Whether a threshold event can notify when master alerts are enabled | Threshold comparison, monitoring, current count, Overall or SIP configuration |
 
-Stopping monitoring clears the trunk's active episode state. Restarting evaluates the next snapshot as a fresh episode. Hidden trunks remain available for Unhide and Start/Stop Monitoring. Visible cards can be reordered by drag or keyboard-operable Move earlier/Move later controls.
+Stopping monitoring clears the trunk's active episode state. Restarting evaluates the next snapshot as a fresh episode. Hidden trunks remain available for Unhide and Start/Stop Monitoring. Visible cards can be reordered by dragging the reorder handle; with keyboard focus on that handle, Left and Right Arrow move the card.
 
 Unknown saved channelids are retained but ignored while unavailable, and newly discovered trunks append after the saved order.
 

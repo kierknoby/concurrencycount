@@ -339,10 +339,12 @@ foreach (['hidden_trunks', 'trunk_order', 'live_wall_featured_trunks', 'monitore
 }
 admin_contract_assert(strpos($class, "empty(\$settings['trunks'][\$trunk]['monitored'])") !== false, 'Background monitor must gate per-trunk evaluation on monitored state');
 admin_contract_assert(strpos($class, "unset(\$states['trunk:' . \$trunk])") !== false, 'Stopping monitoring must clear stale per-trunk episode state');
-foreach (['cc-hide-trunk', 'cc-unhide-trunk', 'cc-toggle-monitoring', 'cc-move-earlier', 'cc-move-later', 'cc-drag-handle'] as $control) {
+foreach (['cc-hide-trunk', 'cc-unhide-trunk', 'cc-toggle-monitoring', 'cc-drag-handle'] as $control) {
 	admin_contract_assert(strpos($liveJavascript, $control) !== false, 'Live View control missing: ' . $control);
 }
-admin_contract_assert(strpos($liveJavascript, 'aria-label="Move ') !== false, 'Accessible non-drag reorder labels missing');
+admin_contract_assert(strpos($liveJavascript, 'cc-move-earlier') === false && strpos($liveJavascript, 'cc-move-later') === false, 'Normal Live View must not retain redundant reorder arrows');
+admin_contract_assert(strpos($liveJavascript, "event.key !== 'ArrowLeft'") !== false && strpos($liveJavascript, "event.key !== 'ArrowRight'") !== false, 'The drag handle must retain keyboard-operable reordering');
+admin_contract_assert(strpos($liveJavascript, ".attr('data-trunk')") !== false && strpos($liveJavascript, ".data('trunk')") === false, 'Trunk controls must preserve numeric-looking channelids as strings');
 admin_contract_assert(strpos($liveJavascript, 'function orderedTrunks') !== false && strpos($liveJavascript, 'function renderHiddenTrunks') !== false, 'Shared visibility/order renderer missing');
 admin_contract_assert(substr_count($liveJavascript, "command: 'livestatus'") === 1, 'Live Wall must not introduce a second live-status acquisition path');
 admin_contract_assert(strpos($liveJavascript, 'renderLiveWall(snapshot)') !== false || strpos($liveJavascript, 'renderLiveWall(data)') !== false, 'Live Wall must render from the shared latest snapshot');

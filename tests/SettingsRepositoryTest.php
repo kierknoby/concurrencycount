@@ -50,6 +50,9 @@ repository_assert($repository->get('live_settings', [])['hidden_trunks'] === ['g
 $settings['hidden_trunks'] = [];
 $repository->set('live_settings', $settings);
 repository_assert($repository->get('live_settings', [])['hidden_trunks'] === [] && isset($repository->get('live_settings', [])['trunks']['gamma']), 'Unhide survives save and reload while retaining configured trunk settings');
+$numericSettings = ['hidden_trunks' => ['100'], 'trunk_order' => ['200', '100'], 'live_wall_featured_trunks' => ['100'], 'trunks' => ['100' => ['monitored' => false], '200' => ['monitored' => false]]];
+$repository->set('live_settings', $numericSettings);
+repository_assert($repository->get('live_settings', []) === $numericSettings, 'Rapid combined numeric-channelid preferences survive persistence and reload together');
 $state = ['overall' => ['status' => 'above', 'peak' => 9]];
 $repository->set('alert_state', $state);
 repository_assert($repository->get('alert_state', []) === $state, 'Repository round-trips alert state');

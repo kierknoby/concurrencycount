@@ -185,9 +185,7 @@ window._ccLiveLoaded = true;
 		var html = '';
 		names.forEach(function (trunk, index) {
 			html += '<article class="cc-live-trunk" draggable="false" data-trunk="' + escapeHtml(trunk) + '" data-trunk-index="' + index + '" data-status="normal">' +
-				'<div class="cc-trunk-toolbar"><button type="button" class="cc-drag-handle" draggable="true" aria-label="Drag ' + escapeHtml(trunk) + ' to reorder" title="Drag to reorder"><i class="fa fa-bars"></i></button>' +
-				'<button type="button" class="cc-move-earlier" aria-label="Move ' + escapeHtml(trunk) + ' earlier"' + (index === 0 ? ' disabled' : '') + '><i class="fa fa-arrow-left"></i></button>' +
-				'<button type="button" class="cc-move-later" aria-label="Move ' + escapeHtml(trunk) + ' later"' + (index === names.length - 1 ? ' disabled' : '') + '><i class="fa fa-arrow-right"></i></button>' +
+				'<div class="cc-trunk-toolbar"><button type="button" class="cc-drag-handle" draggable="true" aria-label="Reorder ' + escapeHtml(trunk) + '; use Left and Right Arrow keys" title="Drag to reorder; keyboard: Left or Right Arrow"><i class="fa fa-bars"></i></button>' +
 				'<button type="button" class="cc-toggle-monitoring"></button><button type="button" class="cc-hide-trunk">Hide Trunk</button></div>' +
 				'<div class="cc-live-trunk-header"><div><h4 class="cc-trunk-name">' + escapeHtml(trunk) + '</h4><span class="cc-trunk-split">0 inbound · 0 outbound · 0 unknown</span></div>' +
 				'<button type="button" class="cc-trunk-value" data-trunk-index="' + index + '">0</button></div>' +
@@ -224,12 +222,14 @@ window._ccLiveLoaded = true;
 
 	function bindTrunkControls() {
 		var grid = $('#cc-live-trunks');
-		grid.find('.cc-hide-trunk').off('click.ccLive').on('click.ccLive', function () { setHidden($(this).closest('[data-trunk]').data('trunk'), true); });
-		grid.find('.cc-toggle-monitoring').off('click.ccLive').on('click.ccLive', function () { toggleMonitoring($(this).closest('[data-trunk]').data('trunk')); });
-		grid.find('.cc-move-earlier').off('click.ccLive').on('click.ccLive', function () { moveTrunk($(this).closest('[data-trunk]').data('trunk'), -1); });
-		grid.find('.cc-move-later').off('click.ccLive').on('click.ccLive', function () { moveTrunk($(this).closest('[data-trunk]').data('trunk'), 1); });
-		grid.find('.cc-drag-handle').off('dragstart.ccLive dragend.ccLive').on('dragstart.ccLive', function (event) {
-			draggedTrunk = $(this).closest('[data-trunk]').data('trunk');
+		grid.find('.cc-hide-trunk').off('click.ccLive').on('click.ccLive', function () { setHidden($(this).closest('[data-trunk]').attr('data-trunk'), true); });
+		grid.find('.cc-toggle-monitoring').off('click.ccLive').on('click.ccLive', function () { toggleMonitoring($(this).closest('[data-trunk]').attr('data-trunk')); });
+		grid.find('.cc-drag-handle').off('keydown.ccLive dragstart.ccLive dragend.ccLive').on('keydown.ccLive', function (event) {
+			if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+			event.preventDefault();
+			moveTrunk($(this).closest('[data-trunk]').attr('data-trunk'), event.key === 'ArrowLeft' ? -1 : 1);
+		}).on('dragstart.ccLive', function (event) {
+			draggedTrunk = $(this).closest('[data-trunk]').attr('data-trunk');
 			$(this).closest('.cc-live-trunk').addClass('cc-is-dragging');
 			event.originalEvent.dataTransfer.effectAllowed = 'move';
 			event.originalEvent.dataTransfer.setData('text/plain', draggedTrunk);
@@ -238,13 +238,13 @@ window._ccLiveLoaded = true;
 			grid.find('.cc-live-trunk').removeClass('cc-is-dragging cc-drop-target');
 		});
 		grid.find('.cc-live-trunk').off('dragover.ccLive dragleave.ccLive drop.ccLive').on('dragover.ccLive', function (event) {
-			if (!draggedTrunk || $(this).data('trunk') === draggedTrunk) return;
+			if (!draggedTrunk || $(this).attr('data-trunk') === draggedTrunk) return;
 			event.preventDefault();
 			grid.find('.cc-live-trunk').removeClass('cc-drop-target');
 			$(this).addClass('cc-drop-target');
 		}).on('dragleave.ccLive', function () { $(this).removeClass('cc-drop-target'); }).on('drop.ccLive', function (event) {
 			event.preventDefault();
-			var target = $(this).data('trunk');
+			var target = $(this).attr('data-trunk');
 			if (draggedTrunk && target && draggedTrunk !== target) reorderBefore(draggedTrunk, target);
 		});
 	}
@@ -311,8 +311,8 @@ window._ccLiveLoaded = true;
 				'<div><button type="button" class="btn btn-default btn-sm cc-unhide-trunk" aria-label="Unhide ' + escapeHtml(trunk) + '">Unhide</button> ' +
 				'<button type="button" class="btn btn-default btn-sm cc-toggle-monitoring" aria-label="' + (active ? 'Stop monitoring ' : 'Start monitoring ') + escapeHtml(trunk) + '">' + (active ? 'Stop Monitoring' : 'Start Monitoring') + '</button></div></div>';
 		}).join('');
-		$('#cc-hidden-trunk-list').html(html).find('.cc-unhide-trunk').on('click', function () { setHidden($(this).closest('[data-trunk]').data('trunk'), false); });
-		$('#cc-hidden-trunk-list .cc-toggle-monitoring').on('click', function () { toggleMonitoring($(this).closest('[data-trunk]').data('trunk')); });
+		$('#cc-hidden-trunk-list').html(html).find('.cc-unhide-trunk').on('click', function () { setHidden($(this).closest('[data-trunk]').attr('data-trunk'), false); });
+		$('#cc-hidden-trunk-list .cc-toggle-monitoring').on('click', function () { toggleMonitoring($(this).closest('[data-trunk]').attr('data-trunk')); });
 	}
 
 	function openLiveWallConfiguration() {
