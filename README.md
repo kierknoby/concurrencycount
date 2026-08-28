@@ -263,7 +263,19 @@ The GUI's **Compare Engines** Demo workflow checks Original and Sweep against an
 
 If estimated runtime exceeds 3,600 seconds, the GUI asks whether to continue. Demo uses the separate **Run Demo** workflow.
 
-While a GUI Historical calculation is active, a temporary telemetry panel shows elapsed time, the hard-runtime allowance, the estimator's remaining-time estimate, and FreePBX Dashboard's cached server-wide load, application-memory and root-filesystem measurements. These figures are observational only: they neither stop nor change a calculation, and the administrator chooses whether to press Stop. The panel and its Stop control disappear at every terminal outcome and are not shown while idle.
+### Historical runtime safety, cancellation and telemetry
+
+The Historical estimator measures engine work rather than projecting from a tiny first sample. ETA remains **Estimating...** until at least 0.5 seconds and a sufficient row/work sample have completed; this avoids misleading early multi-hour projections. Elapsed time and the remaining 3,600-second runtime allowance remain visible during that warm-up. This changes estimation and protection only: Original still walks inclusive occupied seconds, while Sweep retains its inclusive event-based calculation semantics and both produce the same result definitions as before.
+
+`MAX_RUNTIME` protects the complete engine calculation rather than only the gaps between CDR rows. Original checks during long occupied-second loops and its later Group peak scan. Sweep checks while constructing events and, in batches of 4,096 operations, during event sorting, event traversal and the additional Group peak traversal. The batching keeps the hard limit enforceable during expensive post-ingestion work without adding a timer call to every iteration.
+
+An active GUI Historical calculation has a cooperative **Stop** control tied to its validated, unique calculation ID. Stop is present only while that calculation is active or stopping; pressing it disables the button, records backend cancellation and lets the shared engine checkpoints stop work cleanly. Aborting the browser request alone is not treated as backend cancellation. Terminal cleanup removes the calculation-control record, a stopped regeneration retains its last completed result where available, and calculation ID plus browser sequence checks prevent stale or superseded responses from replacing a newer run.
+
+The CLI traps `SIGINT` (Ctrl+C) and `SIGTERM` when PHP PCNTL asynchronous signals are available. Those signals request the same cooperative checkpoint cancellation, allowing `finally` cleanup such as removal of temporary Demo CDR rows to run where possible; `SIGINT` exits 130 and `SIGTERM` exits 143. Without PCNTL, the previous OS-level interrupt behaviour remains, so graceful checkpoint cancellation and cleanup cannot be guaranteed.
+
+While a GUI Historical calculation is active or stopping, a temporary panel presents **Stop**, elapsed time, maximum runtime remaining and the estimator ETA. It is absent while idle and disappears after success, failure, runtime abort, cancellation or supersession. A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data: CPU is accurately labelled **Load average (5 min)** rather than CPU percentage, memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
+
+The `calculationtelemetry` and `cancelcalculation` module actions are authenticated, CSRF-protected, explicitly allowlisted and non-remote. Calculation IDs must be exactly 32 hexadecimal characters. The actions expose neither PIDs nor arbitrary process, filesystem, shell, `exec`, `kill` or `pkill` access. Telemetry and GUI cancellation remain GUI-scoped; CLI signals remain local to the running CLI command.
 
 ### Historic Report tabs and persistence
 
@@ -502,16 +514,21 @@ Standalone tests and contracts include:
 php tests/AlertMonitorCoordinatorTest.php
 php tests/AlertOutboxServiceTest.php
 php tests/AmiChannelSourceTest.php
+php tests/CliCancellationControlTest.php
 php tests/EngineParityTest.php
+php tests/EngineRuntimeCheckpointTest.php
 php tests/FreepbxEntityResolverTest.php
+php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalCallExclusionServiceTest.php
 php tests/HistoricalEndpointFilterServiceTest.php
 php tests/HistoricalReportsServiceTest.php
+php tests/HistoricalRuntimeEstimatorTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
 php tests/PeakDetailAnalyserTest.php
 php tests/PjsipIdentityServiceTest.php
 php tests/SettingsRepositoryTest.php
+php tests/SystemResourceTelemetryTest.php
 php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
@@ -541,7 +558,7 @@ These tests do not replace real PBX/browser validation.
 - Define an automation-safe CLI runtime-overrun confirmation or `--force` policy and a consistent JSON success/error envelope.
 - Add FreePBX backup/restore integration for module-owned persisted state.
 - Add real FreePBX 16/17 integration coverage for mail, CDR schema variation, permissions and browsers.
-- Decompose the main module class in a future minor release rather than during 2.1.0 release hardening.
+- Decompose the main module class in a future minor release rather than during release hardening.
 
 ## Uninstalling
 
