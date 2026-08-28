@@ -1473,9 +1473,6 @@ window._ccLoaded = true;
 	}
 
 	function renderCalculationTelemetry(response) {
-		$('#cc-telemetry-elapsed').text(window.CCTelemetryFormat.duration(response.elapsed));
-		$('#cc-telemetry-runtime').text(window.CCTelemetryFormat.duration(response.runtime_remaining));
-		$('#cc-telemetry-eta').text(window.CCTelemetryFormat.eta(response.eta_reliable, response.estimated_remaining));
 		var resources = response.resources || {};
 		var cpu = resources.cpu || {};
 		var memory = resources.memory || {};
@@ -1496,11 +1493,42 @@ window._ccLoaded = true;
 		$('#cc-telemetry-disk').text(telemetryUsage(disk));
 	}
 
+	function monotonicNow() {
+		return window.performance && typeof window.performance.now === 'function' ? window.performance.now() : Date.now();
+	}
+
+	function renderCalculationTimers(run) {
+		if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id || !run.timerState) return;
+		var timers = window.CCTelemetryFormat.snapshot(run.timerState, monotonicNow());
+		$('#cc-telemetry-elapsed').text(window.CCTelemetryFormat.duration(timers.elapsed));
+		$('#cc-telemetry-runtime').text(window.CCTelemetryFormat.duration(timers.runtimeRemaining));
+		$('#cc-telemetry-eta').text(window.CCTelemetryFormat.eta(timers.etaReliable, timers.etaRemaining));
+	}
+
+	function scheduleCalculationTimerRender(run) {
+		if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
+		renderCalculationTimers(run);
+		run.timerRenderTimer = window.setTimeout(function () { scheduleCalculationTimerRender(run); }, 1000);
+	}
+
+	function synchronizeCalculationTimers(run, response) {
+		run.timerState = window.CCTelemetryFormat.synchronize(run.timerState, response, monotonicNow());
+		renderCalculationTimers(run);
+	}
+
+	function stopCalculationTimerRenderer(run) {
+		if (run && run.timerRenderTimer) window.clearTimeout(run.timerRenderTimer);
+		if (run) { run.timerRenderTimer = null; run.timerState = null; }
+	}
+
 	function pollCalculationTelemetry(run) {
 		if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
 		run.telemetryRequest = ajax({command: 'calculationtelemetry', calculation_id: run.id}, {global: false}).done(function (response) {
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence || activeCalculation.id !== run.id) return;
-			if (response.status && response.active) renderCalculationTelemetry(response);
+			if (response.status && response.active) {
+				synchronizeCalculationTimers(run, response);
+				renderCalculationTelemetry(response);
+			}
 		}).fail(function (request, textStatus, errorThrown) {
 			if (window.CCHistoricalRunState.shouldReportFailure(run, textStatus)) reportUnexpectedHistoricalAjaxFailure(request, textStatus, errorThrown);
 		}).always(function () {
@@ -1521,6 +1549,8 @@ window._ccLoaded = true;
 		$('#cc-excluded-calls').prop('disabled', true).attr('aria-disabled', 'true');
 		$('#cc-report-loading').show();
 		$('#cc-calculation-panel').show();
+		run.timerState = window.CCTelemetryFormat.synchronize(null, {elapsed: 0, runtime_remaining: 3600, eta_reliable: false, estimated_remaining: null}, monotonicNow());
+		scheduleCalculationTimerRender(run);
 		pollCalculationTelemetry(run);
 	}
 
@@ -1560,6 +1590,7 @@ window._ccLoaded = true;
 		if (run && !run.intentionalAbortReason) run.intentionalAbortReason = 'terminal';
 		if (run && run.telemetryRequest && typeof run.telemetryRequest.abort === 'function') run.telemetryRequest.abort();
 		if (run) { run.telemetryTimer = null; run.telemetryRequest = null; }
+		stopCalculationTimerRenderer(run);
 		if (!activeCalculation || !run || activeCalculation.sequence === run.sequence) $('#cc-calculation-panel').hide();
 	}
 
@@ -1577,7 +1608,7 @@ window._ccLoaded = true;
 		if (activeCalculation) return;
 		var targetReportId = runTargetReportId;
 		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
-		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false};
+		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, timerState: null, timerRenderTimer: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false};
 		activeCalculation = run;
 		if (targetReportId) selectTopTab(targetReportId);
 		setHistoricalWorkspaceLocked(true, targetReportId);
@@ -1950,7 +1981,11 @@ window._ccLoaded = true;
 		$('#cc-email-send').off('click').on('click', onEmailSend);
 		$('#cc-calculation-stop').off('click').on('click', stopActiveCalculation);
 		$(window).off('pagehide.ccHistoricalLease').on('pagehide.ccHistoricalLease', function () {
-			if (activeCalculation) sendAbandonmentCancellation(activeCalculation);
+			if (activeCalculation) {
+				sendAbandonmentCancellation(activeCalculation);
+				stopCalculationTelemetry(activeCalculation);
+				stopCalculationHeartbeat(activeCalculation);
+			}
 		});
 		$(document).off('click.ccHistoricalLeave', 'a[href]').on('click.ccHistoricalLeave', 'a[href]', function (event) {
 			if (!activeCalculation) return;

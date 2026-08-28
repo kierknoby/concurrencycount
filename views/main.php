@@ -113,7 +113,7 @@ $_ccAssetVer = max(
 						</div>
 						<div id="cc-report-active" style="display:none;">
 							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
-							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title" aria-live="polite">
+							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title">
 								<div class="cc-calculation-panel-heading">
 									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
 									<div id="cc-report-loading" class="text-muted"><span class="cc-spinner"></span> <strong id="cc-calculation-panel-title"><?php echo _('Calculating...'); ?></strong> <span id="cc-report-loading-text"></span></div>

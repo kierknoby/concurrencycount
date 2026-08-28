@@ -293,6 +293,8 @@ While a GUI Historical calculation is active or stopping, a temporary panel pres
 
 A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data. **System load (5 min)** is the average number of tasks running or waiting for CPU/resources over that period—not a percentage—and is shown with the number of logical CPUs derived from native phpSysInfo `CpuCore` entries. Memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), native swap used/total is shown when available, and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
 
+During an active GUI Historical calculation, elapsed, maximum-runtime and reliable ETA clocks update locally once per second between the two-second backend telemetry synchronizations. Backend telemetry remains authoritative and resource values still change only when an actual telemetry response arrives.
+
 The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` module actions are authenticated, CSRF-protected, explicitly allowlisted and non-remote. Calculation IDs must be exactly 32 hexadecimal characters. The actions expose neither ownership hashes, PIDs nor arbitrary process, filesystem, shell, `exec`, `kill` or `pkill` access. Telemetry, leases and GUI cancellation remain GUI-scoped; CLI signals remain local to the running CLI command.
 
 ### Historic Report tabs and persistence
