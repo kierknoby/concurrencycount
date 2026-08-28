@@ -421,7 +421,7 @@ $_ccAssetVer = max(
 					<strong><?php echo _('Warning:'); ?></strong>
 					<span id="cc-overrun-message"></span>
 				</div>
-				<p><?php echo _('The count is likely to abort before completion. Continue anyway?'); ?></p>
+				<p><?php echo _('Continue anyway?'); ?></p>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn btn-default" id="cc-overrun-no"><?php echo _('No, abort'); ?></button>

@@ -22,6 +22,9 @@ assert(state.cancellationAcknowledged({status: true, cancelled: true}, stoppingR
 assert(!state.cancellationAcknowledged({status: false, cancelled: false}, stoppingRun), 'Rejected cancellation must retain the report');
 assert(state.cancellationAcknowledged({status: true, cancelled: true}, stoppingRun), 'Acknowledged Stop must still close its old report after the user starts a newer run');
 assert(!state.cancellationAcknowledged({status: true, cancelled: true}, {id, sequence: 7, intentionalAbortReason: 'superseded'}), 'Supersession must never use explicit Stop-and-close semantics');
+assert(state.isSameRun({id, sequence: 9}, {id, sequence: 9}), 'Warning continuation may act on its exact calculation ID and browser sequence');
+assert(!state.isSameRun({id, sequence: 10}, {id, sequence: 9}), 'Stale warning cannot act on a newer browser run');
+assert(!state.isSameRun({id: 'ffeeddccbbaa99887766554433221100', sequence: 9}, {id, sequence: 9}), 'Another calculation ID cannot inherit warning continuation state');
 
 assert(!state.hasMeaningfulMessage(''), 'Empty report notice must remain hidden');
 assert(!state.hasMeaningfulMessage(null), 'Null report notice must remain hidden');

@@ -297,8 +297,8 @@ admin_contract_assert(strpos($javascript, "$('#cc-telemetry-swap-item').toggle(!
 admin_contract_assert(strpos($telemetryJavascript, "if (seconds < 1) return '< 1 second';") !== false && strpos($telemetryJavascript, 'telemetry.eta_reliable === true') !== false, 'Reliable sub-second ETA requires explicit authoritative state and must not render as zero');
 admin_contract_assert(strpos($javascript, "$('#cc-excluded-calls').prop('disabled', true)") !== false, 'Excluded Calls must become genuinely disabled at calculation start');
 admin_contract_assert(strpos($javascript, 'function restoreExcludedCallsAfterCalculation()') !== false && strpos($javascript, 'function finishCalculationUi(run)') !== false && strpos($javascript, 'restoreExcludedCallsAfterCalculation();') !== false, 'Every terminal calculation path must restore Excluded Calls through shared unlock cleanup');
-$executeRunStart = strpos($javascript, 'function executeRun(mode, start, end, extraParams, engineOverride)');
-admin_contract_assert($executeRunStart !== false && strpos(substr($javascript, $executeRunStart, 180), 'if (activeCalculation) return;') !== false, 'Frontend must refuse a second GUI Historical run instead of superseding active work');
+$executeRunStart = strpos($javascript, 'function executeRun(mode, start, end, extraParams, engineOverride, continuationRun)');
+admin_contract_assert($executeRunStart !== false && strpos(substr($javascript, $executeRunStart, 240), 'activeCalculation !== continuationRun') !== false, 'Frontend must refuse a second GUI Historical run while allowing only the exact warning continuation');
 admin_contract_assert(strpos($historicalRunStateJavascript, 'function cancellationAcknowledged(') !== false, 'Stop-and-close requires an exact backend acknowledgement classifier');
 $stopHandlerStart = strpos($javascript, 'function stopActiveCalculation()');
 $stopHandlerEnd = strpos($javascript, '/**', $stopHandlerStart);
@@ -475,5 +475,14 @@ admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long G
 admin_contract_assert(strpos($class, 'admitGui($calculationId, $owner)') !== false && strpos($class, "'admission_busy' => true") !== false, 'Backend must reject a second owned GUI run before engine entry');
 admin_contract_assert(strpos($historicalCalculationControl, 'const GUI_LEASE_SECONDS = 20') !== false && strpos($historicalCalculationControl, 'function heartbeat(') !== false && strpos($historicalCalculationControl, 'function shouldStop(') !== false, 'Calculation-specific twenty-second GUI lease is incomplete');
 admin_contract_assert(strpos($console, 'admitGui') === false && strpos($console, 'calculationheartbeat') === false, 'GUI admission and heartbeat must not affect CLI calculations');
+admin_contract_assert(strpos($class, "'runtime_started_at'") !== false && strpos($class, '$control->runtimeStartedAt($calculationId, $owner)') !== false, 'GUI calculations must use the server-owned original runtime origin');
+admin_contract_assert(strpos($javascript, 'runtime_started_at') === false && strpos($javascript, 'runtime_deadline') === false, 'The browser must not supply or extend authoritative runtime state');
+admin_contract_assert(strpos($class, '$confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner)') !== false, 'Confirmed Continue must resume the same registered GUI calculation instead of receiving fresh admission');
+admin_contract_assert(strpos($historicalCalculationControl, 'function pauseForWarning(') !== false && strpos($historicalCalculationControl, 'function resumeGui(') !== false, 'Predictive warning control state must survive and resume safely');
+admin_contract_assert(strpos($javascript, "'Based on current progress, this report may not finish within the fixed 3,600-second (1 hour) calculation limit. '") !== false, 'Long-running warning must state the fixed numeric limit');
+admin_contract_assert(strpos($javascript, "'Estimated time remaining: '") !== false && strpos($javascript, 'Maximum runtime remaining: ') !== false, 'Long-running warning must show ETA and hard-runtime remainder separately');
+admin_contract_assert(strpos($javascript, "'Continuing restarts the count using the remaining time in the same one-hour allowance.'") !== false, 'Continue wording must explain that work restarts without extending runtime');
+admin_contract_assert(strpos($javascript, 'selectedEngine, run);') !== false && strpos($javascript, 'calculation_id: run.id') !== false, 'Continue must reuse the exact calculation ID and browser run object');
+admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run);') > strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") || strpos($javascript, 'stopCalculationTelemetry(run);') !== false, 'Warning Abort must clean the retained calculation UI only after cooperative cancellation');
 
 echo "Administrative contract passed\n";

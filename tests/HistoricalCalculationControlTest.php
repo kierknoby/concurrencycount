@@ -102,6 +102,24 @@ $control->finish($guiSecond);
 control_assert($control->admitGui('44444444444444444444444444444444', $otherOwner, 2003), 'Cancelled calculation permits replacement after it unwinds');
 $control->finish('44444444444444444444444444444444');
 
+$continued = '55555555555555555555555555555555';
+control_assert($control->admitGui($continued, $owner, 3000, 500.0), 'Initial GUI attempt receives one server-owned runtime origin');
+control_assert($control->runtimeStartedAt($continued, $owner) === 500.0, 'Initial runtime origin is retained exactly');
+$control->updateTelemetry($continued, 35.0, 7200.0, true, 3005);
+control_assert($control->pauseForWarning($continued, $owner, 3010), 'Predictive warning preserves the registered calculation-control record');
+control_assert($control->status($continued)['eta_reliable'] === false && $control->status($continued)['estimated_remaining'] === null && (float)$control->status($continued)['elapsed'] === 35.0, 'Restarted work may reset ETA independently without resetting elapsed/runtime state');
+control_assert(!$control->resumeGui($continued, $otherOwner, 3015), 'Another authenticated ownership scope cannot inherit a warning deadline');
+control_assert($control->heartbeat($continued, $owner, 3015), 'Warning interaction keeps the same short-lived ownership lease healthy');
+control_assert($control->resumeGui($continued, $owner, 3025), 'Confirmed continuation resumes the same calculation ID');
+control_assert($control->runtimeStartedAt($continued, $owner) === 500.0, 'Continue cannot replace or extend the original runtime origin');
+$continuedEstimator = new HistoricalRuntimeEstimator(3600.0, $control->runtimeStartedAt($continued, $owner), 3025.0, true);
+$continuedAssessment = $continuedEstimator->evaluate(100, 100000, 4100.1);
+control_assert($continuedAssessment['abort'], 'Continued work hard-aborts at the original absolute deadline');
+control_assert($control->cancel($continued, 3026), 'Stop remains tied to the continued calculation ID');
+control_assert($control->shouldStop($continued, 3026), 'Continued attempt observes cooperative cancellation');
+$control->finish($continued);
+control_assert($control->status($continued) === null, 'Stop/terminal cleanup removes runtime-deadline and telemetry state');
+
 $expired = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 $control->begin($expired, 1);
 $control->cleanupExpired(1 + HistoricalCalculationControl::RECORD_TTL + 1);

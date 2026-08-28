@@ -1604,22 +1604,28 @@ window._ccLoaded = true;
 		$('#cc-excluded-calls').prop('disabled', false).removeAttr('aria-disabled');
 	}
 
-	function executeRun(mode, start, end, extraParams, engineOverride) {
-		if (activeCalculation) return;
-		var targetReportId = runTargetReportId;
+	function executeRun(mode, start, end, extraParams, engineOverride, continuationRun) {
+		if (activeCalculation && activeCalculation !== continuationRun) return;
+		var targetReportId = continuationRun ? continuationRun.targetReportId : runTargetReportId;
 		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
-		var run = {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, timerState: null, timerRenderTimer: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false};
-		activeCalculation = run;
-		if (targetReportId) selectTopTab(targetReportId);
-		setHistoricalWorkspaceLocked(true, targetReportId);
-		if (mode === 'demo') {
+		var run = continuationRun || {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, timerState: null, timerRenderTimer: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false};
+		if (!continuationRun) {
+			activeCalculation = run;
+			if (targetReportId) selectTopTab(targetReportId);
+			setHistoricalWorkspaceLocked(true, targetReportId);
+		}
+		if (continuationRun) {
+			setStatus('Continuing count within the original one-hour runtime allowance...', 'running');
+		} else if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
 			setStatus('Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...', 'running');
 		}
-		startCalculationTelemetry(run);
-		pollCalculationHeartbeat(run);
-		$('#cc-results').hide();
+		if (!continuationRun) {
+			startCalculationTelemetry(run);
+			pollCalculationHeartbeat(run);
+			$('#cc-results').hide();
+		}
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id};
 		if (targetReportId && historicalReports[targetReportId]) params.filter = historicalReports[targetReportId].filter || '';
@@ -1632,10 +1638,7 @@ window._ccLoaded = true;
 		run.request = ajax(params, {global: false}).done(function (resp) {
 			if (run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			if (resp.overrun_warning) {
-				stopCalculationTelemetry(run);
-				activeCalculation = null;
-				finishCalculationUi(run);
-				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine);
+				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine, run);
 				return;
 			}
 			stopCalculationTelemetry(run);
@@ -1729,6 +1732,7 @@ window._ccLoaded = true;
 				activeCalculation = null;
 				finishCalculationUi(replacementForClosingReport);
 			}
+			$('#cc-overrun').modal('hide');
 			if (run.targetReportId && historicalReports[run.targetReportId]) closeReportTab(run.targetReportId);
 			else selectTopTab('historical');
 		}).fail(function () {
@@ -1773,27 +1777,36 @@ window._ccLoaded = true;
 		}
 	}
 
-	function showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine) {
+	function showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine, run) {
 		var est = formatTime(resp.estimated_remaining);
 		var left = formatTime(resp.runtime_remaining);
 		$('#cc-overrun-message').text(
-			'There is a lot to count. Based on progress so far, this report may exceed the maximum calculation runtime. ' +
-			'Estimated time remaining: ' + est + '. Maximum runtime remaining: ' + left + '.'
+			'Based on current progress, this report may not finish within the fixed 3,600-second (1 hour) calculation limit. ' +
+			'Estimated time remaining: ' + est + '. Maximum runtime remaining: ' + left + '. ' +
+			'Continuing restarts the count using the remaining time in the same one-hour allowance.'
 		);
 		var modal = $('#cc-overrun');
 
 		// Re-bind each open so we don't accumulate handlers across multiple
 		// overrun prompts in one session.
 		$('#cc-overrun-yes').off('click').on('click', function () {
+			if (!window.CCHistoricalRunState.isSameRun(activeCalculation, run)) { modal.modal('hide'); return; }
 			modal.modal('hide');
-			setStatus('Continuing despite estimated overrun...', 'running');
 			runTargetReportId = targetReportId;
-			executeRun(mode, start, end, $.extend({}, extraParams || {}, {confirm_overrun: '1'}), selectedEngine);
+			executeRun(mode, start, end, $.extend({}, extraParams || {}, {confirm_overrun: '1'}), selectedEngine, run);
 		});
 		$('#cc-overrun-no').off('click').on('click', function () {
-			modal.modal('hide');
-			if (discardFailedFirstRun(targetReportId, 'Report run was cancelled.')) return;
-			setStatus('Aborting as per user request.', 'warning');
+			if (!window.CCHistoricalRunState.isSameRun(activeCalculation, run)) { modal.modal('hide'); return; }
+			var button = $(this).prop('disabled', true);
+			ajax({command: 'cancelcalculation', calculation_id: run.id}).done(function (response) {
+				if (!response.status || response.cancelled !== true) { setStatus(response.message || 'Unable to cancel the count.', 'error'); return; }
+				modal.modal('hide');
+				stopCalculationTelemetry(run);
+				activeCalculation = null;
+				finishCalculationUi(run);
+				if (discardFailedFirstRun(targetReportId, 'Report run was cancelled.')) return;
+				setStatus('Aborting as per user request.', 'warning');
+			}).fail(function () { setStatus('Unable to cancel the count.', 'error'); }).always(function () { button.prop('disabled', false); });
 		});
 
 		modal.modal('show');

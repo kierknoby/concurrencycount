@@ -54,6 +54,13 @@ $slow = new HistoricalRuntimeEstimator(3600.0, 0.0, 10.0);
 $assessment = $slow->evaluate(100, 100000, 20.0);
 runtime_assert($assessment['warn'] && $assessment['estimated_remaining'] > 3600.0, 'Sustained poor throughput must warn when projected completion exceeds the limit');
 
+$warningAtThirtyFive = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
+$assessment = $warningAtThirtyFive->evaluate(100, 100000, 35.0);
+runtime_assert($assessment['warn'] && abs($assessment['runtime_remaining'] - 3565.0) < 0.000001, 'Warning at 35 seconds must report 3,565 seconds from the original allowance');
+$continuedAfterReading = new HistoricalRuntimeEstimator(3600.0, 0.0, 55.0, true);
+$assessment = $continuedAfterReading->evaluate(100, 100000, 55.5);
+runtime_assert(!$assessment['warn'] && abs($assessment['runtime_remaining'] - 3544.5) < 0.000001, 'Confirmed restart after 20 seconds reading the modal must retain the original runtime origin');
+
 $expired = new HistoricalRuntimeEstimator(3600.0, 0.0, 3500.0);
 $assessment = $expired->evaluate(1, 100000, 3600.1);
 runtime_assert($assessment['abort'], 'Actual overall runtime must abort even without a usable estimate');

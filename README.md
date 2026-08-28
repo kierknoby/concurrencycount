@@ -261,7 +261,7 @@ The GUI's **Compare Engines** Demo workflow checks Original and Sweep against an
 4. Previous/next moves by the displayed inclusive span; month ranges move by calendar month.
 5. The browser resolves the selection to `YYYY-MM-DD HH:MM:SS`. Past date-only ranges end at `23:59:59`; today ends at the current time.
 
-If estimated runtime exceeds 3,600 seconds, the GUI asks whether to continue. Demo uses the separate **Run Demo** workflow.
+If projected completion would exceed the fixed 3,600-second (1 hour) runtime allowance, the GUI asks whether to continue. Continue acknowledges the prediction only: the count may restart from the beginning, but it retains the original server-owned runtime origin and only the time still remaining in that same allowance. Time spent reading the warning counts against the hour, and reaching the original deadline still aborts the calculation. Demo uses the separate **Run Demo** workflow.
 
 ### Historical runtime safety, cancellation and telemetry
 

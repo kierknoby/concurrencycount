@@ -1360,16 +1360,18 @@ class Concurrencycount implements \BMO {
 		$calculationId = isset($_REQUEST['calculation_id']) ? trim((string)$_REQUEST['calculation_id']) : '';
 		$control = null;
 		$previousIgnoreUserAbort = null;
+		$preserveControlForWarning = false;
 		if ($mode === null) return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
 		if ($calculationId !== '') {
 			try {
 				$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 				$calculationId = $control->validateId($calculationId);
 				$owner = $this->guiCalculationOwner();
-				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner): bool {
-					return $control->admitGui($calculationId, $owner);
+				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner, $confirm_overrun): bool {
+					return $confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner);
 				});
 				if (!$admitted) return ['status' => false, 'admission_busy' => true, 'message' => _('A previous Historical calculation is still stopping. Please try again shortly.')];
+				$options['runtime_started_at'] = $control->runtimeStartedAt($calculationId, $owner);
 				$lastCancellationCheck = 0.0;
 				$options['cancellation_check'] = function () use ($control, $calculationId, &$lastCancellationCheck): bool {
 					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
@@ -1413,6 +1415,10 @@ class Concurrencycount implements \BMO {
 				'advice' => _('No completed report result was changed. Try Sweep, a shorter date range, or a more specific endpoint filter.'),
 			];
 		} catch (RuntimeOverrunPending $rop) {
+			if ($control !== null) {
+				$owner = $this->guiCalculationOwner();
+				$preserveControlForWarning = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner): bool { return $control->pauseForWarning($calculationId, $owner); });
+			}
 			return [
 				'status' => false,
 				'overrun_warning' => true,
@@ -1423,7 +1429,7 @@ class Concurrencycount implements \BMO {
 		} catch (\Exception $e) {
 			return ['status' => false, 'message' => $e->getMessage()];
 		} finally {
-			if ($control !== null) $this->withGuiCalculationLock(function () use ($control, $calculationId): void { $control->finish($calculationId); });
+			if ($control !== null && !$preserveControlForWarning) $this->withGuiCalculationLock(function () use ($control, $calculationId): void { $control->finish($calculationId); });
 			if ($previousIgnoreUserAbort !== null) ignore_user_abort($previousIgnoreUserAbort);
 		}
 	}
@@ -1488,7 +1494,7 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function buildCalculationTelemetryPayload(array $record, array $resources, float $now): array {
-		$active = isset($record['status']) && $record['status'] === 'active';
+		$active = isset($record['status']) && in_array($record['status'], ['active', 'awaiting_confirmation'], true);
 		$elapsed = isset($record['elapsed']) && is_numeric($record['elapsed']) ? max(0.0, (float)$record['elapsed']) : 0.0;
 		if (isset($record['started_at']) && is_numeric($record['started_at'])) $elapsed = max($elapsed, $now - (float)$record['started_at']);
 		$estimate = isset($record['estimated_remaining']) && is_numeric($record['estimated_remaining']) ? (float)$record['estimated_remaining'] : null;
@@ -1731,7 +1737,9 @@ class Concurrencycount implements \BMO {
 	 */
 	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
 		set_time_limit(self::MAX_RUNTIME + 60);
-		$started_at = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+		$started_at = isset($options['runtime_started_at']) && is_numeric($options['runtime_started_at'])
+			? (float)$options['runtime_started_at']
+			: \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
 		$filter = isset($options['filter']) ? trim((string)$options['filter']) : '';
 		$cancellationCheck = isset($options['cancellation_check']) && is_callable($options['cancellation_check']) ? $options['cancellation_check'] : null;

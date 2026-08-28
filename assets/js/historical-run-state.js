@@ -22,6 +22,10 @@
 		return isIntentionalAbort(run, 'abort') && run.intentionalAbortReason === 'stop';
 	}
 
+	function isSameRun(active, candidate) {
+		return !!active && !!candidate && active.id === candidate.id && Number(active.sequence) === Number(candidate.sequence);
+	}
+
 	function hasMeaningfulMessage(value) {
 		if (value === null || value === undefined) return false;
 		return String(value)
@@ -30,5 +34,5 @@
 			.replace(/[\s\u00a0]+/g, '') !== '';
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, hasMeaningfulMessage: hasMeaningfulMessage};
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage};
 }));
