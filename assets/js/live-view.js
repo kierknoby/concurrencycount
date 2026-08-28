@@ -12,6 +12,10 @@ window._ccLiveLoaded = true;
 	var activeWorkspace = 'live';
 	var wallActive = false;
 	var preferenceSaveTimer = null;
+	var settingsSaveQueue = [];
+	var settingsSaveInFlight = false;
+	var settingsSaveSequence = 0;
+	var latestSettingsSaveSequence = 0;
 	var draggedTrunk = null;
 	var featuredDraft = [];
 	var history = {overall: [], trunks: {}};
@@ -69,8 +73,9 @@ window._ccLiveLoaded = true;
 	}
 
 	function loadSettings() {
+		var saveSequenceWhenRequested = latestSettingsSaveSequence;
 		return ajax({command: 'getsettings'}).done(function (response) {
-			if (!response.status) return;
+			if (!response.status || saveSequenceWhenRequested !== latestSettingsSaveSequence) return;
 			settings = response.settings;
 			$('#cc-live-refresh, #cc-setting-refresh').val(String(settings.refresh_interval));
 		}).fail(function () {
@@ -249,14 +254,16 @@ window._ccLiveLoaded = true;
 		var list = settings.hidden_trunks || [];
 		settings.hidden_trunks = list.filter(function (name) { return name !== trunk; });
 		if (hidden) settings.hidden_trunks.push(trunk);
-		persistPreferences();
+		if (preferenceSaveTimer) window.clearTimeout(preferenceSaveTimer);
+		preferenceSaveTimer = null;
+		saveSettings(settings, false);
 		renderSnapshot(snapshot);
 	}
 
 	function toggleMonitoring(trunk) {
 		if (!settings || !settings.trunks || !settings.trunks[trunk]) return;
 		settings.trunks[trunk].monitored = !isMonitored(trunk);
-		saveSettings(settings, false);
+		saveSettings(settings, false, null, null, true);
 		renderSnapshot(snapshot);
 	}
 
@@ -612,29 +619,57 @@ window._ccLiveLoaded = true;
 				candidate.trunks[trunk] = value;
 			}
 		});
-		saveSettings(candidate, true);
+		saveSettings(candidate, true, null, null, true);
 	}
 
-	function saveSettings(candidate, closeModal, onSuccess, onFailure) {
-		return ajax({command: 'savesettings', settings: JSON.stringify(candidate)}).done(function (response) {
+	function saveSettings(candidate, closeModal, onSuccess, onFailure, pollAfterSave) {
+		var deferred = $.Deferred();
+		var sequence = ++settingsSaveSequence;
+		latestSettingsSaveSequence = sequence;
+		settingsSaveQueue.push({
+			candidate: $.extend(true, {}, candidate),
+			closeModal: closeModal,
+			onSuccess: onSuccess,
+			onFailure: onFailure,
+			pollAfterSave: !!pollAfterSave,
+			sequence: sequence,
+			deferred: deferred
+		});
+		drainSettingsSaveQueue();
+		return deferred.promise();
+	}
+
+	function drainSettingsSaveQueue() {
+		if (settingsSaveInFlight || !settingsSaveQueue.length) return;
+		settingsSaveInFlight = true;
+		var pending = settingsSaveQueue.shift();
+		ajax({command: 'savesettings', settings: JSON.stringify(pending.candidate)}).done(function (response) {
 			if (!response.status) {
 				$('#cc-settings-error').text(response.message || 'Unable to save settings.').show();
 				showLiveMessage(response.message || 'Unable to save Live View settings.', 'warning');
-				loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
-				if (onFailure) onFailure(response.message || 'Unable to save settings.');
+				if (pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+				if (pending.onFailure) pending.onFailure(response.message || 'Unable to save settings.');
+				pending.deferred.reject(response.message || 'Unable to save settings.');
 				return;
 			}
-			settings = response.settings;
-			$('#cc-live-refresh').val(String(settings.refresh_interval));
-			if (closeModal) $('#cc-live-settings-modal').modal('hide');
-			if (snapshot) renderSnapshot(snapshot);
-			startPolling(true);
-			if (onSuccess) onSuccess(response.settings);
+			if (pending.sequence === latestSettingsSaveSequence) {
+				settings = response.settings;
+				$('#cc-live-refresh').val(String(settings.refresh_interval));
+				if (snapshot) renderSnapshot(snapshot);
+			}
+			if (pending.closeModal) $('#cc-live-settings-modal').modal('hide');
+			if (pending.pollAfterSave) startPolling(true);
+			if (pending.onSuccess) pending.onSuccess(response.settings);
+			pending.deferred.resolve(response.settings);
 		}).fail(function () {
 			$('#cc-settings-error').text('Unable to save settings.').show();
 			showLiveMessage('Unable to save Live View settings.', 'warning');
-			loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
-			if (onFailure) onFailure('Unable to save settings.');
+			if (pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+			if (pending.onFailure) pending.onFailure('Unable to save settings.');
+			pending.deferred.reject('Unable to save settings.');
+		}).always(function () {
+			settingsSaveInFlight = false;
+			drainSettingsSaveQueue();
 		});
 	}
 

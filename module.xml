@@ -2,11 +2,12 @@
 	<rawname>concurrencycount</rawname>
 	<repo>unsupported</repo>
 	<name>Concurrency Count</name>
-	<version>2.1.0</version>
+	<version>2.1.1</version>
 	<publisher>20tele.com</publisher>
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
+		*2.1.1 (28 August 2026)* Fixes Live View Hide/Unhide persistence by serializing whole-settings saves, preventing stale save/settings responses from overwriting newer browser preferences, and avoiding unnecessary polling after presentation-only saves. Live counting, monitoring, thresholds, featured-trunk and Historical behaviour remain unchanged.
 		*2.1.0 (27 August 2026)* Adds Live View and Live Wall, persistent presentation and monitoring controls, authoritative FreePBX PJSIP identity with reversible unknown-endpoint classifications, and global reversible Historical call exclusions that never alter source CDRs.
 		- Live View and Live Wall are explicitly trunk-only in 2.1.0: Overall Live Concurrency now counts current attributable PJSIP trunk legs only, matching the capacity meaning of Historical Trunk Concurrency.
 		- Historic Report endpoint filters now affect the shared calculation used by GUI regeneration, CSV, email, graphs and detail; missing saved endpoints remain unresolved and never fall back to an unfiltered report.

@@ -246,7 +246,7 @@ admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && st
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.1.0', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -362,6 +362,17 @@ admin_contract_assert(strpos($liveJavascript, 'var names = orderedTrunks(data.tr
 admin_contract_assert(strpos($liveJavascript, 'Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk)') !== false, 'Hidden or unavailable featured trunks must be suppressed without substitution');
 admin_contract_assert(strpos($liveJavascript, "card.find('.cc-wall-monitoring').text(isMonitored(trunk) ? 'Monitoring active' : 'Monitoring stopped')") !== false, 'Monitoring-stopped featured trunks must remain visible with textual state');
 admin_contract_assert(strpos($liveJavascript, 'function setHidden') !== false && strpos($liveJavascript, 'settings.live_wall_featured_trunks =') === false, 'Hide/Unhide must not rewrite featured-trunk preferences');
+$setHiddenStart = strpos($liveJavascript, 'function setHidden');
+$setHiddenEnd = strpos($liveJavascript, 'function toggleMonitoring', $setHiddenStart);
+$setHiddenBody = substr($liveJavascript, $setHiddenStart, $setHiddenEnd - $setHiddenStart);
+admin_contract_assert(strpos($setHiddenBody, 'saveSettings(settings, false)') !== false && strpos($setHiddenBody, 'persistPreferences()') === false, 'Hide/Unhide must save immediately instead of waiting for the reorder debounce');
+admin_contract_assert(strpos($liveJavascript, 'settingsSaveQueue') !== false && strpos($liveJavascript, 'settingsSaveInFlight') !== false && strpos($liveJavascript, 'drainSettingsSaveQueue') !== false, 'Whole-settings saves must be serialized');
+admin_contract_assert(strpos($liveJavascript, 'pending.sequence === latestSettingsSaveSequence') !== false, 'A stale save response must not replace newer in-memory settings');
+admin_contract_assert(strpos($liveJavascript, 'saveSequenceWhenRequested !== latestSettingsSaveSequence') !== false, 'A stale settings reload must not replace newer in-memory preferences');
+$saveSettingsStart = strpos($liveJavascript, 'function saveSettings(candidate');
+$saveSettingsEnd = strpos($liveJavascript, 'function loadHistoricalGraph', $saveSettingsStart);
+$saveSettingsBody = substr($liveJavascript, $saveSettingsStart, $saveSettingsEnd - $saveSettingsStart);
+admin_contract_assert(strpos($saveSettingsBody, 'if (pending.pollAfterSave) startPolling(true)') !== false && strpos($saveSettingsBody, "\n\t\t\tstartPolling(true);") === false, 'Settings saves must poll only when the caller explicitly requires a refreshed snapshot');
 admin_contract_assert(strpos($liveJavascript, 'featuredDraft.length >= 3') !== false && strpos($liveJavascript, 'Deselect one to choose another.') !== false, 'Configure Live Wall must enforce and explain the three-trunk limit');
 admin_contract_assert(strpos($liveJavascript, 'cc-featured-earlier') !== false && strpos($liveJavascript, 'cc-featured-later') !== false, 'Featured trunks require accessible left-to-right ordering controls');
 admin_contract_assert(strpos($liveJavascript, 'live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice()') !== false, 'Threshold settings saves must preserve featured-trunk preferences');

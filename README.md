@@ -1,4 +1,4 @@
-# Concurrency Count 2.1.0 for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.1.1 for FreePBX/PBXact 16 and 17
 
 **NOT CURRENTLY SUITABLE FOR PRODUCTION.**
 
@@ -339,7 +339,7 @@ Live View reads current Asterisk state through the backend; the browser does not
 
 ### Overall Live Concurrency
 
-Overall Live Concurrency counts current attributable configured or manually classified PJSIP trunk legs, not complete calls or conversations. Device/extension legs are not part of the Live product in 2.1.0.
+Overall Live Concurrency counts current attributable configured or manually classified PJSIP trunk legs, not complete calls or conversations. Device/extension legs are not part of the Live product.
 
 - an outbound external call counts as 1 trunk leg;
 - an inbound external call counts as 1 trunk leg;
@@ -371,7 +371,7 @@ Hidden featured trunks are suppressed without deleting preference. Monitoring-st
 
 Launching requests the Fullscreen API when available. Denial leaves the full-page wall active. Browser Esc exits fullscreen but leaves Live Wall active; **Exit Live Wall** returns to Live View.
 
-Preferences use the FreePBX Core PJSIP trunk `channelid`. Changing a trunk channelid can leave saved visibility, order, feature or monitoring preferences attached to the old identifier; 2.1.0 does not migrate them.
+Preferences use the FreePBX Core PJSIP trunk `channelid`. Changing a trunk channelid can leave saved visibility, order, feature or monitoring preferences attached to the old identifier; automatic migration is not currently performed.
 
 ### Recent peak and refresh
 

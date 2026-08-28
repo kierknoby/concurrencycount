@@ -176,6 +176,19 @@ live_assert_same(false, $config['trunks']['gamma']['monitored'], 'Monitoring sta
 live_assert_same(true, $config['trunks']['gamma-backup']['monitored'], 'Legacy/new trunk monitoring defaults active');
 live_assert_same(['gamma', 'gamma-backup'], $config['trunk_order'], 'New trunks append predictably to an empty saved order');
 live_assert_same([], $config['live_wall_featured_trunks'], 'New trunks do not become featured automatically');
+$visibilityConfig = $thresholds->normalise([
+	'hidden_trunks' => ['gamma'],
+	'live_wall_featured_trunks' => ['gamma'],
+	'trunks' => ['gamma' => ['monitored' => false]],
+], ['gamma']);
+live_assert_same(['gamma'], $visibilityConfig['hidden_trunks'], 'Hidden trunk preference survives settings normalisation');
+live_assert_same(['gamma'], $visibilityConfig['live_wall_featured_trunks'], 'Hiding a featured trunk retains its featured preference');
+live_assert_same(false, $visibilityConfig['trunks']['gamma']['monitored'], 'Hiding a monitoring-stopped trunk retains its monitoring choice');
+$visibilityConfig['hidden_trunks'] = [];
+$unhiddenConfig = $thresholds->normalise($visibilityConfig, ['gamma']);
+live_assert_same([], $unhiddenConfig['hidden_trunks'], 'Unhide preference survives settings normalisation');
+live_assert_same(['gamma'], $unhiddenConfig['live_wall_featured_trunks'], 'Unhiding restores a retained featured trunk choice');
+live_assert_same(false, $unhiddenConfig['trunks']['gamma']['monitored'], 'Unhiding does not resume monitoring');
 $featuredConfig = $thresholds->normalise([
 	'live_wall_featured_trunks' => ['gamma-backup', 'gamma', 'gamma-backup'],
 	'trunks' => [
