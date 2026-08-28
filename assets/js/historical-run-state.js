@@ -17,5 +17,10 @@
 		return !isIntentionalAbort(run, textStatus);
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure};
+	function cancellationAcknowledged(response, run) {
+		if (!response || response.status !== true || response.cancelled !== true || !run) return false;
+		return isIntentionalAbort(run, 'abort') && run.intentionalAbortReason === 'stop';
+	}
+
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged};
 }));

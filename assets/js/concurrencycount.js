@@ -1022,7 +1022,12 @@ window._ccLoaded = true;
 		renderTopReportTabs();
 		if (!closingActive) return;
 		var remaining = sortedReports();
-		selectTopTab(remaining.length ? remaining[0].id : 'historical');
+		var nextTarget = remaining.length ? remaining[0].id : 'historical';
+		selectTopTab(nextTarget);
+		window.setTimeout(function () {
+			if (nextTarget === 'historical') $('#cc-launch').trigger('focus');
+			else $('#cc-workspace-tabs .cc-report-tab-select[data-target="' + nextTarget + '"]').trigger('focus');
+		}, 0);
 	}
 
 	function activateReportTab(id) {
@@ -1486,7 +1491,7 @@ window._ccLoaded = true;
 		if (run && !run.intentionalAbortReason) run.intentionalAbortReason = 'terminal';
 		if (run && run.telemetryRequest && typeof run.telemetryRequest.abort === 'function') run.telemetryRequest.abort();
 		if (run) { run.telemetryTimer = null; run.telemetryRequest = null; }
-		$('#cc-calculation-panel').hide();
+		if (!activeCalculation || !run || activeCalculation.sequence === run.sequence) $('#cc-calculation-panel').hide();
 	}
 
 	function restoreExcludedCallsAfterCalculation() {
@@ -1588,13 +1593,41 @@ window._ccLoaded = true;
 		$('#cc-calculation-panel-title').text('Stopping calculation...');
 		$('#cc-report-loading-text').text('');
 		setStatus('Stopping calculation...', 'running');
-		ajax({command: 'cancelcalculation', calculation_id: run.id}).always(function () {
-			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
+		ajax({command: 'cancelcalculation', calculation_id: run.id}).done(function (response) {
+			if (!window.CCHistoricalRunState.cancellationAcknowledged(response, run)) {
+				if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
+				run.stopping = false;
+				run.intentionalAbortReason = null;
+				$('#cc-calculation-stop').prop('disabled', false);
+				$('#cc-calculation-panel-title').text('Calculation still running');
+				setStatus(response && response.message ? response.message : 'Unable to confirm cancellation. The report remains open.', 'error');
+				return;
+			}
+			var ownsActiveCalculation = activeCalculation && activeCalculation.id === run.id && activeCalculation.sequence === run.sequence;
 			stopCalculationTelemetry(run);
-			activeCalculation = null;
-			restoreExcludedCallsAfterCalculation();
-			restoreStoppedReport(run.targetReportId);
-			setStatus('Calculation stopped.', 'warning');
+			if (ownsActiveCalculation) {
+				activeCalculation = null;
+				restoreExcludedCallsAfterCalculation();
+			}
+			if (!ownsActiveCalculation && activeCalculation && activeCalculation.targetReportId === run.targetReportId) {
+				var replacementForClosingReport = activeCalculation;
+				replacementForClosingReport.stopping = true;
+				replacementForClosingReport.intentionalAbortReason = 'superseded';
+				ajax({command: 'cancelcalculation', calculation_id: replacementForClosingReport.id});
+				if (replacementForClosingReport.request && typeof replacementForClosingReport.request.abort === 'function') replacementForClosingReport.request.abort();
+				stopCalculationTelemetry(replacementForClosingReport);
+				activeCalculation = null;
+				restoreExcludedCallsAfterCalculation();
+			}
+			if (run.targetReportId && historicalReports[run.targetReportId]) closeReportTab(run.targetReportId);
+			else selectTopTab('historical');
+		}).fail(function () {
+			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
+			run.stopping = false;
+			run.intentionalAbortReason = null;
+			$('#cc-calculation-stop').prop('disabled', false);
+			$('#cc-calculation-panel-title').text('Calculation still running');
+			setStatus('Unable to confirm cancellation. The report remains open.', 'error');
 		});
 		if (run.request && typeof run.request.abort === 'function') run.request.abort();
 	}

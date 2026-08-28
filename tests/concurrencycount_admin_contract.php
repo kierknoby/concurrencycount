@@ -256,7 +256,7 @@ admin_contract_assert(strpos($javascript, "intentionalAbortReason = 'stop'") !==
 admin_contract_assert(substr_count($javascript, '{global: false}') >= 2 && strpos($javascript, "trigger('ajaxError'") !== false, 'Historical XHRs must suppress automatic global abort warnings while re-emitting unexpected failures');
 admin_contract_assert(strpos($javascript, 'CCHistoricalRunState.shouldReportFailure(run, textStatus)') !== false, 'Historical failure reporting must use the calculation-scoped abort classifier');
 admin_contract_assert(strpos($historicalRunStateJavascript, "textStatus !== 'abort'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'stop'") !== false && strpos($historicalRunStateJavascript, "intentionalAbortReason === 'superseded'") !== false, 'Only explicit Historical abort states may suppress the global warning');
-admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 'running')") !== false && strpos($javascript, "setStatus('Calculation stopped.', 'warning')") !== false, 'Stop must expose coherent stopping/stopped states');
+admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 'running')") !== false && strpos($javascript, 'Calculation still running') !== false, 'Stop must expose coherent pending and failed-cancellation states');
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
 admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
 admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
@@ -293,6 +293,17 @@ $supersedeStart = strpos($javascript, 'if (activeCalculation && !activeCalculati
 $newRunStart = strpos($javascript, 'var targetReportId', $supersedeStart);
 $supersedeBody = substr($javascript, $supersedeStart, $newRunStart - $supersedeStart);
 admin_contract_assert(strpos($supersedeBody, 'restoreExcludedCallsAfterCalculation') === false, 'A superseded run must not re-enable Excluded Calls before its replacement starts');
+admin_contract_assert(strpos($supersedeBody, 'closeReportTab') === false, 'A superseded run must not close its report tab');
+admin_contract_assert(strpos($historicalRunStateJavascript, 'function cancellationAcknowledged(') !== false, 'Stop-and-close requires an exact backend acknowledgement classifier');
+$stopHandlerStart = strpos($javascript, 'function stopActiveCalculation()');
+$stopHandlerEnd = strpos($javascript, '/**', $stopHandlerStart);
+$stopHandler = substr($javascript, $stopHandlerStart, $stopHandlerEnd - $stopHandlerStart);
+admin_contract_assert(strpos($stopHandler, "ajax({command: 'cancelcalculation', calculation_id: run.id}).done") !== false, 'Stop must wait for successful cancellation response rather than closing from always');
+admin_contract_assert(strpos($stopHandler, 'cancellationAcknowledged(response, run)') < strpos($stopHandler, 'closeReportTab(run.targetReportId)'), 'Normal report close must occur only after exact cancellation acknowledgement');
+admin_contract_assert(strpos($stopHandler, 'ownsActiveCalculation') !== false, 'An old acknowledged Stop must not clean up a newer active calculation UI');
+admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancellation. The report remains open.', 'error')") !== false, 'Cancellation transport failure must retain the report with an error');
+admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
+admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
 admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
 

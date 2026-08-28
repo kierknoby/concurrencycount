@@ -15,4 +15,10 @@ assert(state.shouldReportFailure({id, sequence: 5, intentionalAbortReason: 'supe
 assert(state.shouldReportFailure({id: 'wrong-id', sequence: 6, intentionalAbortReason: 'stop'}, 'abort'), 'Suppression requires a valid calculation ID');
 assert(state.shouldReportFailure({id, sequence: null, intentionalAbortReason: 'stop'}, 'abort'), 'Suppression requires the exact run sequence');
 
+const stoppingRun = {id, sequence: 7, intentionalAbortReason: 'stop'};
+assert(state.cancellationAcknowledged({status: true, cancelled: true}, stoppingRun), 'Exact successful backend acknowledgement must permit Stop-and-close');
+assert(!state.cancellationAcknowledged({status: false, cancelled: false}, stoppingRun), 'Rejected cancellation must retain the report');
+assert(state.cancellationAcknowledged({status: true, cancelled: true}, stoppingRun), 'Acknowledged Stop must still close its old report after the user starts a newer run');
+assert(!state.cancellationAcknowledged({status: true, cancelled: true}, {id, sequence: 7, intentionalAbortReason: 'superseded'}), 'Supersession must never use explicit Stop-and-close semantics');
+
 console.log('Historical run-state tests passed');
