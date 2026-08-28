@@ -312,6 +312,14 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertTrue($this->cc->ajaxRequest('peakdetails', $setting));
 		$this->assertSame(true, $setting['authenticate']);
 		$this->assertSame(false, $setting['allowremote']);
+		$setting = [];
+		$this->assertTrue($this->cc->ajaxRequest('cancelcalculation', $setting));
+		$this->assertSame(true, $setting['authenticate']);
+		$this->assertSame(false, $setting['allowremote']);
+		$setting = [];
+		$this->assertTrue($this->cc->ajaxRequest('calculationtelemetry', $setting));
+		$this->assertSame(true, $setting['authenticate']);
+		$this->assertSame(false, $setting['allowremote']);
 	}
 
 	public function testDirectionUsesActualTrunkLegPlacement(): void {

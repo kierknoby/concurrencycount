@@ -62,5 +62,11 @@ console_contract_assert(strpos($console, "Activity detected, no concurrency.") !
 console_contract_assert(strpos($console, 'Conflicting management options:') !== false, 'CLI management conflicts are not rejected explicitly');
 console_contract_assert(strpos($console, "\$result['status'] === 'online'") !== false, 'Restart exit status must use combined monitor health');
 console_contract_assert(strpos($console, "\$result['pm2_status'] === 'online'") === false, 'Restart exit status must not report success from monitor PM2 state alone');
+console_contract_assert(strpos($console, 'CliCancellationControl') !== false && strpos($console, 'cancellation_check') !== false, 'Long-running CLI calculations must use the shared cancellation checkpoint path');
+console_contract_assert(strpos($console, 'catch (HistoricalCalculationCancelled $cancelled)') !== false, 'CLI cancellation must be distinct from ordinary calculation failure and runtime overrun');
+console_contract_assert(strpos($console, 'Calculation cancelled.') !== false && strpos($console, '128 + $cliCancellation->signal()') !== false, 'CLI cancellation must report clearly and return conventional signal status');
+$mainClass = file_get_contents($root . '/Concurrencycount.class.php');
+console_contract_assert(strpos($mainClass, '($inserted % 100) === 0') !== false && strpos($mainClass, 'cleanupDemoCdrRows($accountcode)') !== false, 'Demo cancellation must checkpoint insertion and retain finally cleanup');
+console_contract_assert(strpos($mainClass, 'Demo cleanup incomplete:') !== false, 'Incomplete Demo cleanup must be reported explicitly');
 
 echo "Console contract passed\n";

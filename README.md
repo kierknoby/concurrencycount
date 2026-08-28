@@ -263,6 +263,8 @@ The GUI's **Compare Engines** Demo workflow checks Original and Sweep against an
 
 If estimated runtime exceeds 3,600 seconds, the GUI asks whether to continue. Demo uses the separate **Run Demo** workflow.
 
+While a GUI Historical calculation is active, a temporary telemetry panel shows elapsed time, the hard-runtime allowance, the estimator's remaining-time estimate, and FreePBX Dashboard's cached server-wide load, application-memory and root-filesystem measurements. These figures are observational only: they neither stop nor change a calculation, and the administrator chooses whether to press Stop. The panel and its Stop control disappear at every terminal outcome and are not shown while idle.
+
 ### Historic Report tabs and persistence
 
 Historical Reports supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse.

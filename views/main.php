@@ -111,8 +111,21 @@ $_ccAssetVer = max(
 						</div>
 						<div id="cc-report-active" style="display:none;">
 							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
-							<div id="cc-report-loading" class="text-muted" style="display:none;"><span class="cc-spinner"></span> <span id="cc-report-loading-text"></span></div>
-							<div id="cc-status" class="alert" style="display:none; margin-top:20px;"></div>
+							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title" aria-live="polite">
+								<div class="cc-calculation-panel-heading">
+									<div id="cc-report-loading" class="text-muted"><span class="cc-spinner"></span> <strong id="cc-calculation-panel-title"><?php echo _('Calculating...'); ?></strong> <span id="cc-report-loading-text"></span></div>
+									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
+								</div>
+								<dl class="cc-telemetry-grid">
+									<div><dt id="cc-telemetry-cpu-label"><?php echo _('Load average (5 min)'); ?></dt><dd id="cc-telemetry-cpu">--</dd></div>
+									<div><dt id="cc-telemetry-memory-label"><?php echo _('Memory (applications)'); ?></dt><dd id="cc-telemetry-memory">--</dd></div>
+									<div><dt id="cc-telemetry-disk-label"><?php echo _('Disk (/)'); ?></dt><dd id="cc-telemetry-disk">--</dd></div>
+									<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+									<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
+									<div><dt><?php echo _('Estimated remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Estimating...'); ?></dd></div>
+								</dl>
+							</section>
+							<div id="cc-status" class="alert" role="status" aria-live="polite" style="display:none; margin-top:20px;"></div>
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>

@@ -31,7 +31,7 @@ function admin_contract_assert($condition, $message) {
 }
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
-foreach (['wizardstep', 'run', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'] as $command) {
+foreach (['wizardstep', 'run', 'cancelcalculation', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'] as $command) {
 	admin_contract_assert(strpos($class, "'" . $command . "'") !== false, 'AJAX command missing: ' . $command);
 }
 admin_contract_assert(strpos($class, "'authenticate'] = true") !== false, 'AJAX authentication setting missing');
@@ -245,6 +245,30 @@ admin_contract_assert(preg_match('/<\/section>\s*<\/div>\s*<\/div>\s*<\/div>\s*<
 admin_contract_assert(strpos($chartJavascript, 'this.threshold') !== false && strpos($chartJavascript, 'onSelect') !== false, 'Chart threshold/interaction support missing');
 admin_contract_assert(strpos($css, '.cc-live-trunk-grid') !== false && strpos($css, '[data-status="exceeded"]') !== false, 'Command-centre responsive/status styling missing');
 admin_contract_assert(strpos($javascript, "command: 'download'") !== false && strpos($javascript, "command: 'email'") !== false, 'Download/email command wiring missing');
+admin_contract_assert(strpos($view, 'id="cc-calculation-stop"') !== false && strpos($view, "_('Stop')") !== false, 'Active Historical calculation Stop control missing');
+admin_contract_assert(strpos($view, 'aria-live="polite"') !== false, 'Historical calculation status must be announced accessibly');
+admin_contract_assert(strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") !== false, 'Stop must target the active opaque calculation ID');
+admin_contract_assert(strpos($javascript, "params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id}") !== false, 'Every GUI Historical run must send its calculation ID');
+admin_contract_assert(strpos($javascript, 'run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence') !== false, 'Stopped or stale calculation responses must not replace newer report state');
+admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 'running')") !== false && strpos($javascript, "setStatus('Calculation stopped.', 'warning')") !== false, 'Stop must expose coherent stopping/stopped states');
+admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
+admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
+admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
+foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-disk', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
+	admin_contract_assert(strpos($view, 'id="' . $telemetryId . '"') !== false, 'Historical telemetry field missing: ' . $telemetryId);
+}
+admin_contract_assert(strpos($javascript, "command: 'calculationtelemetry', calculation_id: run.id") !== false, 'Telemetry polling must target the active opaque calculation ID');
+admin_contract_assert(strpos($javascript, 'activeCalculation.id !== run.id') !== false && strpos($javascript, 'activeCalculation.sequence !== run.sequence') !== false, 'Stale telemetry responses must not repaint a newer calculation');
+admin_contract_assert(strpos($javascript, 'window.setTimeout(function () { pollCalculationTelemetry(run); }, 2000)') !== false, 'Telemetry polling interval must remain conservative and non-overlapping');
+admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run)') !== false && strpos($javascript, "$('#cc-calculation-panel').hide()") !== false, 'Every terminal calculation path must remove the temporary panel');
+admin_contract_assert(substr_count($javascript, "$('#cc-calculation-panel').show()") === 1 && substr_count($view, 'id="cc-calculation-panel"') === 1, 'Telemetry panel may only be created/shown by the active calculation lifecycle');
+admin_contract_assert(substr_count($view, 'id="cc-calculation-stop"') === 1 && strpos($view, '<section id="cc-calculation-panel"') < strpos($view, 'id="cc-calculation-stop"'), 'Stop must exist only inside the temporary panel');
+admin_contract_assert(substr_count($javascript, 'stopCalculationTelemetry(run);') >= 4 && strpos($javascript, 'stopCalculationTelemetry(superseded);') !== false, 'Success, failure, runtime abort, cancellation and supersession must stop telemetry');
+admin_contract_assert(strpos($javascript, "$('#cc-calculation-stop').prop('disabled', true)") !== false, 'Stop must disable immediately while cancellation is pending');
+admin_contract_assert(strpos($javascript, 'renderCalculationTelemetry(response)') !== false && strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") !== false, 'Telemetry must remain observational and cancellation must remain an explicit Stop action');
+admin_contract_assert(strpos($class, '\\FreePBX::Dashboard()') !== false && strpos($class, 'getSysInfo()') !== false, 'Resource telemetry must use the native FreePBX Dashboard source');
+admin_contract_assert(strpos($class, 'shell_exec') === false, 'Resource telemetry must not add shell sampling');
+admin_contract_assert(strpos($javascript, 'memory_get_usage') === false, 'Browser telemetry must not report the polling PHP process as calculation memory');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
 admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
 

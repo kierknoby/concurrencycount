@@ -30,13 +30,18 @@ class FakeSettingsStatement {
 	private $result = false;
 	public function __construct(FakeSettingsDatabase $db, string $sql) { $this->db = $db; $this->sql = $sql; }
 	public function execute(array $params) {
-		$key = $params[':key'];
-		if (strpos($this->sql, 'SELECT') === 0) $this->result = isset($this->db->values[$key]) ? $this->db->values[$key] : false;
+		$key = isset($params[':key']) ? $params[':key'] : '';
+		if (strpos($this->sql, 'SELECT setting_key') === 0) {
+			$prefix = rtrim((string)$params[':prefix'], '%');
+			$this->result = array_values(array_filter(array_keys($this->db->values), function ($candidate) use ($prefix) { return strpos($candidate, $prefix) === 0; }));
+		}
+		elseif (strpos($this->sql, 'SELECT') === 0) $this->result = isset($this->db->values[$key]) ? $this->db->values[$key] : false;
 		elseif (strpos($this->sql, 'INSERT') === 0) $this->db->values[$key] = $params[':value'];
 		elseif (strpos($this->sql, 'DELETE') === 0) unset($this->db->values[$key]);
 		return true;
 	}
 	public function fetchColumn() { return $this->result; }
+	public function fetchAll($mode = null) { return is_array($this->result) ? $this->result : []; }
 }
 
 $db = new FakeSettingsDatabase();
@@ -53,6 +58,11 @@ repository_assert($repository->get('live_settings', [])['hidden_trunks'] === [] 
 $numericSettings = ['hidden_trunks' => ['100'], 'trunk_order' => ['200', '100'], 'live_wall_featured_trunks' => ['100'], 'trunks' => ['100' => ['monitored' => false], '200' => ['monitored' => false]]];
 $repository->set('live_settings', $numericSettings);
 repository_assert($repository->get('live_settings', []) === $numericSettings, 'Rapid combined numeric-channelid preferences survive persistence and reload together');
+$repository->set('historical_calculation:one', ['status' => 'active']);
+$repository->set('historical_calculation:two', ['status' => 'active']);
+repository_assert($repository->findKeys('historical_calculation:') === ['historical_calculation:one', 'historical_calculation:two'], 'Repository can enumerate bounded calculation-control records by prefix');
+$repository->delete('historical_calculation:one');
+$repository->delete('historical_calculation:two');
 $state = ['overall' => ['status' => 'above', 'peak' => 9]];
 $repository->set('alert_state', $state);
 repository_assert($repository->get('alert_state', []) === $state, 'Repository round-trips alert state');

@@ -905,6 +905,14 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-hidden-trunks { margin-top:24px; padding:16px; border:1px solid #d6d6d6; border-radius:5px; background:#fafafa; }
 .concurrencycount .cc-hidden-trunk-row { display:grid; grid-template-columns:minmax(160px,1fr) auto auto; align-items:center; gap:12px; padding:9px 0; border-top:1px solid #e5e5e5; }
 .concurrencycount .cc-hidden-trunk-row:first-child { border-top:0; }
+.concurrencycount .cc-calculation-panel { margin-top:16px; padding:14px; border:1px solid #c8d2da; border-radius:5px; background:#f7f9fa; overflow:hidden; }
+.concurrencycount .cc-calculation-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.concurrencycount .cc-calculation-panel-heading #cc-report-loading { min-width:0; overflow-wrap:anywhere; }
+.concurrencycount .cc-telemetry-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 18px; margin:14px 0 0; }
+.concurrencycount .cc-telemetry-grid > div { min-width:0; }
+.concurrencycount .cc-telemetry-grid dt { color:#52606b; font-size:12px; font-weight:600; overflow-wrap:anywhere; }
+.concurrencycount .cc-telemetry-grid dd { margin:2px 0 0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.concurrencycount #cc-calculation-stop:focus-visible { outline:2px solid #1b6fa8; outline-offset:2px; }
 .concurrencycount .cc-wall-featured-row { display:grid; grid-template-columns:minmax(180px,1fr) auto; gap:6px 12px; align-items:center; padding:10px 0; border-top:1px solid #e5e5e5; }
 .concurrencycount .cc-wall-featured-row:first-child { border-top:0; }
 .concurrencycount .cc-wall-featured-row label { margin:0; min-width:0; }
@@ -982,4 +990,9 @@ body.cc-wall-active { overflow:hidden; }
 	.cc-wall-trunk-grid[data-count] { grid-template-columns:1fr; }
 	.cc-wall-trunk { margin-bottom:12px; }
 	.concurrencycount .cc-trunk-toolbar button { flex:1 1 auto; }
+}
+
+@media (max-width:520px) {
+	.concurrencycount .cc-telemetry-grid { grid-template-columns:1fr; }
+	.concurrencycount .cc-calculation-panel-heading { align-items:flex-start; }
 }
