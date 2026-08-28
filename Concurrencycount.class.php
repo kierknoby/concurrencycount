@@ -30,6 +30,8 @@ require_once __DIR__ . '/Services/HistoricalCallExclusionService.php';
 require_once __DIR__ . '/Services/HistoricalCalculationControl.php';
 require_once __DIR__ . '/Services/CliCancellationControl.php';
 require_once __DIR__ . '/Services/SystemResourceTelemetry.php';
+require_once __DIR__ . '/Services/HistoricalResourceLimitException.php';
+require_once __DIR__ . '/Services/HistoricalMemoryGuard.php';
 
 class Concurrencycount implements \BMO {
 
@@ -1399,6 +1401,13 @@ class Concurrencycount implements \BMO {
 			return ['status' => true, 'results' => $results];
 		} catch (HistoricalCalculationCancelled $cancelled) {
 			return ['status' => false, 'cancelled' => true, 'message' => _('Calculation stopped.')];
+		} catch (\FreePBX\modules\Concurrencycount\Services\HistoricalResourceLimitException $resourceLimit) {
+			return [
+				'status' => false,
+				'resource_limit' => true,
+				'message' => _("This calculation reached Concurrency Count's safe memory allowance."),
+				'advice' => _('No completed report result was changed. Try Sweep, a shorter date range, or a more specific endpoint filter.'),
+			];
 		} catch (RuntimeOverrunPending $rop) {
 			return [
 				'status' => false,
@@ -1736,14 +1745,20 @@ class Concurrencycount implements \BMO {
 			\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now(),
 			$confirm_overrun
 		);
+		$memoryGuard = new \FreePBX\modules\Concurrencycount\Services\HistoricalMemoryGuard();
 		return [
 			'all_names' => $all_names,
+			'resource_check' => function () use ($memoryGuard, $cancellationCheck): void {
+				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+				$memoryGuard->checkpoint();
+			},
 			'coalesce_ranges' => function (array $times): array {
 				return $this->coalesceRanges($times);
 			},
-			'check_overrun' => function (int $processed, int $total, string $stage = 'progress') use ($estimator, $cancellationCheck, $progressUpdate): void {
+			'check_overrun' => function (int $processed, int $total, string $stage = 'progress') use ($estimator, $memoryGuard, $cancellationCheck, $progressUpdate): void {
 				$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+				$memoryGuard->checkpoint();
 				if ($processed === 0) $estimator->beginEngine($now);
 				$assessment = $estimator->evaluate($processed, $total, $now);
 				if ($progressUpdate !== null) call_user_func($progressUpdate, $assessment);

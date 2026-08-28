@@ -20,6 +20,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use FreePBX\modules\Concurrencycount\HistoricalCalculationCancelled;
 use FreePBX\modules\Concurrencycount\Services\CliCancellationControl;
+use FreePBX\modules\Concurrencycount\Services\HistoricalResourceLimitException;
 
 class Concurrencycount extends Command {
 
@@ -111,6 +112,9 @@ class Concurrencycount extends Command {
 		} catch (HistoricalCalculationCancelled $cancelled) {
 			$output->writeln('<comment>Calculation cancelled.</comment>');
 			return $cliCancellation->signal() > 0 ? 128 + $cliCancellation->signal() : 130;
+		} catch (HistoricalResourceLimitException $resourceLimit) {
+			$output->writeln("<error>This calculation reached Concurrency Count's safe memory allowance. Try Sweep, a shorter date range, or a more specific endpoint filter.</error>");
+			return 1;
 		} catch (\Exception $e) {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');
 			return 1;

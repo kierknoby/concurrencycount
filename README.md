@@ -248,7 +248,7 @@ Historical Group Concurrency is not the historical equivalent of Overall Live Co
 
 Engines change how the same eligible Historical dataset is calculated, not what a mode measures.
 
-- **Original** is the default reference implementation. It walks every occupied second.
+- **Original** is the default reference implementation. It walks every occupied second inclusively while discarding its per-second working map after each bounded one-hour window.
 - **Sweep** is experimental. It processes start and end events while preserving the same inclusive boundaries and intended result.
 
 The GUI's **Compare Engines** Demo workflow checks Original and Sweep against an independently calculated expectation. Exact engine output, including peak 1, is unchanged by activity-only presentation. The dedicated Demo section below describes its CDR writes and cleanup.
@@ -268,6 +268,10 @@ If estimated runtime exceeds 3,600 seconds, the GUI asks whether to continue. De
 The Historical estimator measures engine work rather than projecting from a tiny first sample. ETA remains **Estimating...** until at least 0.5 seconds and a sufficient row/work sample have completed; this avoids misleading early multi-hour projections. Elapsed time and the remaining 3,600-second runtime allowance remain visible during that warm-up. This changes estimation and protection only: Original still walks inclusive occupied seconds, while Sweep retains its inclusive event-based calculation semantics and both produce the same result definitions as before.
 
 `MAX_RUNTIME` protects the complete engine calculation rather than only the gaps between CDR rows. Original checks during long occupied-second loops and its later Group peak scan. Sweep checks while constructing events and, in batches of 4,096 operations, during event sorting, event traversal and the additional Group peak traversal. The batching keeps the hard limit enforceable during expensive post-ingestion work without adding a timer call to every iteration.
+
+Original retains its straightforward inclusive per-second result contract but processes timestamp state in aligned 3,600-second windows. Calls crossing a window are clipped to each window's inclusive bounds, compact peak/range summaries are merged across boundaries, and the temporary seconds map is then discarded. This bounds the timestamp dimension of working memory without imposing a new duration cap on Trunk or Extension; Group retains its existing 86,400-second contribution cap. Estimator progress remains actual occupied-second work, not chunks completed.
+
+At calculation checkpoints, Concurrency Count also observes its PHP process allocation without changing `memory_limit`. For a finite configured limit it reserves the larger of 16 MiB or 20 percent, capped at half the limit for unusually small limits, and stops at the resulting safe ceiling. This is preventive headroom for structured failure handling, serialization, cleanup and FreePBX; it does not claim that PHP hard memory exhaustion can always be recovered afterward. A soft-memory stop retains any previous completed report and suggests Sweep, a shorter range or a narrower endpoint filter. Unlimited or invalid memory-limit values disable this secondary guard rather than inventing a ceiling.
 
 An active GUI Historical calculation has a cooperative **Stop** control tied to its validated, unique calculation ID. Stop is present only while that calculation is active or stopping; pressing it disables the button, records backend cancellation and lets the shared engine checkpoints stop work cleanly. Aborting the browser request alone is not treated as backend cancellation. Terminal cleanup removes the calculation-control record, a stopped regeneration retains its last completed result where available, and calculation ID plus browser sequence checks prevent stale or superseded responses from replacing a newer run.
 
@@ -523,12 +527,15 @@ php tests/FreepbxEntityResolverTest.php
 php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalCallExclusionServiceTest.php
 php tests/HistoricalEndpointFilterServiceTest.php
+php tests/HistoricalMemoryGuardTest.php
 php tests/HistoricalReportsServiceTest.php
 php tests/HistoricalRuntimeEstimatorTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
 php tests/PeakDetailAnalyserTest.php
 php tests/PjsipIdentityServiceTest.php
+php tests/OriginalWindowingTest.php
+php tests/OriginalMemoryBenchmarkTest.php
 php tests/SettingsRepositoryTest.php
 php tests/SystemResourceTelemetryTest.php
 php tests/concurrencycount_admin_contract.php
@@ -558,7 +565,6 @@ These tests do not replace real PBX/browser validation.
 - Add a dry-run orphan-cleanup command for old `CCDEMO*` rows.
 - Consider a Demo transaction only if safe with deployed CDR engines and FreePBX environments.
 - Consider event-burst coalescing only with guarantees for prompt first-event and trailing reconciliation so short threshold crossings cannot be missed.
-- Bound or replace Original's per-second memory growth without changing its reference result contract.
 - Define an automation-safe CLI runtime-overrun confirmation or `--force` policy and a consistent JSON success/error envelope.
 - Add FreePBX backup/restore integration for module-owned persisted state.
 - Add real FreePBX 16/17 integration coverage for mail, CDR schema variation, permissions and browsers.

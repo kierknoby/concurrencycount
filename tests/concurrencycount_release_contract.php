@@ -46,6 +46,8 @@ $runtimeFiles = [
 	'Services/HistoricalCalculationControl.php',
 	'Services/CliCancellationControl.php',
 	'Services/SystemResourceTelemetry.php',
+	'Services/HistoricalResourceLimitException.php',
+	'Services/HistoricalMemoryGuard.php',
 	'Services/HistoricalReportsService.php',
 	'Services/PjsipIdentityService.php',
 	'Services/HistoricalCallExclusionService.php',

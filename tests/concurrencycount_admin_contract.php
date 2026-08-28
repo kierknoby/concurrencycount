@@ -270,6 +270,9 @@ admin_contract_assert(strpos($javascript, 'renderCalculationTelemetry(response)'
 admin_contract_assert(strpos($class, '\\FreePBX::Dashboard()') !== false && strpos($class, 'getSysInfo()') !== false, 'Resource telemetry must use the native FreePBX Dashboard source');
 admin_contract_assert(strpos($class, 'shell_exec') === false, 'Resource telemetry must not add shell sampling');
 admin_contract_assert(strpos($javascript, 'memory_get_usage') === false, 'Browser telemetry must not report the polling PHP process as calculation memory');
+admin_contract_assert(strpos($class, 'catch (\\FreePBX\\modules\\Concurrencycount\\Services\\HistoricalResourceLimitException $resourceLimit)') !== false && strpos($class, "'resource_limit' => true") !== false, 'Predictable soft-memory stops must become a structured module response instead of escaping to FreePBX');
+admin_contract_assert(strpos($javascript, 'if (resp.resource_limit)') !== false && strpos($javascript, 'restoreStoppedReport(targetReportId)') !== false, 'GUI must handle resource stops while retaining a prior completed result');
+admin_contract_assert(strpos($javascript, "setStatus('Historical calculation stopped. '") !== false, 'GUI resource stop needs module-owned failure wording');
 admin_contract_assert(strpos($view, 'cc-telemetry-resources-title') !== false && strpos($view, 'cc-telemetry-calculation-title') !== false, 'Resources and calculation timings must have distinct semantic groups');
 $panelStart = strpos($view, '<section id="cc-calculation-panel"');
 $panelEnd = strpos($view, '</section>', $panelStart);

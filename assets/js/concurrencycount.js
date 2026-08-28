@@ -1528,6 +1528,13 @@ window._ccLoaded = true;
 				setStatus('Calculation stopped.', 'warning');
 				return;
 			}
+			if (resp.resource_limit) {
+				if (discardFailedFirstRun(targetReportId, resp.message || 'Historical calculation stopped.')) return;
+				restoreStoppedReport(targetReportId);
+				setStatus('Historical calculation stopped. ' + (resp.message || '') + ' ' + (resp.advice || ''), 'error');
+				pendingPersistedRefresh = false;
+				return;
+			}
 			if (!resp.status) {
 				if (discardFailedFirstRun(targetReportId, resp.message || 'Failed to run.')) return;
 				setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + (resp.message || 'Failed to run.'), 'error');
