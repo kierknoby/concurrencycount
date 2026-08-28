@@ -273,7 +273,9 @@ An active GUI Historical calculation has a cooperative **Stop** control tied to 
 
 The CLI traps `SIGINT` (Ctrl+C) and `SIGTERM` when PHP PCNTL asynchronous signals are available. Those signals request the same cooperative checkpoint cancellation, allowing `finally` cleanup such as removal of temporary Demo CDR rows to run where possible; `SIGINT` exits 130 and `SIGTERM` exits 143. Without PCNTL, the previous OS-level interrupt behaviour remains, so graceful checkpoint cancellation and cleanup cannot be guaranteed.
 
-While a GUI Historical calculation is active or stopping, a temporary panel presents **Stop**, elapsed time, maximum runtime remaining and the estimator ETA. It is absent while idle and disappears after success, failure, runtime abort, cancellation or supersession. A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data: CPU is accurately labelled **Load average (5 min)** rather than CPU percentage, memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
+While a GUI Historical calculation is active or stopping, a temporary panel presents **Stop**, a separate Calculation timing group, and a System resources group. It is absent while idle and disappears after success, failure, runtime abort, cancellation or supersession. ETA remains **Estimating...** until reliable, and a positive estimate below one second is shown as **< 1 second** rather than zero. **Excluded Calls** is genuinely disabled while calculation or stopping is active and restored at the terminal outcome.
+
+A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data. **System load (5 min)** is the average number of tasks running or waiting for CPU/resources over that period—not a percentage—and is shown with the number of logical CPUs derived from native phpSysInfo `CpuCore` entries. Memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), native swap used/total is shown when available, and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
 
 The `calculationtelemetry` and `cancelcalculation` module actions are authenticated, CSRF-protected, explicitly allowlisted and non-remote. Calculation IDs must be exactly 32 hexadecimal characters. The actions expose neither PIDs nor arbitrary process, filesystem, shell, `exec`, `kill` or `pkill` access. Telemetry and GUI cancellation remain GUI-scoped; CLI signals remain local to the running CLI command.
 
@@ -533,6 +535,7 @@ php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
 node tests/DateRangeTest.js
+node tests/TelemetryFormatTest.js
 ```
 
 Source checks include:
@@ -542,6 +545,7 @@ node --check assets/js/concurrencycount.js
 node --check assets/js/live-view.js
 node --check assets/js/date-range.js
 node --check assets/js/concurrency-charts.js
+node --check assets/js/telemetry-format.js
 find . -path './.git' -prune -o -type f -name '*.php' -print | while IFS= read -r file; do php -l "$file"; done
 git diff --check
 ```

@@ -1402,13 +1402,6 @@ window._ccLoaded = true;
 		return year + '-' + pad(m) + '-' + pad(d.getDate());
 	}
 
-	function formatTelemetryDuration(seconds) {
-		seconds = Math.max(0, Math.floor(Number(seconds) || 0));
-		var hours = Math.floor(seconds / 3600);
-		var minutes = Math.floor((seconds % 3600) / 60);
-		return pad(hours) + ':' + pad(minutes) + ':' + pad(seconds % 60);
-	}
-
 	function formatTelemetryBytes(bytes) {
 		if (bytes === null || bytes === undefined || bytes === '') return '--';
 		bytes = Number(bytes);
@@ -1430,18 +1423,26 @@ window._ccLoaded = true;
 	}
 
 	function renderCalculationTelemetry(response) {
-		$('#cc-telemetry-elapsed').text(formatTelemetryDuration(response.elapsed));
-		$('#cc-telemetry-runtime').text(formatTelemetryDuration(response.runtime_remaining));
-		$('#cc-telemetry-eta').text(response.estimated_remaining === null || response.estimated_remaining === undefined ? 'Estimating...' : formatTelemetryDuration(response.estimated_remaining));
+		$('#cc-telemetry-elapsed').text(window.CCTelemetryFormat.duration(response.elapsed));
+		$('#cc-telemetry-runtime').text(window.CCTelemetryFormat.duration(response.runtime_remaining));
+		$('#cc-telemetry-eta').text(window.CCTelemetryFormat.eta(response.eta_reliable, response.estimated_remaining));
 		var resources = response.resources || {};
 		var cpu = resources.cpu || {};
 		var memory = resources.memory || {};
+		var swap = resources.swap || null;
 		var disk = resources.disk || {};
-		$('#cc-telemetry-cpu-label').text(cpu.label || 'Load average (5 min)');
+		$('#cc-telemetry-cpu-label').text(cpu.label || 'System load (5 min)');
 		$('#cc-telemetry-memory-label').text(memory.label || 'Memory (applications)');
 		$('#cc-telemetry-disk-label').text(disk.label || 'Disk (/)');
-		$('#cc-telemetry-cpu').text(cpu.value !== null && cpu.value !== undefined && isFinite(Number(cpu.value)) ? Number(cpu.value).toFixed(2) : '--');
+		var load = cpu.value !== null && cpu.value !== undefined && isFinite(Number(cpu.value)) ? Number(cpu.value).toFixed(2) : '--';
+		if (load !== '--' && cpu.logical_cpus !== null && cpu.logical_cpus !== undefined && Number(cpu.logical_cpus) > 0) load += ' across ' + Number(cpu.logical_cpus) + (Number(cpu.logical_cpus) === 1 ? ' CPU' : ' CPUs');
+		$('#cc-telemetry-cpu').text(load);
 		$('#cc-telemetry-memory').text(telemetryUsage(memory));
+		$('#cc-telemetry-swap-item').toggle(!!swap);
+		if (swap) {
+			$('#cc-telemetry-swap-label').text(swap.label || 'Swap');
+			$('#cc-telemetry-swap').text(telemetryUsage(swap));
+		}
 		$('#cc-telemetry-disk').text(telemetryUsage(disk));
 	}
 
@@ -1458,11 +1459,14 @@ window._ccLoaded = true;
 	}
 
 	function startCalculationTelemetry(run) {
-		$('#cc-telemetry-cpu, #cc-telemetry-memory, #cc-telemetry-disk').text('--');
+		$('#cc-telemetry-cpu, #cc-telemetry-memory, #cc-telemetry-swap, #cc-telemetry-disk').text('--');
+		$('#cc-telemetry-swap-item').hide();
 		$('#cc-telemetry-elapsed').text('00:00:00');
 		$('#cc-telemetry-runtime').text('01:00:00');
 		$('#cc-telemetry-eta').text('Estimating...');
+		$('#cc-calculation-panel-title').text('Calculating...');
 		$('#cc-calculation-stop').prop('disabled', false);
+		$('#cc-excluded-calls').prop('disabled', true).attr('aria-disabled', 'true');
 		$('#cc-report-loading').show();
 		$('#cc-calculation-panel').show();
 		pollCalculationTelemetry(run);
@@ -1473,6 +1477,10 @@ window._ccLoaded = true;
 		if (run && run.telemetryRequest && typeof run.telemetryRequest.abort === 'function') run.telemetryRequest.abort();
 		if (run) { run.telemetryTimer = null; run.telemetryRequest = null; }
 		$('#cc-calculation-panel').hide();
+	}
+
+	function restoreExcludedCallsAfterCalculation() {
+		$('#cc-excluded-calls').prop('disabled', false).removeAttr('aria-disabled');
 	}
 
 	function executeRun(mode, start, end, extraParams, engineOverride) {
@@ -1508,11 +1516,13 @@ window._ccLoaded = true;
 			if (resp.overrun_warning) {
 				stopCalculationTelemetry(run);
 				activeCalculation = null;
+				restoreExcludedCallsAfterCalculation();
 				showOverrunModal(resp, mode, start, end, extraParams, targetReportId, selectedEngine);
 				return;
 			}
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
+			restoreExcludedCallsAfterCalculation();
 			if (resp.cancelled) {
 				restoreStoppedReport(targetReportId);
 				setStatus('Calculation stopped.', 'warning');
@@ -1530,6 +1540,7 @@ window._ccLoaded = true;
 			if (run.stopping || !activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
+			restoreExcludedCallsAfterCalculation();
 			if (discardFailedFirstRun(targetReportId, randomOops())) return;
 			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + randomOops(), 'error');
 			pendingPersistedRefresh = false;
@@ -1553,11 +1564,14 @@ window._ccLoaded = true;
 		if (!run || run.stopping) return;
 		run.stopping = true;
 		$('#cc-calculation-stop').prop('disabled', true);
+		$('#cc-calculation-panel-title').text('Stopping calculation...');
+		$('#cc-report-loading-text').text('');
 		setStatus('Stopping calculation...', 'running');
 		ajax({command: 'cancelcalculation', calculation_id: run.id}).always(function () {
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
 			stopCalculationTelemetry(run);
 			activeCalculation = null;
+			restoreExcludedCallsAfterCalculation();
 			restoreStoppedReport(run.targetReportId);
 			setStatus('Calculation stopped.', 'warning');
 		});

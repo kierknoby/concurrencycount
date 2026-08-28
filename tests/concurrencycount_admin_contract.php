@@ -11,6 +11,7 @@ $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
+$telemetryJavascript = file_get_contents($root . '/assets/js/telemetry-format.js');
 $monitor = file_get_contents($root . '/alert-monitor.php');
 $console = file_get_contents($root . '/Console/Concurrencycount.class.php');
 $mailer = file_get_contents($root . '/alert-mailer.php');
@@ -254,7 +255,7 @@ admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
 admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
 admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
-foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-disk', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
+foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
 	admin_contract_assert(strpos($view, 'id="' . $telemetryId . '"') !== false, 'Historical telemetry field missing: ' . $telemetryId);
 }
 admin_contract_assert(strpos($javascript, "command: 'calculationtelemetry', calculation_id: run.id") !== false, 'Telemetry polling must target the active opaque calculation ID');
@@ -269,6 +270,21 @@ admin_contract_assert(strpos($javascript, 'renderCalculationTelemetry(response)'
 admin_contract_assert(strpos($class, '\\FreePBX::Dashboard()') !== false && strpos($class, 'getSysInfo()') !== false, 'Resource telemetry must use the native FreePBX Dashboard source');
 admin_contract_assert(strpos($class, 'shell_exec') === false, 'Resource telemetry must not add shell sampling');
 admin_contract_assert(strpos($javascript, 'memory_get_usage') === false, 'Browser telemetry must not report the polling PHP process as calculation memory');
+admin_contract_assert(strpos($view, 'cc-telemetry-resources-title') !== false && strpos($view, 'cc-telemetry-calculation-title') !== false, 'Resources and calculation timings must have distinct semantic groups');
+$panelStart = strpos($view, '<section id="cc-calculation-panel"');
+$panelEnd = strpos($view, '</section>', $panelStart);
+$panel = substr($view, $panelStart, $panelEnd - $panelStart);
+admin_contract_assert(strpos($panel, 'id="cc-calculation-stop"') < strpos($panel, 'id="cc-report-loading"'), 'Stop must precede the calculating status');
+admin_contract_assert(strpos($view, 'System load (5 min)') !== false && strpos($view, 'this is not a percentage') !== false, 'System load needs accurate five-minute wording and concise explanation');
+admin_contract_assert(strpos($javascript, "load += ' across '") !== false && strpos($javascript, "' CPUs'") !== false, 'System load must include native logical CPU context when available');
+admin_contract_assert(strpos($javascript, "$('#cc-telemetry-swap-item').toggle(!!swap)") !== false, 'Swap must appear only when native data is valid');
+admin_contract_assert(strpos($telemetryJavascript, "if (seconds < 1) return '< 1 second';") !== false && strpos($javascript, 'response.eta_reliable') !== false, 'Reliable sub-second ETA requires explicit state and must not render as zero');
+admin_contract_assert(strpos($javascript, "$('#cc-excluded-calls').prop('disabled', true)") !== false, 'Excluded Calls must become genuinely disabled at calculation start');
+admin_contract_assert(strpos($javascript, 'function restoreExcludedCallsAfterCalculation()') !== false && substr_count($javascript, 'restoreExcludedCallsAfterCalculation();') >= 4, 'Every terminal calculation path must restore Excluded Calls');
+$supersedeStart = strpos($javascript, 'if (activeCalculation && !activeCalculation.stopping)');
+$newRunStart = strpos($javascript, 'var targetReportId', $supersedeStart);
+$supersedeBody = substr($javascript, $supersedeStart, $newRunStart - $supersedeStart);
+admin_contract_assert(strpos($supersedeBody, 'restoreExcludedCallsAfterCalculation') === false, 'A superseded run must not re-enable Excluded Calls before its replacement starts');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
 admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
 

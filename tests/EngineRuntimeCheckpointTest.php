@@ -28,6 +28,22 @@ try {
 } catch (RuntimeException $exception) {}
 checkpoint_assert($originalInterrupted, 'Original must be interruptible inside one long occupied-second row');
 
+$originalTotals = [];
+$measureOriginal = function (array $fixture) use (&$originalTotals, $coalesce): void {
+	$engine = new Original([
+		'all_names' => ['gamma' => true], 'coalesce_ranges' => $coalesce,
+		'check_overrun' => function (int $processed, int $total) use (&$originalTotals): void {
+			if ($processed === 0) $originalTotals[] = $total;
+		},
+	]);
+	$engine->calculatePerName('trunk', $fixture);
+};
+$shortRows = [];
+for ($index = 0; $index < 20; $index++) $shortRows[] = ['calldate' => '2026-08-28 00:00:00', 'duration' => 1, 'identity' => 'gamma'];
+$measureOriginal($shortRows);
+$measureOriginal([['calldate' => '2026-08-28 00:00:00', 'duration' => 100, 'identity' => 'gamma']]);
+checkpoint_assert($originalTotals === [40, 101], 'Original work units must count occupied seconds, so one long CDR outweighs many short CDRs');
+
 $rows = [];
 for ($index = 0; $index < 3000; $index++) {
 	$rows[] = ['calldate' => date('Y-m-d H:i:s', 1787875200 + (3000 - $index)), 'duration' => 30, 'identity' => 'gamma', 'extension_legs' => 1];
@@ -73,5 +89,17 @@ $sweep = new Sweep([
 ]);
 try { $sweep->calculateGroup($rows); } catch (RuntimeException $exception) {}
 checkpoint_assert($sweepGroupPeakInterrupted, 'Sweep Group must be interruptible during its second event traversal');
+
+$sweepTotals = [];
+foreach ([1, 10000] as $duration) {
+	$engine = new Sweep([
+		'all_names' => ['gamma' => true], 'coalesce_ranges' => $coalesce,
+		'check_overrun' => function (int $processed, int $total) use (&$sweepTotals): void {
+			if ($processed === 0) $sweepTotals[] = $total;
+		},
+	]);
+	$engine->calculatePerName('trunk', [['calldate' => '2026-08-28 00:00:00', 'duration' => $duration, 'identity' => 'gamma']]);
+}
+checkpoint_assert($sweepTotals[0] === $sweepTotals[1] && $sweepTotals[0] > 1, 'Sweep work units must model event construction, sorting and traversal rather than occupied seconds');
 
 echo "Engine runtime checkpoint tests passed\n";

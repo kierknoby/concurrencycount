@@ -322,6 +322,39 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertSame(false, $setting['allowremote']);
 	}
 
+	public function testCalculationTelemetryPayloadPreservesEtaState(): void {
+		$resources = ['available' => true];
+		$unreliable = $this->invokePrivate('buildCalculationTelemetryPayload', [[
+			'status' => 'active', 'started_at' => 100.0, 'elapsed' => 2.0,
+			'eta_reliable' => false, 'estimated_remaining' => null,
+		], $resources, 103.0]);
+		$this->assertTrue($unreliable['active']);
+		$this->assertFalse($unreliable['eta_reliable']);
+		$this->assertNull($unreliable['estimated_remaining']);
+		$this->assertSame(3.0, $unreliable['elapsed']);
+		$this->assertSame(3597.0, $unreliable['runtime_remaining']);
+
+		$multiSecond = $this->invokePrivate('buildCalculationTelemetryPayload', [[
+			'status' => 'active', 'started_at' => 100.0, 'elapsed' => 5.0,
+			'eta_reliable' => true, 'estimated_remaining' => 90.0,
+		], $resources, 105.0]);
+		$this->assertTrue($multiSecond['eta_reliable']);
+		$this->assertSame(90.0, $multiSecond['estimated_remaining']);
+
+		$subSecond = $this->invokePrivate('buildCalculationTelemetryPayload', [[
+			'status' => 'active', 'eta_reliable' => true, 'estimated_remaining' => 0.25,
+		], $resources, 105.0]);
+		$this->assertTrue($subSecond['eta_reliable']);
+		$this->assertSame(0.25, $subSecond['estimated_remaining']);
+
+		$terminal = $this->invokePrivate('buildCalculationTelemetryPayload', [[
+			'status' => 'cancelled', 'eta_reliable' => true, 'estimated_remaining' => 10.0,
+		], $resources, 105.0]);
+		$this->assertFalse($terminal['active']);
+		$this->assertFalse($terminal['eta_reliable']);
+		$this->assertNull($terminal['estimated_remaining']);
+	}
+
 	public function testDirectionUsesActualTrunkLegPlacement(): void {
 		$this->assertSame('inbound', $this->invokePrivate('classifyTrunkLeg', [true, false]));
 		$this->assertSame('outbound', $this->invokePrivate('classifyTrunkLeg', [false, true]));

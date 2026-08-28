@@ -2,9 +2,11 @@
 
 require_once __DIR__ . '/../Services/SettingsRepository.php';
 require_once __DIR__ . '/../Services/HistoricalCalculationControl.php';
+require_once __DIR__ . '/../Services/HistoricalRuntimeEstimator.php';
 
 use FreePBX\modules\Concurrencycount\Services\SettingsRepository;
 use FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl;
+use FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator;
 
 function control_assert($condition, string $message): void {
 	if (!$condition) throw new Exception($message);
@@ -44,10 +46,19 @@ $control->begin($second, 1000);
 control_assert(!$control->isCancelled($first), 'Created calculation starts active');
 $firstStatus = $control->status($first);
 control_assert(is_array($firstStatus) && $firstStatus['status'] === 'active' && isset($firstStatus['started_at']), 'Active calculation exposes isolated telemetry state');
-$control->updateTelemetry($first, 12.5, 40.25, 1001);
+$control->updateTelemetry($first, 12.5, 40.25, true, 1001);
 $firstStatus = $control->status($first);
-control_assert($firstStatus['elapsed'] === 12.5 && $firstStatus['estimated_remaining'] === 40.25, 'Estimator progress updates the matching telemetry record');
+control_assert($firstStatus['elapsed'] === 12.5 && $firstStatus['eta_reliable'] === true && $firstStatus['estimated_remaining'] === 40.25, 'Reliable estimator progress updates the matching telemetry record');
 control_assert((float)$control->status($second)['elapsed'] === 0.0, 'Telemetry is isolated by calculation ID');
+$control->updateTelemetry($second, 1.0, 0.25, true, 1001);
+control_assert($control->status($second)['eta_reliable'] === true && $control->status($second)['estimated_remaining'] === 0.25, 'Positive sub-second ETA remains distinct from zero');
+$control->updateTelemetry($second, 2.0, null, false, 1002);
+control_assert($control->status($second)['eta_reliable'] === false && $control->status($second)['estimated_remaining'] === null, 'Unreliable estimator state is explicitly unavailable');
+$flow = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
+$flowAssessment = $flow->evaluate(999, 1000, 1.0);
+$control->updateTelemetry($second, $flowAssessment['overall_elapsed'], $flowAssessment['estimated_remaining'], $flowAssessment['reliable'], 1002);
+$flowStatus = $control->status($second);
+control_assert($flowStatus['eta_reliable'] === true && $flowStatus['estimated_remaining'] > 0.0 && $flowStatus['estimated_remaining'] < 1.0, 'Deterministic estimator output survives the active calculation-control telemetry path');
 control_assert($control->cancel($first, 1001), 'Cancellation can be recorded');
 control_assert($control->isCancelled($first), 'Running calculation observes its cancellation record');
 control_assert(!$control->isCancelled($second), 'Cancellation is isolated by calculation ID');

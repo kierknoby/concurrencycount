@@ -27,7 +27,7 @@ class HistoricalCalculationControl {
 		$existing = $this->repository->get(self::KEY_PREFIX . $id, null);
 		if (is_array($existing) && isset($existing['status']) && $existing['status'] === 'cancelled') return;
 		$this->repository->set(self::KEY_PREFIX . $id, ['status' => 'active', 'expires_at' => $now + self::RECORD_TTL]);
-		$this->repository->set(self::TELEMETRY_KEY_PREFIX . $id, ['started_at' => microtime(true), 'elapsed' => 0.0, 'estimated_remaining' => null, 'expires_at' => $now + self::RECORD_TTL]);
+		$this->repository->set(self::TELEMETRY_KEY_PREFIX . $id, ['started_at' => microtime(true), 'elapsed' => 0.0, 'eta_reliable' => false, 'estimated_remaining' => null, 'expires_at' => $now + self::RECORD_TTL]);
 	}
 
 	public function cancel(string $id, ?int $now = null): bool {
@@ -52,14 +52,15 @@ class HistoricalCalculationControl {
 		$this->repository->delete(self::TELEMETRY_KEY_PREFIX . $id);
 	}
 
-	public function updateTelemetry(string $id, float $elapsed, ?float $estimatedRemaining, ?int $now = null): void {
+	public function updateTelemetry(string $id, float $elapsed, ?float $estimatedRemaining, bool $etaReliable = false, ?int $now = null): void {
 		$id = $this->validateId($id);
 		$key = self::TELEMETRY_KEY_PREFIX . $id;
 		$record = $this->repository->get($key, null);
 		if (!is_array($record)) return;
 		$now = $now === null ? time() : $now;
 		$record['elapsed'] = max(0.0, $elapsed);
-		$record['estimated_remaining'] = $estimatedRemaining === null ? null : max(0.0, $estimatedRemaining);
+		$record['eta_reliable'] = $etaReliable && $estimatedRemaining !== null && is_finite($estimatedRemaining) && $estimatedRemaining > 0.0;
+		$record['estimated_remaining'] = $record['eta_reliable'] ? $estimatedRemaining : null;
 		$record['expires_at'] = $now + self::RECORD_TTL;
 		$this->repository->set($key, $record);
 	}

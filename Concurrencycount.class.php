@@ -1373,7 +1373,7 @@ class Concurrencycount implements \BMO {
 					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 					if (($now - $lastTelemetryUpdate) < 1.0) return;
 					$lastTelemetryUpdate = $now;
-					$control->updateTelemetry($calculationId, (float)$assessment['overall_elapsed'], isset($assessment['estimated_remaining']) ? (float)$assessment['estimated_remaining'] : null);
+					$control->updateTelemetry($calculationId, (float)$assessment['overall_elapsed'], isset($assessment['estimated_remaining']) ? (float)$assessment['estimated_remaining'] : null, !empty($assessment['reliable']));
 				};
 				$previousIgnoreUserAbort = ignore_user_abort(true);
 			} catch (\Exception $exception) {
@@ -1433,8 +1433,6 @@ class Concurrencycount implements \BMO {
 			$id = $control->validateId($id);
 			$record = $control->status($id);
 			if ($record === null) return ['status' => true, 'active' => false, 'resources' => ['available' => false]];
-			$elapsed = isset($record['elapsed']) ? max(0.0, (float)$record['elapsed']) : 0.0;
-			if (isset($record['started_at'])) $elapsed = max($elapsed, microtime(true) - (float)$record['started_at']);
 			$resources = ['available' => false];
 			try {
 				$dashboard = \FreePBX::Dashboard();
@@ -1444,18 +1442,27 @@ class Concurrencycount implements \BMO {
 			} catch (\Throwable $exception) {
 				// Dashboard telemetry is optional; calculation state remains available.
 			}
-			return [
-				'status' => true,
-				'active' => isset($record['status']) && $record['status'] === 'active',
-				'elapsed' => $elapsed,
-				'max_runtime' => self::MAX_RUNTIME,
-				'runtime_remaining' => max(0.0, self::MAX_RUNTIME - $elapsed),
-				'estimated_remaining' => isset($record['estimated_remaining']) ? $record['estimated_remaining'] : null,
-				'resources' => $resources,
-			];
+			return ['status' => true] + $this->buildCalculationTelemetryPayload($record, $resources, microtime(true));
 		} catch (\Exception $exception) {
 			return ['status' => false, 'message' => $exception->getMessage()];
 		}
+	}
+
+	private function buildCalculationTelemetryPayload(array $record, array $resources, float $now): array {
+		$active = isset($record['status']) && $record['status'] === 'active';
+		$elapsed = isset($record['elapsed']) && is_numeric($record['elapsed']) ? max(0.0, (float)$record['elapsed']) : 0.0;
+		if (isset($record['started_at']) && is_numeric($record['started_at'])) $elapsed = max($elapsed, $now - (float)$record['started_at']);
+		$estimate = isset($record['estimated_remaining']) && is_numeric($record['estimated_remaining']) ? (float)$record['estimated_remaining'] : null;
+		$reliable = $active && !empty($record['eta_reliable']) && $estimate !== null && is_finite($estimate) && $estimate > 0.0;
+		return [
+			'active' => $active,
+			'elapsed' => $elapsed,
+			'max_runtime' => self::MAX_RUNTIME,
+			'runtime_remaining' => max(0.0, self::MAX_RUNTIME - $elapsed),
+			'estimated_remaining' => $reliable ? $estimate : null,
+			'eta_reliable' => $reliable,
+			'resources' => $resources,
+		];
 	}
 
 	private function handlePeakDetails(): array {
