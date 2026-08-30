@@ -18,8 +18,8 @@ It provides both a live view of current PJSIP trunk usage and Historical Reports
 The module has three main areas:
 
 - **Live View** shows current attributable PJSIP trunk-leg concurrency, with per-trunk counts, Overall Live Concurrency, thresholds and unattended alerts.
-- **Historical Reports** reconstruct past concurrency from answered CDRs and provide Trunk, Extension and Group measurements, graphs, occurrence detail, exclusions, CSV and email output.
 - **Live Wall** provides a read-only full-screen presentation of the same live data for wallboards and monitoring displays.
+- **Historical Reports** reconstruct past concurrency from answered CDRs and provide Trunk, Extension and Group measurements, graphs, occurrence detail, exclusions, CSV and email output.
 
 Historical Reports provide three different measurements:
 
