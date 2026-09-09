@@ -61,6 +61,24 @@ admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download,
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');
 admin_contract_assert(strpos($view, 'Demo writes to CDR.') !== false, 'Demo warning missing');
 admin_contract_assert(strpos($view, 'cc-download') !== false && strpos($view, 'cc-email-send') !== false, 'Download/email controls missing');
+admin_contract_assert(substr_count($view, "_('Minimum concurrency')") === 2, 'Historical and Demo minimum concurrency labels missing');
+admin_contract_assert(strpos($view, 'max="2147483647"') === false && substr_count($view, 'min="1"') >= 2, 'Minimum concurrency must be positive without presenting an implementation maximum');
+admin_contract_assert(strpos($javascript, 'function readMinimumConcurrency') !== false && strpos($javascript, 'minimum_concurrency:') !== false, 'Minimum concurrency validation or request propagation missing');
+admin_contract_assert(strpos($class, 'HistoricalResultFloor') !== false && strpos($class, "[1, 1, 'complete']") < strpos($class, 'return $floorService->apply($result'), 'Minimum concurrency must be applied only after calculation completion');
+admin_contract_assert(strpos($liveJavascript, "command: 'historicalgraph'") !== false && strpos($liveJavascript, 'minimum_concurrency: result.minimum_concurrency') !== false, 'Historical graph must receive its report floor through the shared workspace script');
+admin_contract_assert(strpos($class, "return \$floorService->applyGraph(\$graph, \$minimumConcurrency);") !== false, 'Historical graph floor must be applied after exact graph calculation');
+admin_contract_assert(strpos($chartJavascript, "value === null") !== false && strpos($chartJavascript, 'previousVisible = null') !== false, 'Historical chart must render below-floor points as gaps rather than bridging hidden values');
+admin_contract_assert(strpos($class, "\$this->configureHistoricalQueryDeadline();\n\t\t\$acquisition = new") !== false, 'GUI and non-GUI CDR acquisition must share native query deadlines');
+$demoStart = strpos($class, 'private function calculateDemo');
+$demoEnd = strpos($class, 'private function requestDemoOptions', $demoStart);
+$demoSource = substr($class, $demoStart, $demoEnd - $demoStart);
+admin_contract_assert(strpos($demoSource, "\$diskGuard->preflight(\$row_count)") < strpos($demoSource, "\$this->cdrdb->beginTransaction()"), 'Demo cleanup index and disk preflight must complete before any synthetic insertion transaction');
+admin_contract_assert(strpos($demoSource, 'verifyCleanupAccessPath()') < strpos($demoSource, 'recoverStaleDemoRuns()') && strpos($demoSource, 'recoverStaleDemoRuns()') < strpos($demoSource, "\$diskGuard->preflight(\$row_count)"), 'Demo must verify the cleanup index before stale recovery and perform new-run disk preflight afterwards');
+admin_contract_assert(strpos($class, 'DemoCleanupCoordinator') !== false && strpos($class, 'DEMO_CLEANUP_MAX_RUNTIME = 300') !== false, 'Mandatory Demo cleanup must use its own bounded housekeeping policy');
+admin_contract_assert(strpos($class, 'DemoCleanupHeartbeat') !== false && strpos($class, 'cleanup_active') === false, 'Mandatory cleanup must use the isolated registry heartbeat service');
+admin_contract_assert(strpos($class, 'set_time_limit(self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN)') !== false && strpos($class, 'set_time_limit(0)') === false, 'Mandatory cleanup must restart a bounded PHP execution-time backstop');
+admin_contract_assert(strpos($javascript, 'Number.isInteger(minutes)') !== false && strpos($javascript, 'allowance_seconds: minutes * 60') !== false, 'Browser runtime increases must be exact whole minutes');
+admin_contract_assert(strpos($readme, 'actual peak remain visible') !== false && strpos($readme, 'cannot currently be reused safely') !== false, 'Minimum concurrency semantics or completed-result reuse limitation missing');
 foreach (['trunk', 'extension', 'group'] as $mode) {
 	admin_contract_assert(preg_match('/<input[^>]+type="radio"[^>]+name="cc-wizard-mode"[^>]+id="cc-mode-' . $mode . '"[^>]+value="' . $mode . '"/', $view) === 1, 'GUI reporting radio missing or remapped: ' . $mode);
 	admin_contract_assert(strpos($view, 'for="cc-mode-' . $mode . '"') !== false, 'GUI reporting label missing: ' . $mode);
@@ -206,7 +224,7 @@ admin_contract_assert(strpos($class, 'pjsip show endpoints') === false && strpos
 admin_contract_assert(strpos($view, 'PJSIP Endpoint Classifications') !== false && strpos($javascript, 'invalidateAndRerunReports') !== false, 'Classification management and report cache invalidation are required');
 foreach (['Exclude Call', 'Excluded Calls', 'Restore all excluded calls', 'The original CDR will not be deleted or modified.'] as $wording) admin_contract_assert(strpos($view, $wording) !== false, 'Historical exclusion UI wording missing: ' . $wording);
 admin_contract_assert(strpos($class, 'HISTORICAL_CALL_EXCLUSIONS_KEY') !== false && strpos($class, "GET_LOCK('concurrencycount_historical_call_exclusions'") !== false, 'Global exclusion persistence must be dedicated and race-locked');
-admin_contract_assert(strpos($class, 'filterRows($rows, $this->getHistoricalCallExclusions())') !== false, 'Candidate CDR rows must be globally exclusion-filtered before classification');
+admin_contract_assert(strpos($class, "filterRows(\$rows, \$this->getHistoricalCallExclusions(), function (int \$processed = 0): void { \$this->workerWork = [\$processed, 0, 'cdr-exclusions']; \$this->workerCheckpoint(); })") !== false, 'Candidate CDR rows must be globally exclusion-filtered with measured cooperative checkpoints before classification');
 admin_contract_assert(strpos($exclusionService, "'linkedid:'") !== false && strpos($exclusionService, "'uniqueid:'") !== false, 'Logical call identity must prefer linkedid with uniqueid fallback');
 admin_contract_assert(strpos($javascript, 'invalidateAndRerunReports()') !== false && strpos($javascript, '.cc-exclude-call') !== false, 'Exclude Call must invalidate report caches and rerun the active report');
 $excludedRendererStart = strpos($javascript, 'function renderExcludedCalls(calls, hasReportContext)');
@@ -261,7 +279,7 @@ admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
 admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
 admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
-foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
+foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-progress', 'cc-telemetry-confidence', 'cc-telemetry-assessment', 'cc-telemetry-impact', 'cc-telemetry-allowance', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
 	admin_contract_assert(strpos($view, 'id="' . $telemetryId . '"') !== false, 'Historical telemetry field missing: ' . $telemetryId);
 }
 admin_contract_assert(strpos($javascript, "command: 'calculationtelemetry', calculation_id: run.id") !== false, 'Telemetry polling must target the active opaque calculation ID');
@@ -310,7 +328,7 @@ admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancell
 admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
 admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.1.1', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.2.0', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -445,7 +463,7 @@ admin_contract_assert(strpos($liveJavascript, 'live_wall_featured_trunks: (setti
 admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen === 'function'") !== false && strpos($liveJavascript, 'fullscreenchange.ccLive') !== false, 'Fullscreen API feature detection/state handling missing');
 admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
 $wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));
-foreach (['Hide Trunk', 'Unhide', 'Start Monitoring', 'Stop Monitoring', 'Thresholds & alerts', 'Move earlier', 'Move later'] as $mutation) {
+foreach (['Hide Trunk', 'Unhide', 'Start Monitoring', 'Stop Monitoring', 'Thresholds & protection', 'Move earlier', 'Move later'] as $mutation) {
 	admin_contract_assert(strpos($wallMarkup, $mutation) === false, 'Live Wall must remain read-only; found: ' . $mutation);
 }
 admin_contract_assert(strpos($wallMarkup, 'Configure Live Wall') === false, 'Configure Live Wall must remain outside the read-only Wall');
@@ -477,12 +495,12 @@ admin_contract_assert(strpos($historicalCalculationControl, 'const GUI_LEASE_SEC
 admin_contract_assert(strpos($console, 'admitGui') === false && strpos($console, 'calculationheartbeat') === false, 'GUI admission and heartbeat must not affect CLI calculations');
 admin_contract_assert(strpos($class, "'runtime_started_at'") !== false && strpos($class, '$control->runtimeStartedAt($calculationId, $owner)') !== false, 'GUI calculations must use the server-owned original runtime origin');
 admin_contract_assert(strpos($javascript, 'runtime_started_at') === false && strpos($javascript, 'runtime_deadline') === false, 'The browser must not supply or extend authoritative runtime state');
-admin_contract_assert(strpos($class, '$confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner)') !== false, 'Confirmed Continue must resume the same registered GUI calculation instead of receiving fresh admission');
-admin_contract_assert(strpos($historicalCalculationControl, 'function pauseForWarning(') !== false && strpos($historicalCalculationControl, 'function resumeGui(') !== false, 'Predictive warning control state must survive and resume safely');
-admin_contract_assert(strpos($javascript, "'Based on current progress, this report may not finish within the fixed 3,600-second (1 hour) calculation limit. '") !== false, 'Long-running warning must state the fixed numeric limit');
-admin_contract_assert(strpos($javascript, "'Estimated time remaining: '") !== false && strpos($javascript, 'Maximum runtime remaining: ') !== false, 'Long-running warning must show ETA and hard-runtime remainder separately');
-admin_contract_assert(strpos($javascript, "'Continuing restarts the count using the remaining time in the same one-hour allowance.'") !== false, 'Continue wording must explain that work restarts without extending runtime');
-admin_contract_assert(strpos($javascript, 'selectedEngine, run);') !== false && strpos($javascript, 'calculation_id: run.id') !== false, 'Continue must reuse the exact calculation ID and browser run object');
+admin_contract_assert(strpos($historicalCalculationControl, 'function decide(') !== false && strpos($historicalCalculationControl, "'reassess'") !== false, 'Cooperative Continue and Recalculate transitions must retain server-side calculation state');
+admin_contract_assert(strpos($javascript, "command: 'calculationdecision', calculation_id: run.id") !== false, 'Decisions must target the exact active calculation without restarting its request');
+admin_contract_assert(strpos($view, 'id="cc-runtime-allowance-minutes"') !== false && strpos($view, 'max="1440"') !== false, 'Decision modal must expose the bounded temporary runtime allowance');
+admin_contract_assert(strpos($javascript, "action: 'allowance'") !== false && strpos($historicalCalculationControl, '86400') !== false, 'Runtime allowance must be server validated to 24 hours');
+admin_contract_assert(strpos($javascript, "calculationDecision(run, 'continue')") !== false && strpos($javascript, "calculationDecision(run, 'reassess')") !== false, 'Continue Anyway and Recalculate must be wired to live worker decisions');
+admin_contract_assert(strpos($javascript, "command: 'demopreflight'") !== false && strpos($class, 'handleDemoPreflight') !== false, 'Demo must complete disk preflight before its run request');
 admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run);') > strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") || strpos($javascript, 'stopCalculationTelemetry(run);') !== false, 'Warning Abort must clean the retained calculation UI only after cooperative cancellation');
 
 echo "Administrative contract passed\n";

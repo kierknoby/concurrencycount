@@ -1,81 +1,72 @@
 <?php
-
 require_once __DIR__ . '/../Services/HistoricalRuntimeEstimator.php';
-
+require_once __DIR__ . '/../Engines/EngineInterface.php';
+require_once __DIR__ . '/../Engines/Original.php';
 use FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator;
-
-function runtime_assert($condition, string $message): void {
-	if (!$condition) throw new Exception($message);
+function runtime_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
+$early = new HistoricalRuntimeEstimator(3600, 0, 0);
+runtime_assert(!$early->evaluate(500, 1000, 299, 'original-occupied-seconds')['reliable'], 'ETA must be unavailable before 300 seconds');
+$stable = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 12; $sample++) $assessment = $stable->evaluate(100 + $sample * 20, 1000, 300 + $sample * 2, 'original-occupied-seconds');
+runtime_assert($assessment['reliable'] && $assessment['eta_confidence'] === 'High', 'Stable evidence after five minutes must reach High confidence');
+runtime_assert(abs($assessment['estimated_remaining'] - 66) < .001, 'ETA must use recent modelled-work throughput');
+runtime_assert($assessment['progress_percent'] === 34.0, 'Progress must derive from modelled work');
+$unstable = new HistoricalRuntimeEstimator(3600, 0, 0); $processed = 100;
+for ($sample = 0; $sample <= 12; $sample++) { $processed += $sample % 2 ? 2 : 80; $assessment = $unstable->evaluate($processed, 2000, 300 + $sample * 2, 'original-occupied-seconds'); }
+runtime_assert(!$assessment['reliable'] && $assessment['eta_confidence'] === 'Insufficient', 'Unstable throughput must remain insufficient');
+$transition = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 12; $sample++) $transition->evaluate(100 + $sample * 20, 2000, 300 + $sample * 2, 'sweep-event-traversal');
+runtime_assert(!$transition->evaluate(1000, 2000, 326, 'sweep-group-peak-traversal')['reliable'], 'A stage transition must invalidate confidence samples');
+$paused = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample < 8; $sample++) $paused->evaluate(100 + $sample * 20, 2000, 300 + $sample * 2, 'original-window');
+$paused->invalidate();
+for ($sample = 0; $sample < 5; $sample++) $assessment = $paused->evaluate(300 + $sample * 20, 2000, 400 + $sample * 2, 'original-window');
+runtime_assert(!$assessment['reliable'], 'Pause/stall invalidation must require fresh stable evidence');
+$progress = new HistoricalRuntimeEstimator(3600, 0, 0);
+$first = $progress->evaluate(500, 1000, 1, 'progress')['progress_percent'];
+$backwards = $progress->evaluate(400, 1000, 2, 'progress')['progress_percent'];
+$complete = $progress->evaluate(1000, 1000, 3, 'progress')['progress_percent'];
+runtime_assert($first === 50.0 && $backwards === 50.0 && $complete === 100.0, 'Progress must be monotonic and reach 100 only on completion');
+$invalid = new HistoricalRuntimeEstimator(3600, 0, 0);
+foreach ([[-1, 1000], [1001, 1000], [0, 0]] as $impossible) {
+	$assessment = $invalid->evaluate($impossible[0], $impossible[1], 300, 'progress');
+	runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Impossible or zero-total progress must not produce an ETA');
 }
-
-$tiny = new HistoricalRuntimeEstimator(3600.0, 0.0, 10.0);
-$assessment = $tiny->evaluate(1, 10000, 10.9);
-runtime_assert(!$assessment['reliable'] && !$assessment['warn'] && $assessment['estimated_remaining'] === null, 'First tiny sample must not produce an estimate');
-
-$initial = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-$assessment = $initial->evaluate(0, 1000, 0.0);
-runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Zero work and zero elapsed must remain safely unavailable');
-$assessment = $initial->evaluate(250, 1000, 0.2);
-runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Enough work without 0.5 seconds warm-up must remain unreliable');
-
-$insufficientWork = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-$assessment = $insufficientWork->evaluate(9, 1000, 1.0);
-runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Elapsed warm-up without the minimum sample must remain unreliable');
-
-$exact = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-$assessment = $exact->evaluate(250, 1000, 2.0);
-runtime_assert($assessment['reliable'] && abs($assessment['estimated_remaining'] - 6.0) < 0.000001, '250 of 1000 units in two seconds must yield an exact six-second ETA');
-$assessment = $exact->evaluate(500, 1000, 3.0);
-runtime_assert($assessment['reliable'] && abs($assessment['estimated_remaining'] - 3.0) < 0.000001, 'Advancing progress must update the ETA from six to three seconds');
-
-$nearComplete = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-$assessment = $nearComplete->evaluate(999, 1000, 1.0);
-runtime_assert($assessment['reliable'] && $assessment['estimated_remaining'] > 0.0 && $assessment['estimated_remaining'] < 1.0, 'Near-complete work must preserve a positive sub-second ETA');
-$assessment = $nearComplete->evaluate(1000, 1000, 1.1);
-runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Completed work must not publish an active zero ETA');
-
-$invalid = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-foreach ([[-1, 1000], [1001, 1000], [0, 0]] as $progress) {
-	$assessment = $invalid->evaluate($progress[0], $progress[1], 1.0);
-	runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Impossible progress must not produce an ETA');
-}
-$backwards = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-runtime_assert($backwards->evaluate(200, 1000, 2.0)['reliable'], 'Controlled forward progress should become reliable');
-$assessment = $backwards->evaluate(100, 1000, 3.0);
-runtime_assert(!$assessment['reliable'] && $assessment['estimated_remaining'] === null, 'Backwards progress must not produce a nonsense ETA');
-
-$fast = new HistoricalRuntimeEstimator(3600.0, 0.0, 10.0);
-$assessment = $fast->evaluate(100, 10000, 10.1);
-runtime_assert(!$assessment['warn'] && $assessment['estimated_remaining'] === null, 'Sub-second fast work must wait for elapsed-time warm-up');
-$assessment = $fast->evaluate(1000, 10000, 10.5);
-runtime_assert(!$assessment['warn'] && $assessment['estimated_remaining'] < 5.0, 'Fast sustained work must not produce a false overrun');
-
-$slow = new HistoricalRuntimeEstimator(3600.0, 0.0, 10.0);
-$assessment = $slow->evaluate(100, 100000, 20.0);
-runtime_assert($assessment['warn'] && $assessment['estimated_remaining'] > 3600.0, 'Sustained poor throughput must warn when projected completion exceeds the limit');
-
-$warningAtThirtyFive = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
-$assessment = $warningAtThirtyFive->evaluate(100, 100000, 35.0);
-runtime_assert($assessment['warn'] && abs($assessment['runtime_remaining'] - 3565.0) < 0.000001, 'Warning at 35 seconds must report 3,565 seconds from the original allowance');
-$continuedAfterReading = new HistoricalRuntimeEstimator(3600.0, 0.0, 55.0, true);
-$assessment = $continuedAfterReading->evaluate(100, 100000, 55.5);
-runtime_assert(!$assessment['warn'] && abs($assessment['runtime_remaining'] - 3544.5) < 0.000001, 'Confirmed restart after 20 seconds reading the modal must retain the original runtime origin');
-
-$expired = new HistoricalRuntimeEstimator(3600.0, 0.0, 3500.0);
-$assessment = $expired->evaluate(1, 100000, 3600.1);
-runtime_assert($assessment['abort'], 'Actual overall runtime must abort even without a usable estimate');
-
-$prepared = new HistoricalRuntimeEstimator(3600.0, 0.0, 3590.0);
-$assessment = $prepared->evaluate(100, 1000, 3590.5);
-runtime_assert(!$assessment['warn'] && $assessment['estimated_remaining'] < 5.0, 'Preparation delay must not contaminate engine throughput estimation');
-
-$confirmed = new HistoricalRuntimeEstimator(3600.0, 0.0, 10.0, true);
-$assessment = $confirmed->evaluate(100, 100000, 20.0);
-runtime_assert(!$assessment['warn'], 'Confirmed overrun must suppress a repeat prediction warning');
-$assessment = $confirmed->evaluate(100, 100000, 3600.1);
-runtime_assert($assessment['abort'], 'Confirmed overrun must not disable the hard runtime limit');
-
-$now = HistoricalRuntimeEstimator::now();
-runtime_assert(is_float($now) && $now > 0.0, 'Runtime clock must provide a high-resolution numeric value');
-
+$backwardsEstimator = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 10; $sample++) $backwardsEstimator->evaluate(100 + $sample * 10, 1000, 300 + $sample * 2, 'progress');
+$backwardsAssessment = $backwardsEstimator->evaluate(150, 1000, 322, 'progress');
+runtime_assert(!$backwardsAssessment['reliable'] && $backwardsAssessment['estimated_remaining'] === null && $backwardsAssessment['progress_percent'] === 20.0, 'Backwards work invalidates ETA samples without moving displayed progress backwards');
+$nearComplete = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 10; $sample++) $nearAssessment = $nearComplete->evaluate(890 + $sample * 10, 993, 300 + $sample * 2, 'progress');
+runtime_assert($nearAssessment['reliable'] && $nearAssessment['estimated_remaining'] > 0 && $nearAssessment['estimated_remaining'] < 1, 'Near-complete stable work preserves a positive sub-second ETA after the confidence gate');
+$completedAssessment = $nearComplete->evaluate(993, 993, 322, 'progress');
+runtime_assert(!$completedAssessment['reliable'] && $completedAssessment['estimated_remaining'] === null && $completedAssessment['progress_percent'] === 100.0, 'Completed work publishes 100% without an active zero ETA');
+$changedTotal = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 10; $sample++) $changedTotal->evaluate(100 + $sample * 10, 1000, 300 + $sample * 2, 'progress');
+runtime_assert(!$changedTotal->evaluate(220, 2000, 322, 'progress')['reliable'], 'A changed work total invalidates prior throughput evidence');
+$runtime = new HistoricalRuntimeEstimator(3600, 0, 0);
+runtime_assert(abs($runtime->evaluate(0, 1, 300, 'progress')['runtime_remaining'] - 3300) < .001, 'Runtime remaining uses the original runtime origin');
+$runtime->allowance(7200);
+runtime_assert(abs($runtime->evaluate(0, 1, 301, 'progress')['runtime_remaining'] - 6899) < .001, 'Increasing allowance must not reset elapsed runtime');
+runtime_assert((new HistoricalRuntimeEstimator(3600, 0, 0))->evaluate(0, 1, 3600, 'progress')['abort'], 'Runtime expiry remains a hard stop');
+$warning = new HistoricalRuntimeEstimator(3600, 0, 0);
+for ($sample = 0; $sample <= 10; $sample++) $warningAssessment = $warning->evaluate(100 + $sample * 2, 10000, 300 + $sample * 2, 'progress');
+runtime_assert($warningAssessment['reliable'] && $warningAssessment['warn'], 'Stable post-gate throughput warns when projected work exceeds remaining runtime');
+$confirmed = new HistoricalRuntimeEstimator(3600, 0, 0, true);
+for ($sample = 0; $sample <= 10; $sample++) $confirmedAssessment = $confirmed->evaluate(100 + $sample * 2, 10000, 300 + $sample * 2, 'progress');
+runtime_assert($confirmedAssessment['reliable'] && !$confirmedAssessment['warn'], 'Confirmed warning suppresses repeat prediction warnings');
+runtime_assert($confirmed->evaluate(121, 10000, 3601, 'progress')['abort'], 'Warning confirmation never suppresses hard runtime enforcement');
+$acquiring = (new HistoricalRuntimeEstimator(3600, 0, 0))->evaluate(1024, 0, 300, 'cdr-acquisition');
+runtime_assert($acquiring['progress_percent'] === 0.0 && $acquiring['calculation_phase'] === 'cdr-acquisition', 'Unknown acquisition totals remain explicit phase work rather than fake completion percentage');
+$originalEstimator = new HistoricalRuntimeEstimator(3600, 0, 0); $originalReliable = false; $originalStages = [];
+$original = new \FreePBX\modules\Concurrencycount\Engines\Original([
+	'all_names' => ['100' => true],
+	'check_overrun' => function (int $processed, int $total, string $stage = 'progress') use ($originalEstimator, &$originalReliable, &$originalStages) {
+		$originalStages[$stage] = true;
+		$r = $originalEstimator->evaluate($processed, $total, 300 + $processed / 2048, $stage);
+		if ($r['reliable']) $originalReliable = true;
+	},
+]);
+$original->calculatePerName('extension', [['calldate' => '2026-09-08 00:00:00', 'duration' => 60000, 'identity' => '100']]);
+runtime_assert(isset($originalStages['original-window'], $originalStages['original-occupied-seconds']) && $originalReliable, 'Actual Original window markers preserve useful occupied-work ETA confidence');
 echo "Historical runtime estimator tests passed\n";

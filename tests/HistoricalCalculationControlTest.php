@@ -58,7 +58,7 @@ $flow = new HistoricalRuntimeEstimator(3600.0, 0.0, 0.0);
 $flowAssessment = $flow->evaluate(999, 1000, 1.0);
 $control->updateTelemetry($second, $flowAssessment['overall_elapsed'], $flowAssessment['estimated_remaining'], $flowAssessment['reliable'], 1002);
 $flowStatus = $control->status($second);
-control_assert($flowStatus['eta_reliable'] === true && $flowStatus['estimated_remaining'] > 0.0 && $flowStatus['estimated_remaining'] < 1.0, 'Deterministic estimator output survives the active calculation-control telemetry path');
+control_assert($flowStatus['eta_reliable'] === false && $flowStatus['estimated_remaining'] === null, 'Five-minute confidence gate survives calculation-control telemetry');
 control_assert($control->cancel($first, 1001), 'Cancellation can be recorded');
 control_assert($control->isCancelled($first), 'Running calculation observes its cancellation record');
 control_assert(!$control->isCancelled($second), 'Cancellation is isolated by calculation ID');
@@ -77,6 +77,11 @@ control_assert($control->cancel($early, 1004), 'Stop arriving before registratio
 $control->begin($early, 1004);
 control_assert($control->isCancelled($early), 'Late calculation registration must not overwrite an earlier Stop signal');
 $control->finish($early);
+
+$guiEarly = 'cccccccccccccccccccccccccccccccc';
+control_assert($control->cancelOwned($guiEarly, $owner ?? hash('sha256', 'owner-one'), 1005), 'Authenticated GUI Stop before registration creates an owned tombstone');
+control_assert(!$control->admitGui($guiEarly, hash('sha256', 'owner-one'), 1005), 'Owned GUI tombstone prevents late registration');
+$control->finish($guiEarly);
 
 $owner = hash('sha256', 'owner-one');
 $otherOwner = hash('sha256', 'owner-two');
@@ -119,6 +124,31 @@ control_assert($control->cancel($continued, 3026), 'Stop remains tied to the con
 control_assert($control->shouldStop($continued, 3026), 'Continued attempt observes cooperative cancellation');
 $control->finish($continued);
 control_assert($control->status($continued) === null, 'Stop/terminal cleanup removes runtime-deadline and telemetry state');
+
+$adjusted = '66666666666666666666666666666666';
+control_assert($control->admitGui($adjusted, $owner, time(), 1000.0), 'Runtime-adjustment run admitted');
+$before = $control->owned($adjusted, $owner);
+$partialMinute = false; try { $control->decide($adjusted, $owner, 'allowance', 3630, 1300.0); } catch (InvalidArgumentException $e) { $partialMinute = true; }
+control_assert($partialMinute && $control->owned($adjusted, $owner)['runtime_allowance_seconds'] === 3600, 'Non-minute runtime allowance is rejected atomically');
+$wholeMinute = $control->decide($adjusted, $owner, 'allowance', 3660, 1300.0);
+control_assert($wholeMinute['runtime_allowance_seconds'] === 3660 && $wholeMinute['runtime_started_at'] === $before['runtime_started_at'], 'A valid whole-minute increase is accepted without resetting runtime origin');
+$after = $control->decide($adjusted, $owner, 'allowance', 7200, 1300.0);
+control_assert($after['runtime_allowance_seconds'] === 7200 && $after['runtime_started_at'] === $before['runtime_started_at'], 'Temporary allowance increase preserves runtime origin');
+$invalidAllowance = false; try { $control->decide($adjusted, $owner, 'allowance', 86401, 1300.0); } catch (InvalidArgumentException $e) { $invalidAllowance = true; }
+control_assert($invalidAllowance && $control->owned($adjusted, $owner)['runtime_allowance_seconds'] === 7200, 'Invalid allowance is rejected atomically');
+$control->workerDecision($adjusted, $owner, 'paused_impact');
+$progressBefore = ['progress_percent' => 47.0]; $control->publish($adjusted, $progressBefore);
+$reassessed = $control->decide($adjusted, $owner, 'reassess', null, 1400.0);
+control_assert($reassessed['assessment_generation'] === 1 && (float)$reassessed['runtime_started_at'] === 1000.0 && (float)$control->status($adjusted)['progress_percent'] === 47.0, 'Reassess preserves identity, origin and progress while starting a fresh assessment generation');
+$control->finish($adjusted);
+
+$criticalRun = '77777777777777777777777777777777';
+control_assert($control->admitGui($criticalRun, $owner, time(), 2000.0), 'Critical-protection run admitted');
+$control->workerDecision($criticalRun, $owner, 'paused_impact');
+$control->decide($criticalRun, $owner, 'continue', null, 2100.0);
+$criticalState = $control->workerDecision($criticalRun, $owner, 'paused_critical');
+control_assert($criticalState['decision'] === 'paused_critical', 'Continue Anyway must never suppress a later Critical pause');
+$control->finish($criticalRun);
 
 $expired = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 $control->begin($expired, 1);

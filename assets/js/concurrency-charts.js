@@ -97,14 +97,27 @@
 		context.strokeStyle = palette.line;
 		context.lineWidth = 2;
 		context.beginPath();
+		var lineStarted = false;
+		var previousVisible = null;
 		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') {
+				if (lineStarted && previousVisible) {
+					var gapPosition = this.position(this.points[index], plot, bounds);
+					var previousPosition = this.position(previousVisible, plot, bounds);
+					context.lineTo(gapPosition.x, previousPosition.y);
+				}
+				lineStarted = false;
+				previousVisible = null;
+				continue;
+			}
 			var position = this.position(this.points[index], plot, bounds);
-			if (index === 0) context.moveTo(position.x, position.y);
+			if (!lineStarted) { context.moveTo(position.x, position.y); lineStarted = true; }
 			else {
-				var previous = this.position(this.points[index - 1], plot, bounds);
+				var previous = this.position(previousVisible, plot, bounds);
 				context.lineTo(position.x, previous.y);
 				context.lineTo(position.x, position.y);
 			}
+			previousVisible = this.points[index];
 		}
 		context.stroke();
 		if (this.threshold > 0) {
@@ -114,6 +127,7 @@
 			var started = false;
 			for (var pointIndex = 0; pointIndex < this.points.length; pointIndex++) {
 				var point = this.points[pointIndex];
+				if (point.value === null || typeof point.value === 'undefined') { started = false; continue; }
 				var pointPosition = this.position(point, plot, bounds);
 				if (point.value >= this.threshold) {
 					if (!started) context.moveTo(pointPosition.x, pointPosition.y);
@@ -133,7 +147,7 @@
 		var minTs = parseInt(this.points[0].ts, 10) || 0;
 		var maxTs = parseInt(this.points[this.points.length - 1].ts, 10) || minTs + 1;
 		var maxValue = this.threshold;
-		for (var index = 0; index < this.points.length; index++) maxValue = Math.max(maxValue, parseInt(this.points[index].value, 10) || 0);
+		for (var index = 0; index < this.points.length; index++) if (this.points[index].value !== null && typeof this.points[index].value !== 'undefined') maxValue = Math.max(maxValue, parseInt(this.points[index].value, 10) || 0);
 		return {minTs: minTs, maxTs: Math.max(minTs + 1, maxTs), maxValue: Math.max(1, maxValue)};
 	};
 
@@ -200,8 +214,10 @@
 		var bounds = this.bounds();
 		var plotWidth = Math.max(1, (this.width - 10) - 34);
 		var timestamp = bounds.minTs + (((x - 34) / plotWidth) * (bounds.maxTs - bounds.minTs));
-		var best = this.points[0];
-		for (var index = 1; index < this.points.length; index++) {
+		var best = null;
+		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') continue;
+			if (best === null) { best = this.points[index]; continue; }
 			if (Math.abs(this.points[index].ts - timestamp) < Math.abs(best.ts - timestamp)) best = this.points[index];
 		}
 		return best;
@@ -210,8 +226,14 @@
 	ConcurrencyChart.prototype.describe = function () {
 		if (!this.points.length) return 'Concurrency chart waiting for data';
 		var peak = 0;
-		for (var index = 0; index < this.points.length; index++) peak = Math.max(peak, this.points[index].value);
-		return 'Concurrency chart with ' + this.points.length + ' points, current ' + this.points[this.points.length - 1].value + ', peak ' + peak + (this.threshold ? ', threshold ' + this.threshold : '');
+		var visible = 0;
+		var current = null;
+		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') continue;
+			peak = Math.max(peak, this.points[index].value); current = this.points[index].value; visible++;
+		}
+		if (!visible) return 'Concurrency chart with no points at or above the selected minimum';
+		return 'Concurrency chart with ' + visible + ' visible points, current ' + current + ', peak ' + peak + (this.threshold ? ', threshold ' + this.threshold : '');
 	};
 
 	ConcurrencyChart.prototype.destroy = function () {

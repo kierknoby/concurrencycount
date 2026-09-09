@@ -74,7 +74,7 @@ $_ccAssetVer = max(
 								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
 									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
 								</select>
-								<button type="button" id="cc-live-settings" class="btn cc-settings-button" aria-haspopup="dialog" title="<?php echo _('Open threshold and alert settings'); ?>"><i class="fa fa-cog"></i> <?php echo _('Thresholds & alerts'); ?></button>
+								<button type="button" id="cc-live-settings" class="btn cc-settings-button" aria-haspopup="dialog" title="<?php echo _('Open threshold, alert and protection settings'); ?>"><i class="fa fa-cog"></i> <?php echo _('Thresholds & protection'); ?></button>
 							</div>
 						</div>
 						<p class="text-muted"><?php echo _('Live values come directly from current AMI channel state. Browser refresh does not control background alert monitoring.'); ?></p>
@@ -122,17 +122,28 @@ $_ccAssetVer = max(
 									<h4 id="cc-telemetry-resources-title"><?php echo _('System resources'); ?></h4>
 									<dl class="cc-telemetry-grid">
 										<div><dt id="cc-telemetry-cpu-label" title="<?php echo _('Average tasks running or waiting for CPU or resources over five minutes; this is not a percentage.'); ?>"><?php echo _('System load (5 min)'); ?></dt><dd id="cc-telemetry-cpu">--</dd></div>
+										<div id="cc-telemetry-cpu-util-item" style="display:none;"><dt><?php echo _('CPU utilisation'); ?></dt><dd id="cc-telemetry-cpu-util">--</dd></div>
 										<div><dt id="cc-telemetry-memory-label"><?php echo _('Memory (applications)'); ?></dt><dd id="cc-telemetry-memory">--</dd></div>
 										<div id="cc-telemetry-swap-item" style="display:none;"><dt id="cc-telemetry-swap-label"><?php echo _('Swap'); ?></dt><dd id="cc-telemetry-swap">--</dd></div>
+										<div id="cc-telemetry-io-item" style="display:none;"><dt><?php echo _('I/O wait'); ?></dt><dd id="cc-telemetry-io">--</dd></div>
+										<div id="cc-telemetry-database-item" style="display:none;"><dt><?php echo _('Report database response'); ?></dt><dd id="cc-telemetry-database">--</dd></div>
+										<div id="cc-telemetry-process-memory-item" style="display:none;"><dt><?php echo _('Calculation PHP memory'); ?></dt><dd id="cc-telemetry-process-memory">--</dd></div>
 										<div><dt id="cc-telemetry-disk-label"><?php echo _('Disk (/)'); ?></dt><dd id="cc-telemetry-disk">--</dd></div>
 									</dl>
 								</div>
 								<div class="cc-telemetry-group cc-telemetry-calculation" aria-labelledby="cc-telemetry-calculation-title">
 									<h4 id="cc-telemetry-calculation-title"><?php echo _('Calculation'); ?></h4>
 									<dl class="cc-telemetry-grid">
+								<div><dt><?php echo _('Engine completion'); ?></dt><dd id="cc-telemetry-progress">0%</dd></div>
+										<div><dt><?php echo _('Engine'); ?></dt><dd id="cc-telemetry-engine">--</dd></div>
+										<div><dt><?php echo _('Phase'); ?></dt><dd id="cc-telemetry-phase">--</dd></div>
+										<div><dt><?php echo _('Estimate confidence'); ?></dt><dd id="cc-telemetry-confidence"><?php echo _('Calculating...'); ?></dd></div>
+										<div><dt><?php echo _('Assessment remaining'); ?></dt><dd id="cc-telemetry-assessment">05:00</dd></div>
+										<div><dt><?php echo _('PBX impact'); ?></dt><dd id="cc-telemetry-impact"><?php echo _('Assessing...'); ?></dd></div>
 										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+										<div><dt><?php echo _('Runtime allowance'); ?></dt><dd id="cc-telemetry-allowance">01:00:00</dd></div>
 										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
-										<div><dt><?php echo _('Estimated remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Estimating...'); ?></dd></div>
+										<div><dt><?php echo _('Estimated time remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Calculating...'); ?></dd></div>
 									</dl>
 								</div>
 							</section>
@@ -205,7 +216,7 @@ $_ccAssetVer = max(
 		<div class="modal-content">
 			<div class="modal-header">
 				<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-				<h4 id="cc-live-settings-title" class="modal-title"><?php echo _('Live thresholds and alerts'); ?></h4>
+				<h4 id="cc-live-settings-title" class="modal-title"><?php echo _('Thresholds, alerts and protection'); ?></h4>
 			</div>
 			<div class="modal-body">
 				<div class="row">
@@ -213,6 +224,13 @@ $_ccAssetVer = max(
 					<div class="col-sm-4 form-group"><label for="cc-setting-email"><?php echo _('Alert email'); ?></label><input type="email" id="cc-setting-email" class="form-control"></div>
 					<div class="col-sm-4"><div class="checkbox"><label><input type="checkbox" id="cc-setting-alerts"> <?php echo _('Enable threshold alerts'); ?></label></div><div class="checkbox"><label><input type="checkbox" id="cc-setting-recovery"> <?php echo _('Send recovery notifications'); ?></label></div></div>
 				</div>
+				<fieldset>
+					<legend><?php echo _('Historical and Demo protection'); ?></legend>
+					<div class="form-group"><label for="cc-setting-pbx-protection"><?php echo _('PBX Protection CPU and memory ceiling'); ?></label>
+						<div class="input-group"><input type="number" id="cc-setting-pbx-protection" class="form-control" min="50" max="95" step="1" value="90"><span class="input-group-addon">%</span></div>
+						<p class="help-block"><?php echo _('A resource-headroom ceiling used with sustained CPU, memory, swap, I/O and report database evidence. It does not change Live thresholds.'); ?></p>
+					</div>
+				</fieldset>
 				<div class="cc-monitor-health">
 					<strong><?php echo _('Unattended alert monitor'); ?>:</strong>
 					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
@@ -283,6 +301,11 @@ $_ccAssetVer = max(
 							</label>
 						</div>
 					<?php endforeach; ?>
+				</div>
+				<div class="form-group">
+					<label for="cc-demo-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
+					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="1" step="1" inputmode="numeric">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. Leave blank to show all details.'); ?></span>
 				</div>
 			</div>
 			<div class="modal-footer">
@@ -364,6 +387,11 @@ $_ccAssetVer = max(
 					</select>
 					<span class="help-block fpbx-help-block"><?php echo _('The engine changes how concurrency is calculated, not what the selected report measures. Original is recommended; Sweep is experimental.'); ?></span>
 				</div>
+				<div class="form-group">
+					<label for="cc-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
+					<input type="number" id="cc-minimum-concurrency" class="form-control" min="1" step="1" inputmode="numeric">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. Leave blank to show all details. The completed summary and actual calculated peak are always retained.'); ?></span>
+				</div>
 				<div class="form-group cc-date-range">
 					<label class="control-label"><?php echo _('Date range'); ?></label>
 					<div class="btn-group cc-date-presets" role="group" aria-label="<?php echo _('Date range presets'); ?>">
@@ -410,22 +438,26 @@ $_ccAssetVer = max(
 </div>
 
 <!-- Runtime overrun warning modal -->
-<div class="modal fade" id="cc-overrun" tabindex="-1" role="dialog">
+<div class="modal fade" id="cc-overrun" tabindex="-1" role="dialog" aria-labelledby="cc-overrun-title" aria-modal="true">
 	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
-				<h4 class="modal-title"><?php echo _('Long-running count'); ?></h4>
+				<h4 class="modal-title" id="cc-overrun-title"><?php echo _('Historical calculation paused'); ?></h4>
 			</div>
 			<div class="modal-body">
 				<div class="alert alert-warning">
 					<strong><?php echo _('Warning:'); ?></strong>
 					<span id="cc-overrun-message"></span>
 				</div>
-				<p><?php echo _('Continue anyway?'); ?></p>
+				<label for="cc-runtime-allowance-minutes"><?php echo _('Runtime allowance (minutes)'); ?></label>
+				<input type="number" id="cc-runtime-allowance-minutes" class="form-control" min="60" max="1440" step="1" value="60">
+				<p class="help-block"><?php echo _('Recalculate runs a fresh five-minute assessment while preserving calculation work and the original runtime start. Reduce Date Range stops this run and returns to the report controls.'); ?></p>
 			</div>
 			<div class="modal-footer">
-				<button type="button" class="btn btn-default" id="cc-overrun-no"><?php echo _('No, abort'); ?></button>
-				<button type="button" class="btn btn-warning" id="cc-overrun-yes"><?php echo _('Yes, continue'); ?></button>
+				<button type="button" class="btn btn-danger" id="cc-overrun-no"><?php echo _('Stop'); ?></button>
+				<button type="button" class="btn btn-default" id="cc-overrun-reduce"><?php echo _('Reduce Date Range'); ?></button>
+				<button type="button" class="btn btn-default" id="cc-overrun-reassess"><?php echo _('Recalculate'); ?></button>
+				<button type="button" class="btn btn-warning" id="cc-overrun-yes"><?php echo _('Continue Anyway'); ?></button>
 			</div>
 		</div>
 	</div>

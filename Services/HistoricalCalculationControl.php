@@ -6,7 +6,7 @@ class HistoricalCalculationControl {
 	const KEY_PREFIX = 'historical_calculation:';
 	const TELEMETRY_KEY_PREFIX = 'historical_calculation_telemetry:';
 	const ID_PATTERN = '/\A[a-f0-9]{32}\z/D';
-	const RECORD_TTL = 7200;
+	const RECORD_TTL = 93600;
 	const GUI_LEASE_SECONDS = 20;
 
 	private $repository;
@@ -59,12 +59,53 @@ class HistoricalCalculationControl {
 		if (is_array($existing) && in_array($existing['status'] ?? '', ['cancelled', 'abandoned'], true)) return false;
 		$this->repository->set(self::KEY_PREFIX . $id, [
 			'status' => 'active', 'kind' => 'gui', 'owner' => $owner, 'registered' => true,
-			'runtime_started_at' => $runtimeNow,
+			'runtime_started_at' => $runtimeNow, 'runtime_allowance_seconds' => 3600,
+			'assessment_started_at' => $runtimeNow, 'assessment_generation' => 0, 'decision' => 'assessing',
 			'lease_expires_at' => $now + self::GUI_LEASE_SECONDS,
 			'expires_at' => $now + self::RECORD_TTL,
 		]);
 		$this->repository->set(self::TELEMETRY_KEY_PREFIX . $id, ['started_at' => microtime(true), 'elapsed' => 0.0, 'eta_reliable' => false, 'estimated_remaining' => null, 'expires_at' => $now + self::RECORD_TTL]);
 		return true;
+	}
+
+	/** Caller serialises all mutations with the GUI advisory lock. */
+	public function owned(string $id, string $owner): array {
+		$id = $this->validateId($id); $this->validateOwner($owner);
+		$r = $this->repository->get(self::KEY_PREFIX . $id, null);
+		if (!is_array($r) || ($r['owner'] ?? '') !== $owner || empty($r['registered'])) throw new \RuntimeException('Calculation ownership is unavailable.');
+		return $r;
+	}
+	public function decide(string $id, string $owner, string $action, $allowance = null, ?float $now = null): array {
+		$r = $this->owned($id, $owner); $now = $now ?? hrtime(true) / 1000000000;
+		if (($r['status'] ?? '') !== 'active' || (int)$r['lease_expires_at'] <= time()) throw new \RuntimeException('Calculation is no longer active.');
+		if ($action === 'allowance') {
+			if (filter_var($allowance, FILTER_VALIDATE_INT) === false || (int)$allowance % 60 !== 0 || $allowance <= $r['runtime_allowance_seconds'] || $allowance > 86400) throw new \InvalidArgumentException('Runtime allowance must increase in whole minutes and cannot exceed 1440 minutes.');
+			$r['runtime_allowance_seconds'] = (int)$allowance;
+		} elseif ($action === 'continue' || $action === 'reassess') {
+			if (!in_array($r['decision'], ['paused_impact', 'paused_runtime', 'paused_critical'], true)) throw new \RuntimeException('Calculation is not awaiting a decision.');
+			$remaining = $r['runtime_allowance_seconds'] - ($now - $r['runtime_started_at']);
+			if ($remaining <= 0 || ($action === 'reassess' && $remaining < 300)) throw new \RuntimeException('Increase the runtime allowance before reassessing.');
+			$r['decision'] = $action === 'reassess' ? 'reassessing' : 'running';
+			$r['advisory_accepted'] = $action === 'continue';
+			if ($action === 'reassess') { $r['assessment_started_at'] = $now; $r['assessment_generation']++; }
+		} else throw new \InvalidArgumentException('Invalid calculation decision.');
+		$this->repository->set(self::KEY_PREFIX . $id, $r);
+		return $r;
+	}
+	public function workerDecision(string $id, string $owner, string $decision): array {
+		$r = $this->owned($id, $owner);
+		if ($r['status'] === 'active' && !in_array($r['decision'], ['paused_impact', 'paused_runtime'], true)) {
+			if (in_array($decision, ['paused_impact', 'paused_runtime'], true) && !empty($r['advisory_accepted'])) return $r;
+			$r['decision'] = $decision;
+			$this->repository->set(self::KEY_PREFIX . $id, $r);
+		}
+		return $r;
+	}
+	public function publish(string $id, array $measurements): void {
+		$key = self::TELEMETRY_KEY_PREFIX . $this->validateId($id);
+		$r = $this->repository->get($key, null);
+		if (!is_array($r)) throw new \RuntimeException('Calculation telemetry state disappeared.');
+		$this->repository->set($key, array_merge($r, $measurements, ['expires_at' => time() + self::RECORD_TTL]));
 	}
 
 	public function pauseForWarning(string $id, string $owner, ?int $now = null): bool {
@@ -173,6 +214,19 @@ class HistoricalCalculationControl {
 		return true;
 	}
 
+	public function cancelOwned(string $id, string $owner, ?int $now = null): bool {
+		$id = $this->validateId($id); $owner = $this->validateOwner($owner);
+		$key = self::KEY_PREFIX . $id;
+		$record = $this->repository->get($key, null);
+		if (is_array($record) && isset($record['owner']) && !hash_equals((string)$record['owner'], $owner)) throw new \RuntimeException('Calculation ownership is unavailable.');
+		if (!is_array($record)) {
+			$now = $now ?? time();
+			$this->repository->set($key, ['status' => 'cancelled', 'kind' => 'gui', 'owner' => $owner, 'expires_at' => $now + self::RECORD_TTL]);
+			return true;
+		}
+		return $this->cancel($id, $now);
+	}
+
 	public function isCancelled(string $id): bool {
 		$id = $this->validateId($id);
 		$record = $this->repository->get(self::KEY_PREFIX . $id, null);
@@ -208,7 +262,7 @@ class HistoricalCalculationControl {
 		$control = $this->repository->get(self::KEY_PREFIX . $id, null);
 		if (!is_array($control)) return null;
 		$telemetry = $this->repository->get(self::TELEMETRY_KEY_PREFIX . $id, []);
-		return ['status' => isset($control['status']) ? (string)$control['status'] : 'unavailable'] + (is_array($telemetry) ? $telemetry : []);
+		return $control + (is_array($telemetry) ? $telemetry : []);
 	}
 
 	public function cleanupExpired(?int $now = null): void {

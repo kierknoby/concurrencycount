@@ -32,14 +32,24 @@ require_once __DIR__ . '/Services/CliCancellationControl.php';
 require_once __DIR__ . '/Services/SystemResourceTelemetry.php';
 require_once __DIR__ . '/Services/HistoricalResourceLimitException.php';
 require_once __DIR__ . '/Services/HistoricalMemoryGuard.php';
+require_once __DIR__ . '/Services/HistoricalAssessment.php';
+require_once __DIR__ . '/Services/DemoDiskGuard.php';
+require_once __DIR__ . '/Services/HistoricalCdrAcquisition.php';
+require_once __DIR__ . '/Services/DemoCleanupService.php';
+require_once __DIR__ . '/Services/DemoCleanupCoordinator.php';
+require_once __DIR__ . '/Services/DemoCleanupHeartbeat.php';
+require_once __DIR__ . '/Services/HistoricalTelemetryCadence.php';
+require_once __DIR__ . '/Services/HistoricalResultFloor.php';
 
 class Concurrencycount implements \BMO {
 
 	const MAX_RUNTIME = 3600;
+	const DEMO_CLEANUP_MAX_RUNTIME = 300;
+	const DEMO_CLEANUP_PHP_MARGIN = 30;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.1.1';
+	const VERSION = '2.2.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -48,12 +58,32 @@ class Concurrencycount implements \BMO {
 	const HISTORICAL_REPORTS_KEY = 'historical_reports';
 	const PJSIP_IDENTITY_OVERRIDES_KEY = 'pjsip_identity_overrides';
 	const HISTORICAL_CALL_EXCLUSIONS_KEY = 'historical_call_exclusions';
+	const DEMO_RUN_KEY_PREFIX = 'demo_run:';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
 
 	private $FreePBX;
 	private $cdrdb;
+	private $assessment = null;
+	private $workerControl = null;
+	private $workerId = '';
+	private $workerOwner = '';
+	private $workerGeneration = 0;
+	private $workerLast = -INF;
+	private $workerRecord = null;
+	private $workerCadence = null;
+	private $workerCancellation = null;
+	private $workerProgress = null;
+	private $workerWork = [0, 0, 'preparing'];
+	private $workerGuard = null;
+	private $workerRuntime = null;
+	private $workerEngine = 'original';
+	private $workerEngineIndex = 0;
+	private $workerEngineCount = 1;
+	private $workerDemoRegistryKey = '';
+	private $workerDemoRegistryHeartbeat = 0;
+	private $queryDeadlineConfigured = false;
 	private $cdrColumnsCache = null;
 	private $settingsRepository = null;
 	private $pjsipIdentityService = null;
@@ -247,6 +277,12 @@ class Concurrencycount implements \BMO {
 		$command = isset($_REQUEST['command']) ? $_REQUEST['command'] : '';
 
 		switch ($command) {
+			case 'demopreflight':
+				return $this->handleDemoPreflight();
+			case 'calculationdecision':
+				return $this->handleCalculationDecision();
+			case 'historicalprotection':
+				return $this->handleHistoricalProtection();
 			case 'wizardstep':
 				return $this->handleWizardStep();
 			case 'run':
@@ -793,7 +829,9 @@ class Concurrencycount implements \BMO {
 		];
 	}
 
-	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = ''): array {
+	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = '', $minimumConcurrency = null): array {
+		$floorService = new \FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor();
+		$minimumConcurrency = $floorService->normalise($minimumConcurrency);
 		$mode = $this->normaliseMode($mode);
 		if (!in_array($mode, ['trunk', 'group'], true)) {
 			throw new \InvalidArgumentException(_('Historical graphs support Trunk Concurrency and Group Concurrency.'));
@@ -818,7 +856,7 @@ class Concurrencycount implements \BMO {
 		$graph['start'] = $range['start'];
 		$graph['end'] = $range['end'];
 		$graph['thresholds'] = $mode === 'trunk' ? $settings['trunks'] : ['overall' => $settings['overall']];
-		return $graph;
+		return $floorService->applyGraph($graph, $minimumConcurrency);
 	}
 
 	public function runThresholdMonitor(): array {
@@ -927,7 +965,8 @@ class Concurrencycount implements \BMO {
 				isset($_REQUEST['mode']) ? (string)$_REQUEST['mode'] : '',
 				isset($_REQUEST['start_date']) ? (string)$_REQUEST['start_date'] : '',
 				isset($_REQUEST['end_date']) ? (string)$_REQUEST['end_date'] : '',
-				isset($_REQUEST['trunk']) ? trim((string)$_REQUEST['trunk']) : ''
+				isset($_REQUEST['trunk']) ? trim((string)$_REQUEST['trunk']) : '',
+				isset($_REQUEST['minimum_concurrency']) ? $_REQUEST['minimum_concurrency'] : null
 			)];
 		} catch (\Exception $exception) {
 			return ['status' => false, 'message' => $exception->getMessage()];
@@ -1368,10 +1407,11 @@ class Concurrencycount implements \BMO {
 				$calculationId = $control->validateId($calculationId);
 				$owner = $this->guiCalculationOwner();
 				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner, $confirm_overrun): bool {
-					return $confirm_overrun ? $control->resumeGui($calculationId, $owner) : $control->admitGui($calculationId, $owner);
+					return $control->admitGui($calculationId, $owner);
 				});
 				if (!$admitted) return ['status' => false, 'admission_busy' => true, 'message' => _('A previous Historical calculation is still stopping. Please try again shortly.')];
 				$options['runtime_started_at'] = $control->runtimeStartedAt($calculationId, $owner);
+				$this->workerControl = $control; $this->workerId = $calculationId; $this->workerOwner = $owner;
 				$lastCancellationCheck = 0.0;
 				$options['cancellation_check'] = function () use ($control, $calculationId, &$lastCancellationCheck): bool {
 					$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
@@ -1430,8 +1470,95 @@ class Concurrencycount implements \BMO {
 			return ['status' => false, 'message' => $e->getMessage()];
 		} finally {
 			if ($control !== null && !$preserveControlForWarning) $this->withGuiCalculationLock(function () use ($control, $calculationId): void { $control->finish($calculationId); });
+			$this->workerControl = null;
 			if ($previousIgnoreUserAbort !== null) ignore_user_abort($previousIgnoreUserAbort);
 		}
+	}
+
+	private function handleHistoricalProtection(): array {
+		try {
+			$r = $this->getSettingsRepository();
+			if (isset($_REQUEST['threshold'])) {
+				$v = filter_var($_REQUEST['threshold'], FILTER_VALIDATE_INT);
+				if ($v === false || $v < 50 || $v > 95) throw new \InvalidArgumentException('PBX Protection must be between 50% and 95%.');
+				$this->withGuiCalculationLock(function () use ($r, $v): void { $r->set('historical_pbx_protection', $v); });
+			}
+			return ['status' => true, 'threshold' => (int)$r->get('historical_pbx_protection', 90)];
+		} catch (\Throwable $e) { return ['status' => false, 'message' => $e->getMessage()]; }
+	}
+	private function handleCalculationDecision(): array {
+		try {
+			$c = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
+			$id = $c->validateId($_REQUEST['calculation_id'] ?? ''); $owner = $this->guiCalculationOwner();
+			$r = $this->withGuiCalculationLock(function () use ($c, $id, $owner) {
+				return $c->decide($id, $owner, (string)($_REQUEST['action'] ?? ''), $_REQUEST['allowance_seconds'] ?? null);
+			});
+			return ['status' => true, 'runtime_allowance_seconds' => $r['runtime_allowance_seconds']];
+		} catch (\Throwable $e) { return ['status' => false, 'message' => $e->getMessage()]; }
+	}
+	private function configureHistoricalQueryDeadline(): void {
+		if ($this->queryDeadlineConfigured) return;
+		$version = (string)$this->cdrdb->query('SELECT VERSION()')->fetchColumn();
+		// Refuse unsupported servers rather than promise cancellation around blocking SQL.
+		if (stripos($version, 'MariaDB') !== false) $this->cdrdb->exec('SET SESSION max_statement_time=2');
+		elseif (version_compare($version, '5.7.8', '>=')) $this->cdrdb->exec('SET SESSION max_execution_time=2000');
+		else throw new \RuntimeException('Historical protection requires database statement timeout support.');
+		$this->cdrdb->exec('SET SESSION innodb_lock_wait_timeout=2');
+		$this->queryDeadlineConfigured = true;
+	}
+	private function isHistoricalQueryTimeout(\Throwable $exception): bool {
+		$driverCode = null;
+		if ($exception instanceof \PDOException && isset($exception->errorInfo[1])) $driverCode = (int)$exception->errorInfo[1];
+		if (in_array($driverCode, [1969, 3024], true)) return true;
+		$message = strtolower($exception->getMessage());
+		return strpos($message, 'max_statement_time') !== false
+			|| strpos($message, 'max_execution_time') !== false
+			|| strpos($message, 'statement timeout') !== false;
+	}
+	private function workerCheckpoint(): void {
+		if ($this->workerGuard !== null) $this->workerGuard->checkpoint();
+		if ($this->workerCancellation && call_user_func($this->workerCancellation)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+		if ($this->workerDemoRegistryKey !== '' && time() - $this->workerDemoRegistryHeartbeat >= 10) {
+			$record = $this->getSettingsRepository()->get($this->workerDemoRegistryKey, null);
+			if (is_array($record)) { $record['updated_at'] = time(); $this->getSettingsRepository()->set($this->workerDemoRegistryKey, $record); }
+			$this->workerDemoRegistryHeartbeat = time();
+		}
+		$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+		if ($now - $this->workerLast < .25) return;
+		$this->workerLast = $now;
+		if ($this->assessment === null) {
+			if ($this->workerRuntime !== null) {
+				$runtime = $this->workerRuntime->evaluate($this->workerWork[0], $this->workerWork[1], $now, $this->workerWork[2]);
+				if ($runtime['abort']) throw new \RuntimeException(sprintf(_('Script exceeded the maximum runtime of %d seconds. Aborting to protect system stability.'), self::MAX_RUNTIME));
+			}
+			return;
+		}
+		do {
+			if ($this->workerCancellation && call_user_func($this->workerCancellation)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+			$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+			$r = $this->workerControl ? $this->workerControl->owned($this->workerId, $this->workerOwner) : ['runtime_allowance_seconds' => 3600, 'decision' => 'assessing'];
+			if ($this->workerControl && ($r['status'] !== 'active' || $r['lease_expires_at'] <= time())) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+			if (($r['assessment_generation'] ?? 0) !== $this->workerGeneration) {
+				$this->workerGeneration = $r['assessment_generation']; $this->assessment->reassess($r['assessment_started_at']);
+			}
+			$paused = in_array($r['decision'], ['paused_impact', 'paused_runtime', 'paused_critical'], true);
+			$a = $this->assessment->checkpoint($this->workerWork[0], $this->workerWork[1], $this->workerWork[2], $now, $r['runtime_allowance_seconds'], $paused);
+			$this->workerGuard->checkpoint();
+			if ($a['abort']) throw new \RuntimeException('Calculation reached its runtime allowance.');
+			$decision = null;
+			if (!$paused && ($a['impact_status'] ?? '') === 'Critical') $decision = 'paused_critical';
+			elseif (!$paused && !empty($a['warn'])) $decision = 'paused_runtime';
+			elseif (!$paused && in_array($r['decision'], ['assessing', 'reassessing'], true) && !empty($a['impact_assessment_complete'])) $decision = $a['impact_status'] === 'High' ? 'paused_impact' : 'running';
+			if ($decision && $this->workerControl) $r = $this->withGuiCalculationLock(function () use ($decision) { return $this->workerControl->workerDecision($this->workerId, $this->workerOwner, $decision); });
+			elseif ($decision === 'paused_impact') throw new \RuntimeException('PBX Protection observed concerning impact; reduce the date range.');
+			$a['decision'] = $r['decision'];
+			if ($this->workerControl && $this->workerCadence->shouldPublish($now, (string)$r['decision'])) {
+				$this->workerControl->publish($this->workerId, $a + ['elapsed' => $a['overall_elapsed'], 'eta_reliable' => $a['reliable'], 'engine' => $this->workerEngine]);
+			}
+			if ($this->workerProgress) call_user_func($this->workerProgress, $a);
+			$paused = in_array($r['decision'], ['paused_impact', 'paused_runtime', 'paused_critical'], true);
+			if ($paused) usleep(500000);
+		} while ($paused);
 	}
 
 	private function handleCancelCalculation(): array {
@@ -1439,7 +1566,10 @@ class Concurrencycount implements \BMO {
 			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
 			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 			$id = $control->validateId($id);
-			return ['status' => true, 'cancelled' => $this->withGuiCalculationLock(function () use ($control, $id): bool { return $control->cancel($id); })];
+			$owner = $this->guiCalculationOwner();
+			return ['status' => true, 'cancelled' => $this->withGuiCalculationLock(function () use ($control, $id, $owner): bool {
+				return $control->cancelOwned($id, $owner);
+			})];
 		} catch (\Exception $exception) {
 			return ['status' => false, 'message' => $exception->getMessage()];
 		}
@@ -1476,8 +1606,10 @@ class Concurrencycount implements \BMO {
 			$id = isset($_REQUEST['calculation_id']) ? (string)$_REQUEST['calculation_id'] : '';
 			$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 			$id = $control->validateId($id);
+			$control->owned($id, $this->guiCalculationOwner());
 			$record = $control->status($id);
 			if ($record === null) return ['status' => true, 'active' => false, 'resources' => ['available' => false]];
+			$record['calculation_id'] = $id;
 			$resources = ['available' => false];
 			try {
 				$dashboard = \FreePBX::Dashboard();
@@ -1501,13 +1633,15 @@ class Concurrencycount implements \BMO {
 		$reliable = $active && !empty($record['eta_reliable']) && $estimate !== null && is_finite($estimate) && $estimate > 0.0;
 		return [
 			'active' => $active,
+			'state' => $record['decision'] ?? $record['status'] ?? 'unavailable',
 			'elapsed' => $elapsed,
-			'max_runtime' => self::MAX_RUNTIME,
-			'runtime_remaining' => max(0.0, self::MAX_RUNTIME - $elapsed),
+			'max_runtime' => $record['runtime_allowance_seconds'] ?? self::MAX_RUNTIME,
+			'runtime_remaining' => max(0.0, ($record['runtime_allowance_seconds'] ?? self::MAX_RUNTIME) - $elapsed),
 			'estimated_remaining' => $reliable ? $estimate : null,
+			'eta_seconds' => $reliable ? $estimate : null,
 			'eta_reliable' => $reliable,
 			'resources' => $resources,
-		];
+		] + array_diff_key($record, array_flip(['owner', 'expires_at', 'lease_expires_at', 'registered', 'kind']));
 	}
 
 	private function handlePeakDetails(): array {
@@ -1736,23 +1870,37 @@ class Concurrencycount implements \BMO {
 	 * Dispatch by mode.
 	 */
 	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
-		set_time_limit(self::MAX_RUNTIME + 60);
+		// PHP is only a backstop. Monotonic checkpoints enforce the calculation
+		// allowance; this headroom lets a logical timeout enter mandatory cleanup.
+		set_time_limit(($this->workerControl !== null ? 86400 : self::MAX_RUNTIME) + self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN);
+		$floorService = new \FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor();
+		$minimumConcurrency = $floorService->normalise($options['minimum_concurrency'] ?? null);
 		$started_at = isset($options['runtime_started_at']) && is_numeric($options['runtime_started_at'])
 			? (float)$options['runtime_started_at']
 			: \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
+		$this->workerEngine = $engine_id; $this->workerEngineIndex = 0; $this->workerEngineCount = 1;
 		$filter = isset($options['filter']) ? trim((string)$options['filter']) : '';
 		$cancellationCheck = isset($options['cancellation_check']) && is_callable($options['cancellation_check']) ? $options['cancellation_check'] : null;
 		$progressUpdate = isset($options['progress_update']) && is_callable($options['progress_update']) ? $options['progress_update'] : null;
 
+		$this->workerCancellation = $cancellationCheck; $this->workerProgress = $progressUpdate;
+		$this->workerGuard = new \FreePBX\modules\Concurrencycount\Services\HistoricalMemoryGuard();
+		$this->workerRuntime = new \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator(self::MAX_RUNTIME, $started_at, $started_at, true);
+		$this->assessment = $this->workerControl !== null ? new \FreePBX\modules\Concurrencycount\Services\HistoricalAssessment($started_at, (int)$this->getSettingsRepository()->get('historical_pbx_protection', 90)) : null;
+		$this->workerCadence = $this->assessment !== null ? new \FreePBX\modules\Concurrencycount\Services\HistoricalTelemetryCadence() : null;
+		$this->workerLast = -INF; $this->workerWork = [0, 0, 'preparing'];
+		$this->workerCheckpoint();
 		if ($mode === 'demo') {
-			return $this->calculateDemo($start, $end, $started_at, $options);
-		}
-		if ($mode === 'group') {
+			$result = $this->calculateDemo($start, $end, $started_at, $options);
+		} elseif ($mode === 'group') {
 			if ($filter !== '') throw new \InvalidArgumentException(_('Group reports do not support an endpoint filter.'));
-			return $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id, $cancellationCheck, $progressUpdate);
+			$result = $this->calculateGroup($start, $end, $started_at, $confirm_overrun, '', $engine_id, $cancellationCheck, $progressUpdate);
+		} else {
+			$result = $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id, $filter, $cancellationCheck, $progressUpdate);
 		}
-		return $this->calculatePerName($mode, $start, $end, $started_at, $confirm_overrun, '', $engine_id, $filter, $cancellationCheck, $progressUpdate);
+		$this->workerWork = [1, 1, 'complete']; $this->workerLast = -INF; $this->workerCheckpoint();
+		return $floorService->apply($result, $minimumConcurrency);
 	}
 
 	public function getAvailableEngines(): array {
@@ -1787,6 +1935,7 @@ class Concurrencycount implements \BMO {
 		return [
 			'all_names' => $all_names,
 			'resource_check' => function () use ($memoryGuard, $cancellationCheck): void {
+				$this->workerCheckpoint();
 				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
 				$memoryGuard->checkpoint();
 			},
@@ -1795,6 +1944,12 @@ class Concurrencycount implements \BMO {
 			},
 			'check_overrun' => function (int $processed, int $total, string $stage = 'progress') use ($estimator, $memoryGuard, $cancellationCheck, $progressUpdate): void {
 				$now = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+				if ($this->assessment !== null) {
+					$units = 1000000;
+					$mapped = $total > 0 ? (int)floor($processed * $units / $total) : 0;
+					$this->workerWork = [$this->workerEngineIndex * $units + $mapped, $this->workerEngineCount * $units + 1, $stage];
+					$this->workerCheckpoint(); return;
+				}
 				if ($cancellationCheck !== null && call_user_func($cancellationCheck)) throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
 				$memoryGuard->checkpoint();
 				if ($processed === 0) $estimator->beginEngine($now);
@@ -1817,7 +1972,26 @@ class Concurrencycount implements \BMO {
 	 * Temporary demo fixture. Rows are inserted with a unique accountcode,
 	 * counted via the normal CDR queries, then removed in a finally block.
 	 */
+	private function handleDemoPreflight(): array {
+		try {
+			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');
+			$rows = $this->normaliseDemoRows($_REQUEST['demo_rows'] ?? 0, $size);
+			$this->configureHistoricalQueryDeadline();
+			$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
+			$diskGuard->verifyCleanupAccessPath();
+			$recovered = $this->recoverStaleDemoRuns();
+			$plan = $diskGuard->preflight($rows);
+			return ['status' => true, 'preflight' => $plan, 'stale_demo_runs_recovered' => $recovered];
+		} catch (\Throwable $exception) {
+			return ['status' => false, 'message' => $exception->getMessage()];
+		}
+	}
+
 	private function calculateDemo(string $start, string $end, float $started_at, array $options): array {
+		$this->configureHistoricalQueryDeadline();
+		$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
+		$diskGuard->verifyCleanupAccessPath();
+		$this->recoverStaleDemoRuns();
 		$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 		$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
 		$demo_engines = $this->normaliseDemoEngines(isset($options['demo_engines']) ? $options['demo_engines'] : ['original']);
@@ -1840,6 +2014,10 @@ class Concurrencycount implements \BMO {
 			}
 			$demo_trunk = $trunks[0];
 		}
+		$this->workerWork = [0, 0, 'demo-disk-preflight']; $this->workerCheckpoint();
+		$diskPlan = $diskGuard->preflight($row_count);
+		$this->configureHistoricalQueryDeadline();
+		$this->workerWork = [0, 0, 'demo-preparing']; $this->workerCheckpoint();
 		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode, $report, $demo_trunk, $row_count);
 		$expected = ($report === 'group')
 			? $this->expectedDemoGroup($rows)
@@ -1847,18 +2025,32 @@ class Concurrencycount implements \BMO {
 		$inserted = 0;
 		$result = null;
 		$cleanup = ['rows_removed' => 0, 'cleanup_remaining' => 0];
+		$demoRegistryKey = self::DEMO_RUN_KEY_PREFIX . $accountcode;
+		$demoRegistryStartedAt = time();
+		$this->getSettingsRepository()->set($demoRegistryKey, ['accountcode' => $accountcode, 'calculation_id' => $this->workerId, 'started_at' => $demoRegistryStartedAt, 'updated_at' => $demoRegistryStartedAt, 'rows_inserted' => 0]);
+		$this->workerDemoRegistryKey = $demoRegistryKey; $this->workerDemoRegistryHeartbeat = $demoRegistryStartedAt;
 
 		try {
-			foreach ($rows as $row) {
-				$this->insertDemoCdrRow($row);
-				$inserted++;
-				if (($inserted % 100) === 0 && $cancellationCheck !== null && call_user_func($cancellationCheck)) {
-					throw new HistoricalCalculationCancelled(_('Calculation stopped.'));
+			$this->workerWork = [0, 0, 'demo-inserting']; $this->workerCheckpoint();
+			foreach (array_chunk($rows, 100) as $batch) {
+				$diskPlan = $diskGuard->check($inserted); $this->workerCheckpoint();
+				$this->cdrdb->beginTransaction();
+				try {
+					foreach ($batch as $row) { $this->insertDemoCdrRow($row); $inserted++; }
+					$this->cdrdb->commit();
+				} catch (\Throwable $exception) {
+					if ($this->cdrdb->inTransaction()) $this->cdrdb->rollBack();
+					throw $exception;
 				}
+				$this->getSettingsRepository()->set($demoRegistryKey, ['accountcode' => $accountcode, 'calculation_id' => $this->workerId, 'started_at' => $demoRegistryStartedAt, 'updated_at' => time(), 'rows_inserted' => $inserted]);
+				$this->workerCheckpoint();
 			}
+			$diskPlan = $diskGuard->check($inserted);
 
 			$engine_results = [];
-			foreach ($demo_engines as $engine_id) {
+			$this->workerEngineCount = count($demo_engines);
+			foreach ($demo_engines as $engineIndex => $engine_id) {
+				$this->workerEngine = $engine_id; $this->workerEngineIndex = $engineIndex;
 				if (function_exists('memory_reset_peak_usage')) {
 					memory_reset_peak_usage();
 				}
@@ -1924,12 +2116,19 @@ class Concurrencycount implements \BMO {
 				$result['engine'] = 'comparison';
 			}
 		} finally {
-			$cleanup = $this->cleanupDemoCdrRows($accountcode);
-			if ($cleanup['cleanup_remaining'] > 0) throw new \Exception(sprintf(_('Demo cleanup incomplete: %d synthetic CDR rows remain.'), $cleanup['cleanup_remaining']));
+			try {
+				$cleanup = $this->cleanupDemoCdrRows($accountcode);
+				if ($cleanup['cleanup_remaining'] > 0) throw new \Exception(sprintf(_('Demo cleanup incomplete: %d synthetic CDR rows remain.'), $cleanup['cleanup_remaining']));
+				$this->getSettingsRepository()->delete($demoRegistryKey);
+			} finally {
+				$this->workerDemoRegistryKey = ''; $this->workerDemoRegistryHeartbeat = 0;
+			}
 		}
 		if ($result === null) {
 			throw new \Exception(_('Demo run failed before results were produced.'));
 		}
+		$result['disk_preflight'] = $diskPlan;
+		$result['assessment_summary'] = $this->assessment ? $this->assessment->summary(\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now()) : [];
 		$result['rows_removed'] = $cleanup['rows_removed'];
 		$result['cleanup_remaining'] = $cleanup['cleanup_remaining'];
 		$result['cleanup_status'] = ($cleanup['cleanup_remaining'] === 0) ? 'clean' : 'check';
@@ -1948,6 +2147,7 @@ class Concurrencycount implements \BMO {
 			'demo_rows' => isset($_REQUEST['demo_rows']) ? $_REQUEST['demo_rows'] : 0,
 			'demo_engines' => $demo_engines ?: ['original'],
 			'engine' => isset($_REQUEST['engine']) ? $_REQUEST['engine'] : 'original',
+			'minimum_concurrency' => isset($_REQUEST['minimum_concurrency']) ? $_REQUEST['minimum_concurrency'] : '',
 		];
 	}
 
@@ -2253,15 +2453,37 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function cleanupDemoCdrRows(string $accountcode): array {
-		$stmt = $this->cdrdb->prepare('DELETE FROM cdr WHERE accountcode = :accountcode');
-		$stmt->execute([':accountcode' => $accountcode]);
-		$removed = $stmt->rowCount();
-		$stmt = $this->cdrdb->prepare('SELECT COUNT(*) FROM cdr WHERE accountcode = :accountcode');
-		$stmt->execute([':accountcode' => $accountcode]);
-		return [
-			'rows_removed' => $removed,
-			'cleanup_remaining' => (int)$stmt->fetchColumn(),
-		];
+		// set_time_limit restarts PHP's timer. The monotonic 300-second cleanup
+		// deadline remains authoritative; 30 seconds is shutdown/error headroom.
+		set_time_limit(self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN);
+		$this->configureHistoricalQueryDeadline();
+		return $this->demoCleanupCoordinator($accountcode)->cleanup($accountcode);
+	}
+
+	private function recoverStaleDemoRuns(?int $now = null): int {
+		$now = $now ?? time();
+		$this->configureHistoricalQueryDeadline();
+		return $this->demoCleanupCoordinator()->recover($this->getSettingsRepository(), $now, \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::STALE_SECONDS);
+	}
+
+	private function demoCleanupCoordinator(?string $activeAccountcode = null): \FreePBX\modules\Concurrencycount\Services\DemoCleanupCoordinator {
+		$started = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+		$heartbeat = null;
+		if ($activeAccountcode !== null && $this->workerDemoRegistryKey !== '') {
+			$heartbeat = new \FreePBX\modules\Concurrencycount\Services\DemoCleanupHeartbeat(
+				$this->getSettingsRepository(), $this->workerDemoRegistryKey, $activeAccountcode
+			);
+		}
+		return new \FreePBX\modules\Concurrencycount\Services\DemoCleanupCoordinator(
+			$this->cdrdb,
+			function (\Throwable $exception): bool { return $this->isHistoricalQueryTimeout($exception); },
+			function () use ($started, $heartbeat): void {
+				if ($heartbeat !== null) $heartbeat->checkpoint();
+				if (\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now() - $started >= self::DEMO_CLEANUP_MAX_RUNTIME) {
+					throw new \RuntimeException(_('Demo cleanup reached its five-minute housekeeping allowance.'));
+				}
+			}
+		);
 	}
 
 	/**
@@ -2326,7 +2548,7 @@ class Concurrencycount implements \BMO {
 				$by_trunk[$trunk] = [];
 				continue;
 			}
-			$analysis = $analyser->analyseTrunk($rows, (string)$trunk, $peak);
+			$analysis = $analyser->analyseTrunk($rows, (string)$trunk, $peak, function (): void { $this->workerCheckpoint(); });
 			$by_trunk[$trunk] = [];
 			foreach ($analysis['occurrences'] as $occurrence) {
 				unset($occurrence['row_indexes']);
@@ -2343,7 +2565,10 @@ class Concurrencycount implements \BMO {
 	private function buildAllNames(string $mode, array $rows, array $trunks = []): array {
 		$names = [];
 		if ($mode === 'extension') {
-			foreach ($rows as $r) if (!empty($r['identity'])) $names[$r['identity']] = true;
+			foreach ($rows as $index => $r) {
+				if (($index % 256) === 0) $this->workerCheckpoint();
+				if (!empty($r['identity'])) $names[$r['identity']] = true;
+			}
 		} else {
 			foreach ($trunks as $t) {
 				$names[$t] = true;
@@ -2393,7 +2618,8 @@ class Concurrencycount implements \BMO {
 		$period_seconds = max(1, ($end_ts - $start_ts) + 1);
 		$total_seconds = 0;
 		$names_seen = [];
-		foreach ($rows as $row) {
+		foreach ($rows as $index => $row) {
+			if (($index % 256) === 0) $this->workerCheckpoint();
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
 			$name = isset($row['identity']) ? (string)$row['identity'] : '';
@@ -2425,7 +2651,8 @@ class Concurrencycount implements \BMO {
 		$end_ts = strtotime($end);
 		$period_seconds = max(1, ($end_ts - $start_ts) + 1);
 		$total_seconds = 0;
-		foreach ($rows as $row) {
+		foreach ($rows as $index => $row) {
+			if (($index % 256) === 0) $this->workerCheckpoint();
 			$calldate = isset($row['calldate']) ? $row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
 			if ($calldate === '' || $duration <= 0) {
@@ -2498,32 +2725,44 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function fetchPjsipCdrRows(string $start, string $end, string $accountcode = ''): array {
-		$params = [':start' => $start, ':end' => $end];
-		$account_filter = '';
-		if ($accountcode !== '') {
-			$account_filter = ' AND accountcode = :accountcode';
-			$params[':accountcode'] = $accountcode;
-		}
+		$account_filter = $accountcode !== '' ? ' AND accountcode = :accountcode' : \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::ordinarySqlPredicate();
 		$available = [];
 		foreach ($this->getCdrColumns() as $column) if (isset($column['Field'])) $available[$column['Field']] = true;
 		$identitySelect = (isset($available['linkedid']) ? '`linkedid`' : "'' AS linkedid") . ', ' . (isset($available['uniqueid']) ? '`uniqueid`' : "'' AS uniqueid");
-		$sql = "SELECT calldate, duration, channel, dstchannel, dst, $identitySelect
-				FROM cdr
-				WHERE disposition='ANSWERED'
-				  AND calldate BETWEEN :start AND :end
-				  $account_filter
-				  AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
-		$stmt = $this->cdrdb->prepare($sql);
-		$stmt->execute($params);
-		$rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+		$this->configureHistoricalQueryDeadline();
+		$acquisition = new \FreePBX\modules\Concurrencycount\Services\HistoricalCdrAcquisition(
+			function (string $rangeStart, string $rangeEnd, bool $inclusive) use ($identitySelect, $account_filter, $accountcode): \Generator {
+				$comparison = $inclusive ? 'calldate BETWEEN :start AND :end' : 'calldate >= :start AND calldate < :end';
+			$sql = "SELECT calldate, duration, channel, dstchannel, dst, accountcode, $identitySelect FROM cdr
+				WHERE disposition='ANSWERED' AND $comparison $account_filter
+				AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
+			$params = [':start' => $rangeStart, ':end' => $rangeEnd];
+			if ($accountcode !== '') $params[':accountcode'] = $accountcode;
+			$queryStarted = microtime(true);
+			$stmt = $this->cdrdb->prepare($sql);
+			$stmt->execute($params);
+			try {
+				while (($row = $stmt->fetch(\PDO::FETCH_ASSOC)) !== false) yield $row;
+			} finally {
+				$stmt->closeCursor();
+				if ($this->assessment !== null) $this->assessment->query(microtime(true) - $queryStarted);
+			}
+			},
+			function (\Throwable $exception): bool { return $this->isHistoricalQueryTimeout($exception); },
+			function (int $acquired = 0): void { $this->workerWork = [$acquired, 0, 'cdr-acquisition']; $this->workerCheckpoint(); }
+		);
+		$rows = $acquisition->fetch($start, $end);
+		$this->workerCheckpoint();
 		if ($accountcode !== '') return $rows;
-		return $this->getHistoricalCallExclusionService()->filterRows($rows, $this->getHistoricalCallExclusions());
+		$rows = \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::excludeReservedRows($rows);
+		return $this->getHistoricalCallExclusionService()->filterRows($rows, $this->getHistoricalCallExclusions(), function (int $processed = 0): void { $this->workerWork = [$processed, 0, 'cdr-exclusions']; $this->workerCheckpoint(); });
 	}
 
 	private function classifyPerNameRows(array $cdrRows, string $mode, \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService $identity): array {
 		$rows = [];
 		$anomalies = [];
-		foreach ($cdrRows as $cdr) {
+		foreach ($cdrRows as $rowIndex => $cdr) {
+			if (($rowIndex % 256) === 0) { $this->workerWork = [$rowIndex, 0, 'cdr-classification']; $this->workerCheckpoint(); }
 			$candidates = [];
 			foreach (['channel', 'dstchannel'] as $field) {
 				$endpoint = $identity->parseChannel(isset($cdr[$field]) ? $cdr[$field] : '');
@@ -2547,7 +2786,8 @@ class Concurrencycount implements \BMO {
 	private function classifyGroupRows(array $cdrRows, \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService $identity): array {
 		$rows = [];
 		$anomalies = [];
-		foreach ($cdrRows as $cdr) {
+		foreach ($cdrRows as $rowIndex => $cdr) {
+			if (($rowIndex % 256) === 0) { $this->workerWork = [$rowIndex, 0, 'cdr-classification']; $this->workerCheckpoint(); }
 			$legs = 0;
 			foreach (['channel', 'dstchannel'] as $field) {
 				$endpoint = $identity->parseChannel(isset($cdr[$field]) ? $cdr[$field] : '');
@@ -2603,9 +2843,11 @@ class Concurrencycount implements \BMO {
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
 		$rows[] = ['Rows processed', $r['rows_processed']];
+		if (isset($r['minimum_concurrency']) && $r['minimum_concurrency'] !== null) $rows[] = ['Minimum concurrency', (int)$r['minimum_concurrency']];
 		$rows[] = [];
-
-		if ($r['mode'] === 'demo') {
+		if (!empty($r['empty_message'])) {
+			$rows[] = [$r['empty_message']];
+		} elseif ($r['mode'] === 'demo') {
 			$rows[] = ['Demo run id', isset($r['demo_run_id']) ? $r['demo_run_id'] : ''];
 			$rows[] = ['Demo report', isset($r['demo_report']) ? $r['demo_report'] : ''];
 			$rows[] = ['Demo size', isset($r['demo_size']) ? $r['demo_size'] : ''];
@@ -2664,6 +2906,10 @@ class Concurrencycount implements \BMO {
 			}
 			$rows[] = [];
 			$rows[] = ['Global maximum', isset($r['global_max']) ? $r['global_max'] : 0];
+		}
+		if (!empty($r['floor_notice'])) {
+			$rows[] = [];
+			$rows[] = [$r['floor_notice']];
 		}
 
 		$fh = fopen('php://temp', 'r+');
@@ -2845,7 +3091,9 @@ class Concurrencycount implements \BMO {
 		$lines[] = 'From:           ' . $r['start'];
 		$lines[] = 'To:             ' . $r['end'];
 		$lines[] = 'Rows processed: ' . $r['rows_processed'];
+		if (isset($r['minimum_concurrency']) && $r['minimum_concurrency'] !== null) $lines[] = 'Minimum concurrency: ' . (int)$r['minimum_concurrency'];
 		$lines[] = '';
+		if (!empty($r['empty_message'])) $lines[] = $r['empty_message'];
 
 		if ($r['mode'] === 'demo') {
 			$lines[] = 'Demo run id:      ' . (isset($r['demo_run_id']) ? $r['demo_run_id'] : '');
@@ -2916,6 +3164,10 @@ class Concurrencycount implements \BMO {
 			$lines[] = '';
 			$lines[] = 'Global maximum: ' . (isset($r['global_max']) ? $r['global_max'] : 0);
 			if ((int)(isset($r['global_max']) ? $r['global_max'] : 0) === 1) $lines[] = 'Status: Activity detected, no concurrency';
+		}
+		if (!empty($r['floor_notice'])) {
+			$lines[] = '';
+			$lines[] = $r['floor_notice'];
 		}
 
 		$lines[] = '';

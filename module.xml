@@ -2,11 +2,12 @@
 	<rawname>concurrencycount</rawname>
 	<repo>unsupported</repo>
 	<name>Concurrency Count</name>
-	<version>2.1.1</version>
+	<version>2.2.0</version>
 	<publisher>20tele.com</publisher>
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
+		*2.2.0 (9 September 2026)* Adds modelled Historical progress, a five-minute high-confidence ETA and PBX impact assessment, cooperative impact/runtime pause decisions, per-run runtime increases up to 24 hours, worker-owned process telemetry, bounded CDR acquisition, configurable PBX Protection, and an optional post-calculation Minimum concurrency floor for detailed Historical and Demo output. Demo now performs a conservative database-filesystem preflight before inserting any synthetic row, uses checked insertion and cleanup batches, and reports Historical workload capacity without implying live-call capacity. Existing counting, inclusive-time, ownership, cancellation, memory, Live View and Live Wall semantics remain unchanged.
 		*2.1.1 (28 August 2026)* Fixes Live View Hide/Unhide persistence by serializing whole-settings saves, preventing stale save/settings responses from overwriting newer browser preferences, and avoiding unnecessary polling after presentation-only saves. Corrects Historical long-running ETA/runtime estimation, preserves the original fixed one-hour allowance across predictive Continue, adds batched hard-runtime checkpoints within Original and Sweep, cooperative GUI Stop cancellation, a single-active GUI workspace lock with backend admission and abandoned-page lease protection, graceful CLI SIGINT/SIGTERM cancellation where PCNTL is available, and temporary FreePBX-native resource telemetry during GUI Historical calculations. Live counting, monitoring, thresholds, featured-trunk and calculation semantics remain unchanged.
 		*2.1.0 (27 August 2026)* Adds Live View and Live Wall, persistent presentation and monitoring controls, authoritative FreePBX PJSIP identity with reversible unknown-endpoint classifications, and global reversible Historical call exclusions that never alter source CDRs.
 		- Live View and Live Wall are explicitly trunk-only in 2.1.0: Overall Live Concurrency now counts current attributable PJSIP trunk legs only, matching the capacity meaning of Historical Trunk Concurrency.

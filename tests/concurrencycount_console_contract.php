@@ -18,6 +18,7 @@ $options = [
 	['demo-seed', 'null', 'VALUE_REQUIRED'],
 	['engine', 'null', 'VALUE_REQUIRED'],
 	['compare', 'null', 'VALUE_REQUIRED'],
+	['minimum-concurrency', 'null', 'VALUE_REQUIRED'],
 	['csv', 'null', 'VALUE_NONE'],
 ];
 foreach ($options as $option) {
@@ -67,7 +68,8 @@ console_contract_assert(strpos($console, 'catch (HistoricalCalculationCancelled 
 console_contract_assert(strpos($console, 'catch (HistoricalResourceLimitException $resourceLimit)') !== false && strpos($console, "safe memory allowance") !== false, 'CLI soft-memory stop must be a distinct human-readable nonzero failure');
 console_contract_assert(strpos($console, 'Calculation cancelled.') !== false && strpos($console, '128 + $cliCancellation->signal()') !== false, 'CLI cancellation must report clearly and return conventional signal status');
 $mainClass = file_get_contents($root . '/Concurrencycount.class.php');
-console_contract_assert(strpos($mainClass, '($inserted % 100) === 0') !== false && strpos($mainClass, 'cleanupDemoCdrRows($accountcode)') !== false, 'Demo cancellation must checkpoint insertion and retain finally cleanup');
+console_contract_assert(strpos($mainClass, 'array_chunk($rows, 100)') !== false && strpos($mainClass, '$this->workerCheckpoint();') !== false && strpos($mainClass, 'cleanupDemoCdrRows($accountcode)') !== false, 'Demo cancellation must checkpoint bounded insertion batches and retain finally cleanup');
+console_contract_assert(strpos($mainClass, "DEMO_RUN_KEY_PREFIX = 'demo_run:'") !== false && strpos($mainClass, 'recoverStaleDemoRuns()') !== false && strpos($mainClass, 'DemoCleanupService') !== false, 'Demo must retain a durable stale-run cleanup path');
 console_contract_assert(strpos($mainClass, 'Demo cleanup incomplete:') !== false, 'Incomplete Demo cleanup must be reported explicitly');
 
 echo "Console contract passed\n";

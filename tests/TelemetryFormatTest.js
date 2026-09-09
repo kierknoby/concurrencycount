@@ -6,11 +6,11 @@ function assert(condition, message) {
 	if (!condition) throw new Error(message);
 }
 
-assert(format.eta(false, null) === 'Estimating...', 'Unreliable ETA must remain in warm-up state');
+assert(format.eta(false, null) === 'Calculating...', 'Unreliable ETA must remain in assessment state');
 assert(format.eta(true, 90) === '00:01:30', 'Reliable 90-second ETA must use clock formatting');
 assert(format.eta(true, 0.25) === '< 1 second', 'Positive sub-second ETA must not render as zero');
 assert(format.eta(true, 0) === '< 1 second', 'A reliable local ETA reaching zero must remain an active sub-second estimate');
-assert(format.eta(true, -5) === 'Estimating...', 'Negative ETA must not be displayed');
+assert(format.eta(true, -5) === 'Calculating...', 'Negative ETA must not be displayed');
 assert(format.duration(-1) === '00:00:00', 'Negative elapsed/runtime values must clamp safely');
 
 let state = format.synchronize(null, {elapsed: 4, runtime_remaining: 3595, eta_reliable: true, estimated_remaining: 72}, 1000);
@@ -22,7 +22,7 @@ timers = format.snapshot(state, 3000);
 assert(timers.elapsed === 6 && timers.runtimeRemaining === 3593 && timers.etaRemaining === 70, 'All timers must use actual monotonic time after two seconds');
 
 let estimating = format.synchronize(null, {elapsed: 0, runtime_remaining: 3600, eta_reliable: false, estimated_remaining: 99}, 0);
-assert(format.eta(format.snapshot(estimating, 9000).etaReliable, format.snapshot(estimating, 9000).etaRemaining) === 'Estimating...', 'Unreliable ETA must not start a local countdown');
+assert(format.eta(format.snapshot(estimating, 9000).etaReliable, format.snapshot(estimating, 9000).etaRemaining) === 'Calculating...', 'Unreliable ETA must not start a local countdown');
 let subsecond = format.synchronize(null, {elapsed: 1, runtime_remaining: 20, eta_reliable: true, estimated_remaining: 0.4}, 0);
 assert(format.eta(format.snapshot(subsecond, 0).etaReliable, format.snapshot(subsecond, 0).etaRemaining) === '< 1 second', 'Authoritative positive sub-second ETA remains explicit');
 assert(format.eta(format.snapshot(subsecond, 5000).etaReliable, format.snapshot(subsecond, 5000).etaRemaining) === '< 1 second', 'Local ETA below one second does not infer completion');
@@ -30,6 +30,8 @@ assert(format.eta(format.snapshot(subsecond, 5000).etaReliable, format.snapshot(
 state = format.synchronize(state, {elapsed: 10, runtime_remaining: 3500, eta_reliable: true, estimated_remaining: 90}, 3000);
 timers = format.snapshot(state, 3000);
 assert(timers.elapsed === 10 && timers.runtimeRemaining === 3500 && timers.etaRemaining === 90, 'New telemetry resynchronizes elapsed/runtime and accepts an increased ETA');
+state = format.synchronize(state, {elapsed: 10, runtime_remaining: 7100, runtime_allowance_seconds: 7200, eta_reliable: true, estimated_remaining: 90}, 3000);
+assert(format.snapshot(state, 3000).runtimeAllowance === 7200, 'Authoritative temporary runtime allowance is retained without resetting elapsed');
 state = format.synchronize(state, {elapsed: 9, runtime_remaining: 3498, eta_reliable: true, estimated_remaining: 20}, 4000);
 timers = format.snapshot(state, 4000);
 assert(timers.elapsed === 11, 'Display jitter must not move elapsed backwards at resynchronization');

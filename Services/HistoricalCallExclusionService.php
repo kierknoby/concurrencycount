@@ -54,13 +54,16 @@ class HistoricalCallExclusionService {
 		return $stored;
 	}
 
-	public function filterRows(array $rows, array $stored): array {
+	public function filterRows(array $rows, array $stored, ?callable $checkpoint = null): array {
 		$stored = $this->repair($stored);
 		if (empty($stored)) return $rows;
-		return array_values(array_filter($rows, function (array $row) use ($stored): bool {
+		$out = [];
+		foreach ($rows as $index => $row) {
+			if ($checkpoint !== null && ($index % 256) === 0) call_user_func($checkpoint, $index, count($rows));
 			$identity = $this->identityForRow($row);
-			return $identity === null || !isset($stored[$identity]);
-		}));
+			if ($identity === null || !isset($stored[$identity])) $out[] = $row;
+		}
+		return $out;
 	}
 
 	private function normaliseSummary(array $summary): array {

@@ -561,6 +561,9 @@ window._ccLiveLoaded = true;
 		$('#cc-threshold-rows').html(rows.join(''));
 		$('#cc-settings-error').hide();
 		$('#cc-live-settings-modal').modal('show');
+		ajax({command: 'historicalprotection'}).done(function (response) {
+			if (response.status) $('#cc-setting-pbx-protection').val(response.threshold);
+		});
 		loadMonitorStatus();
 	}
 
@@ -619,7 +622,11 @@ window._ccLiveLoaded = true;
 				candidate.trunks[trunk] = value;
 			}
 		});
-		saveSettings(candidate, true, null, null, true);
+		var protection = parseInt($('#cc-setting-pbx-protection').val(), 10);
+		ajax({command: 'historicalprotection', threshold: protection}).done(function (response) {
+			if (!response.status) { $('#cc-settings-error').text(response.message || 'Unable to save PBX Protection.').show(); return; }
+			saveSettings(candidate, true, null, null, true);
+		}).fail(function () { $('#cc-settings-error').text('Unable to save PBX Protection.').show(); });
 	}
 
 	function saveSettings(candidate, closeModal, onSuccess, onFailure, pollAfterSave) {
@@ -684,7 +691,7 @@ window._ccLiveLoaded = true;
 			renderHistoricalSeries();
 			return;
 		}
-		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : ''}).done(function (response) {
+		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : '', minimum_concurrency: result.minimum_concurrency || ''}).done(function (response) {
 			if (!response.status) return;
 			historicalSeries = response.graph;
 			renderHistoricalSeries();
