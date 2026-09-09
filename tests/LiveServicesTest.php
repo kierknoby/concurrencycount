@@ -152,6 +152,23 @@ live_assert_same(1, $authoritativeShapes['trunks']['custom-gateway']['current'],
 live_assert_same([], $authoritativeShapes['identity_anomalies'], 'Ignored endpoint is excluded without repeated anomaly');
 
 $thresholds = new ThresholdService();
+$zeroWall = $thresholds->validateFeaturedSelection([], []);
+live_assert_same(true, $zeroWall['complete'], 'No configured trunks permits an Overall-only 0/0 Live Wall');
+foreach ([1, 2, 3, 7] as $inventoryCount) {
+	$inventory = array_slice(['one', 'two', 'three', 'four', 'five', 'six', 'seven'], 0, $inventoryCount);
+	$required = min(3, $inventoryCount);
+	$partial = $thresholds->validateFeaturedSelection(array_slice($inventory, 0, max(0, $required - 1)), $inventory);
+	$complete = $thresholds->validateFeaturedSelection(array_slice($inventory, 0, $required), $inventory);
+	live_assert_same(false, $partial['complete'], 'Partial featured selection must be incomplete for inventory ' . $inventoryCount);
+	live_assert_same(true, $complete['complete'], 'Required featured selection must be complete for inventory ' . $inventoryCount);
+}
+$orderedWall = $thresholds->validateFeaturedSelection(['three', 'one', 'two'], ['one', 'two', 'three', 'four', 'five', 'six', 'seven']);
+live_assert_same(['three', 'one', 'two'], $orderedWall['valid'], 'Featured selection validation preserves left-to-right channelid order');
+$deletedWall = $thresholds->validateFeaturedSelection(['three', 'one', 'two'], ['one', 'two', 'four', 'five', 'six', 'seven']);
+live_assert_same(['one', 'two'], $deletedWall['valid'], 'Deleted featured trunk is removed without an automatic substitute');
+$staleExtraWall = $thresholds->validateFeaturedSelection(['one', 'deleted'], ['one']);
+live_assert_same(true, $staleExtraWall['complete'], 'Launch validity counts only configured saved trunks');
+live_assert_same(false, $staleExtraWall['exact'], 'Configuration persistence rejects extra stale trunk identifiers');
 $defaults = $thresholds->defaults();
 live_assert_same(5, $defaults['refresh_interval'], 'Default browser refresh interval');
 live_assert_same(false, $defaults['alerts_enabled'], 'Alerts disabled by default');

@@ -75,4 +75,104 @@ assert(!fallbackRendered && fallbackScheduler.timers.length === 1 && fallbackSch
 fallbackScheduler.timers.shift().callback();
 assert(fallbackRendered, 'Historical scheduling fallback must execute the requested render');
 
+const fullscreenWall = {requestFullscreen: function () { return {catch: function () {}}; }};
+const fullscreenDocument = {fullscreenElement: null};
+const helperWindow = {_ccLiveLoaded: true, setTimeout: function () {}};
+vm.runInNewContext(fs.readFileSync(__dirname + '/../assets/js/live-view.js', 'utf8'), {window: helperWindow});
+const fullscreen = helperWindow.CCLiveWallFullscreen;
+assert(fullscreen.shouldShow(true, fullscreenWall, fullscreenDocument), 'Full Screen must show for an active supported wall outside browser fullscreen');
+fullscreenDocument.fullscreenElement = fullscreenWall;
+assert(!fullscreen.shouldShow(true, fullscreenWall, fullscreenDocument), 'Full Screen must hide while the wall is the document fullscreen element');
+fullscreenDocument.fullscreenElement = null;
+assert(fullscreen.shouldShow(true, fullscreenWall, fullscreenDocument), 'Full Screen must reappear after fullscreenchange reports no fullscreen element');
+assert(!fullscreen.shouldShow(false, fullscreenWall, fullscreenDocument), 'Full Screen must remain scoped to active Live Wall presentation');
+assert(!fullscreen.shouldShow(true, {}, fullscreenDocument), 'Unsupported browsers must not show Full Screen');
+let requested = 0; let rejectionHandler = null; let settled = 0;
+const rejectedWall = {requestFullscreen: function () { requested++; return {catch: function (handler) { rejectionHandler = handler; }}; }};
+assert(fullscreen.request(rejectedWall, function () { settled++; }) && requested === 1, 'Explicit Full Screen must invoke requestFullscreen');
+rejectionHandler();
+assert(settled === 1 && fullscreen.shouldShow(true, rejectedWall, fullscreenDocument), 'A rejected request must keep Full Screen available for another user gesture');
+const throwingWall = {requestFullscreen: function () { throw new Error('denied'); }};
+assert(!fullscreen.request(throwingWall, function () { settled++; }) && settled === 2, 'Synchronous fullscreen exceptions must be contained and resynchronised');
+
+const selection = helperWindow.CCLiveWallSelection;
+const launch = helperWindow.CCLiveWallLaunch;
+function selectionState(saved, inventory) { return selection.state(saved, inventory); }
+assert(selectionState([], []).complete && selectionState([], []).required === 0, 'N=0 must permit Overall-only Live Wall');
+assert(!selectionState([], ['one']).complete && selectionState(['one'], ['one']).complete, 'N=1 must require exactly one configured trunk');
+assert(!selectionState(['one'], ['one', 'two']).complete && selectionState(['one', 'two'], ['one', 'two']).complete, 'N=2 must require exactly two configured trunks');
+assert(selectionState(['one', 'two', 'three'], ['one', 'two', 'three']).complete, 'N=3 must require three configured trunks');
+assert(!selectionState(['one', 'two'], ['one', 'two', 'three', 'four', 'five', 'six', 'seven']).complete, 'Two of seven trunks must remain incomplete');
+const threeOfSeven = selectionState(['three', 'one', 'two'], ['one', 'two', 'three', 'four', 'five', 'six', 'seven']);
+assert(threeOfSeven.complete && threeOfSeven.required === 3 && threeOfSeven.valid.join(',') === 'three,one,two', 'Three of seven must be complete and preserve saved order');
+const deleted = selectionState(['three', 'one', 'two'], ['one', 'two', 'four', 'five', 'six', 'seven']);
+assert(!deleted.complete && deleted.valid.join(',') === 'one,two', 'Deleting a selected trunk must not invent a substitute');
+const added = selectionState(['three', 'one', 'two'], ['one', 'two', 'three', 'four']);
+assert(added.complete && added.valid.join(',') === 'three,one,two', 'Adding a trunk must not change an already valid ordered selection');
+
+const directLaunchEvents = [];
+let finishRevalidation = null;
+launch.start(threeOfSeven, {
+	configure: function () { directLaunchEvents.push('configure'); },
+	enter: function () { directLaunchEvents.push('enter'); },
+	revalidate: function (done) { directLaunchEvents.push('revalidate'); finishRevalidation = done; },
+	invalidate: function () { directLaunchEvents.push('invalidate'); }
+});
+assert(directLaunchEvents.join(',') === 'enter,revalidate', 'A valid launch must enter and request fullscreen before asynchronous revalidation starts');
+finishRevalidation(selectionState(['three', 'one', 'two'], ['one', 'two', 'four', 'five']));
+assert(directLaunchEvents.join(',') === 'enter,revalidate,invalidate', 'Authoritative revalidation must close an invalidated Live Wall without substituting a trunk');
+
+const incompleteLaunchEvents = [];
+launch.start(selectionState(['one', 'two'], ['one', 'two', 'three', 'four']), {
+	configure: function () { incompleteLaunchEvents.push('configure'); },
+	enter: function () { incompleteLaunchEvents.push('enter'); },
+	revalidate: function () { incompleteLaunchEvents.push('revalidate'); },
+	invalidate: function () { incompleteLaunchEvents.push('invalidate'); }
+});
+assert(incompleteLaunchEvents.join(',') === 'configure', 'An incomplete launch must open configuration without entering Live Wall');
+
+const beforeBackendRace = selectionState(['one', 'two', 'three'], ['one', 'two', 'three', 'four']);
+const afterBackendRace = selectionState(beforeBackendRace.valid, ['one', 'two', 'four', 'five']);
+assert(beforeBackendRace.complete && !afterBackendRace.complete && afterBackendRace.valid.join(',') === 'one,two', 'Inventory changes between pre-save refresh and backend save must reconcile without substitution');
+const recoveryEvents = [];
+let completeInventoryRefresh = null;
+helperWindow.CCLiveWallConfigurationRecovery.run(beforeBackendRace.valid, function (ready) {
+	recoveryEvents.push('refresh');
+	completeInventoryRefresh = ready;
+}, function (reconciled) {
+	recoveryEvents.push('render:' + reconciled.valid.join(',') + ':' + reconciled.inventoryCount);
+});
+assert(recoveryEvents.join(',') === 'refresh', 'A backend inventory rejection must not rerender before authoritative refresh completes');
+completeInventoryRefresh(['one', 'two', 'four', 'five']);
+assert(recoveryEvents.join(',') === 'refresh,render:one,two:4', 'The modal must rerender against refreshed inventory without selecting a replacement');
+
+const failedPreflightEvents = [];
+const failedPreflightDraft = ['one', 'two', 'three'];
+let failPreflightRefresh = null;
+helperWindow.CCLiveWallSavePreflight.run(function (ready, failed) {
+	failedPreflightEvents.push('refresh');
+	failPreflightRefresh = failed;
+}, function () {
+	failedPreflightEvents.push('save');
+}, function (message) {
+	failedPreflightEvents.push('enable:' + message);
+});
+failPreflightRefresh('inventory unavailable');
+assert(failedPreflightEvents.join(',') === 'refresh,enable:inventory unavailable' && failedPreflightDraft.join(',') === 'one,two,three', 'A failed pre-save refresh must preserve the draft and restore retry state without attempting a save');
+
+const failedRecoveryEvents = [];
+const failedRecoveryDraft = ['one', 'two', 'three'];
+const backendRejection = 'Choose exactly 3 currently configured trunks.';
+let failRecoveryRefresh = null;
+helperWindow.CCLiveWallConfigurationRecovery.run(failedRecoveryDraft, function (ready, failed) {
+	failedRecoveryEvents.push('refresh');
+	failRecoveryRefresh = failed;
+}, function () {
+	failedRecoveryEvents.push('render');
+}, function () {
+	failedRecoveryEvents.push('enable:' + backendRejection);
+});
+failRecoveryRefresh('inventory unavailable');
+assert(failedRecoveryEvents.join(',') === 'refresh,enable:' + backendRejection && failedRecoveryDraft.join(',') === 'one,two,three', 'A failed post-rejection refresh must preserve the backend message and draft, restore retry state, and avoid rendering stale inventory');
+
 console.log('Concurrency chart lifecycle tests passed');

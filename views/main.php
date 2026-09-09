@@ -174,7 +174,7 @@ $_ccAssetVer = max(
 <section id="cc-live-wall" class="cc-live-wall cc-theme-dark" style="display:none;" aria-labelledby="cc-live-wall-title">
 	<header class="cc-wall-header">
 		<div><span class="cc-section-kicker"><?php echo _('READ-ONLY LIVE DASHBOARD'); ?></span><h1 id="cc-live-wall-title"><?php echo _('Live Wall'); ?></h1></div>
-		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress"></i> <?php echo _('Exit Live Wall'); ?></button></div>
+		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-fullscreen" class="btn btn-default btn-lg" style="display:none;"><i class="fa fa-expand" aria-hidden="true"></i> <?php echo _('Full Screen'); ?></button><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress" aria-hidden="true"></i> <?php echo _('Exit Live Wall'); ?></button></div>
 	</header>
 	<div id="cc-wall-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
 	<div id="cc-wall-content" style="display:none;">
@@ -254,7 +254,7 @@ $_ccAssetVer = max(
 			</div>
 			<div class="modal-body">
 				<h5><?php echo _('Featured trunks'); ?></h5>
-				<p><?php echo _('Choose up to 3 trunks to display on Live Wall. Featured trunks appear left to right in the order shown below.'); ?></p>
+				<p><?php echo _('Choose the required trunks to display on Live Wall. Up to three are required, based on the current configured trunk inventory. Featured trunks appear left to right in the order shown below.'); ?></p>
 				<p id="cc-wall-featured-count" class="text-muted" aria-live="polite"></p>
 				<div id="cc-wall-featured-list"></div>
 				<div id="cc-wall-featured-error" class="alert alert-danger" style="display:none;"></div>

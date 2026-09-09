@@ -432,11 +432,11 @@ Unknown saved channelids are retained but ignored while unavailable, and newly d
 
 ### Live Wall
 
-Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Overall remains primary. Administrators can feature zero to three ordered trunks.
+Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
 
-Hidden featured trunks are suppressed without deleting preference. Monitoring-stopped featured trunks still display current data and contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
+Live Wall launch opens **Configure Live Wall** when the saved selection is incomplete. No trunk is selected or substituted automatically, so deleting a selected trunk can require reconfiguration. Hidden featured trunks remain selected but are suppressed from presentation. Monitoring-stopped featured trunks remain valid and display current data. Saved left-to-right order remains authoritative. All configured trunks, including hidden, monitoring-stopped and unfeatured trunks, continue to contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
 
-Launching requests the Fullscreen API when available. Denial leaves the full-page wall active. Browser Esc exits fullscreen but leaves Live Wall active; **Exit Live Wall** returns to Live View.
+An already-valid launch requests the Fullscreen API directly from the launch gesture when available, then revalidates the current inventory; an invalidated selection closes the Wall and opens configuration. A first-time configure-and-save continuation enters the full-page Wall without assuming the earlier gesture can still request fullscreen. Denial leaves the full-page Wall active. **Full Screen** is available whenever Live Wall is active, supported and outside browser fullscreen. Browser Esc exits fullscreen but leaves Live Wall active and makes **Full Screen** available again; **Exit Live Wall** returns to Live View.
 
 Preferences use the FreePBX Core PJSIP trunk `channelid`. Changing a trunk channelid can leave saved visibility, order, feature or monitoring preferences attached to the old identifier; automatic migration is not currently performed.
 

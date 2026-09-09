@@ -27,6 +27,19 @@ class ThresholdService {
 		return $this->normaliseInternal($input, $trunks, false);
 	}
 
+	public function validateFeaturedSelection(array $featured, array $trunks): array {
+		$trunks = array_values(array_unique(array_map('strval', $trunks)));
+		$required = min(3, count($trunks));
+		$allowed = array_fill_keys($trunks, true);
+		$valid = [];
+		foreach ($featured as $trunk) {
+			$trunk = (string)$trunk;
+			if (isset($allowed[$trunk]) && !in_array($trunk, $valid, true)) $valid[] = $trunk;
+		}
+		$complete = count($valid) === $required;
+		return ['required' => $required, 'inventory_count' => count($trunks), 'valid' => $valid, 'complete' => $complete, 'exact' => $complete && count($featured) === $required];
+	}
+
 	private function normaliseInternal(array $input, array $trunks, bool $rejectUnknownTrunks): array {
 		$defaults = $this->defaults();
 		$trunks = array_values(array_unique(array_map('strval', $trunks)));

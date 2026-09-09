@@ -349,9 +349,14 @@ class Concurrencycount implements \BMO {
 		return $service->reconcileStored(is_array($stored) ? $stored : [], $this->getConfiguredLiveTrunks());
 	}
 
-	public function saveLiveSettings(array $settings): array {
+	public function saveLiveSettings(array $settings, bool $requireCompleteLiveWall = false): array {
 		$service = new \FreePBX\modules\Concurrencycount\Services\ThresholdService();
-		$normalised = $service->normalise($settings, $this->getConfiguredLiveTrunks());
+		$configuredTrunks = $this->getConfiguredLiveTrunks();
+		$normalised = $service->normalise($settings, $configuredTrunks);
+		if ($requireCompleteLiveWall) {
+			$selection = $service->validateFeaturedSelection($normalised['live_wall_featured_trunks'], $configuredTrunks);
+			if (!$selection['exact']) throw new \InvalidArgumentException(sprintf(_('Choose exactly %d configured trunks to display on Live Wall.'), $selection['required']));
+		}
 		$repository = $this->getSettingsRepository();
 		$states = $repository->get(self::ALERT_STATE_KEY, []);
 		if (!is_array($states)) $states = [];
@@ -955,7 +960,7 @@ class Concurrencycount implements \BMO {
 			$json = isset($_REQUEST['settings']) ? (string)$_REQUEST['settings'] : '';
 			$decoded = json_decode($json, true);
 			if (!is_array($decoded)) throw new \InvalidArgumentException(_('Invalid settings payload.'));
-			return ['status' => true, 'settings' => $this->saveLiveSettings($decoded)];
+			return ['status' => true, 'settings' => $this->saveLiveSettings($decoded, !empty($_REQUEST['live_wall_configuration']))];
 		} catch (\Exception $exception) {
 			return ['status' => false, 'message' => $exception->getMessage()];
 		}

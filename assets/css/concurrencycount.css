@@ -980,8 +980,12 @@ body.cc-wall-active { overflow:hidden; }
 .cc-live-wall.cc-theme-dark .cc-wall-monitoring,
 .cc-live-wall.cc-theme-dark .cc-wall-threshold,
 .cc-live-wall.cc-theme-dark .cc-wall-peak { color:#c7d1da; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-fullscreen,
 .cc-live-wall.cc-theme-dark #cc-live-wall-exit { background:#263746; border-color:#6f8292; color:#fff; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-fullscreen:hover,
 .cc-live-wall.cc-theme-dark #cc-live-wall-exit:hover { background:#344b5d; border-color:#9babb7; }
+.cc-live-wall.cc-theme-dark #cc-live-wall-fullscreen:focus,
+.cc-live-wall.cc-theme-dark #cc-live-wall-fullscreen:focus-visible,
 .cc-live-wall.cc-theme-dark #cc-live-wall-exit:focus,
 .cc-live-wall.cc-theme-dark #cc-live-wall-exit:focus-visible,
 .cc-live-wall.cc-theme-dark canvas:focus,
