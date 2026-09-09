@@ -35,6 +35,7 @@ require_once __DIR__ . '/Services/HistoricalMemoryGuard.php';
 require_once __DIR__ . '/Services/HistoricalAssessment.php';
 require_once __DIR__ . '/Services/DemoDiskGuard.php';
 require_once __DIR__ . '/Services/HistoricalCdrAcquisition.php';
+require_once __DIR__ . '/Services/HistoricalDatabaseCapabilities.php';
 require_once __DIR__ . '/Services/DemoCleanupService.php';
 require_once __DIR__ . '/Services/DemoCleanupCoordinator.php';
 require_once __DIR__ . '/Services/DemoCleanupHeartbeat.php';
@@ -84,6 +85,7 @@ class Concurrencycount implements \BMO {
 	private $workerDemoRegistryKey = '';
 	private $workerDemoRegistryHeartbeat = 0;
 	private $queryDeadlineConfigured = false;
+	private $historicalDatabaseCapabilities = null;
 	private $cdrColumnsCache = null;
 	private $settingsRepository = null;
 	private $pjsipIdentityService = null;
@@ -1496,25 +1498,36 @@ class Concurrencycount implements \BMO {
 			return ['status' => true, 'runtime_allowance_seconds' => $r['runtime_allowance_seconds']];
 		} catch (\Throwable $e) { return ['status' => false, 'message' => $e->getMessage()]; }
 	}
-	private function configureHistoricalQueryDeadline(): void {
-		if ($this->queryDeadlineConfigured) return;
-
+	private function configureHistoricalQueryDeadline(): array {
+		if ($this->queryDeadlineConfigured) return $this->historicalDatabaseCapabilities;
 		$version = (string)$this->cdrdb->query('SELECT VERSION()')->fetchColumn();
-		preg_match('/^(\d+\.\d+\.\d+)/', $version, $matches);
-		$numericVersion = $matches[1] ?? '0.0.0';
-
-		if (stripos($version, 'MariaDB') !== false) {
-			if (version_compare($numericVersion, '10.1.1', '>=')) {
-				$this->cdrdb->exec('SET SESSION max_statement_time=2');
-			}
-		} elseif (version_compare($numericVersion, '5.7.8', '>=')) {
-			$this->cdrdb->exec('SET SESSION max_execution_time=2000');
-		} else {
-			throw new \RuntimeException('Historical protection requires database statement timeout support.');
-		}
-
+		$capabilities = \FreePBX\modules\Concurrencycount\Services\HistoricalDatabaseCapabilities::fromServerVersion($version);
+		if (!$capabilities['historical_supported']) throw new \RuntimeException('Historical reporting requires MariaDB or MySQL 5.7.8 or later with a recognized server version.');
+		if ($capabilities['select_statement_timeout_type'] === 'max_statement_time') $this->cdrdb->exec('SET SESSION max_statement_time=2');
+		elseif ($capabilities['select_statement_timeout_type'] === 'max_execution_time') $this->cdrdb->exec('SET SESSION max_execution_time=2000');
 		$this->cdrdb->exec('SET SESSION innodb_lock_wait_timeout=2');
+		$this->historicalDatabaseCapabilities = $capabilities;
 		$this->queryDeadlineConfigured = true;
+		return $capabilities;
+	}
+	private function requireDemoStatementTimeoutSupport(array $capabilities): void {
+		if (!$capabilities['cleanup_statement_timeout_supported']) {
+			$vendor = $capabilities['vendor'] === 'mariadb' ? 'MariaDB' : ($capabilities['vendor'] === 'mysql' ? 'MySQL' : 'database');
+			throw new \RuntimeException(sprintf(_('Demo mode requires a database execution timeout that covers cleanup DELETE statements and is unavailable on this %s version. Historical reporting remains available.'), $vendor));
+		}
+	}
+	private function verifyLegacyHistoricalAccessPath(): string {
+		try {
+			$stmt = $this->cdrdb->query("SELECT INDEX_NAME, SEQ_IN_INDEX, COLUMN_NAME, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cdr' ORDER BY INDEX_NAME, SEQ_IN_INDEX");
+			$indexes = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+		} catch (\Throwable $exception) {
+			throw new \RuntimeException(_('Historical reporting on this legacy database requires verification of a leading CDR calldate index.'), 0, $exception);
+		}
+		if (is_array($indexes)) foreach ($indexes as $index) {
+			$indexName = (string)($index['INDEX_NAME'] ?? '');
+			if ($indexName !== '' && (int)($index['SEQ_IN_INDEX'] ?? 0) === 1 && strcasecmp((string)($index['COLUMN_NAME'] ?? ''), 'calldate') === 0 && ($index['SUB_PART'] ?? null) === null) return $indexName;
+		}
+		throw new \RuntimeException(_('Historical reporting on this legacy database requires a full leading index on cdr.calldate; no schema change was made.'));
 	}
 	private function isHistoricalQueryTimeout(\Throwable $exception): bool {
 		$driverCode = null;
@@ -1986,7 +1999,8 @@ class Concurrencycount implements \BMO {
 		try {
 			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');
 			$rows = $this->normaliseDemoRows($_REQUEST['demo_rows'] ?? 0, $size);
-			$this->configureHistoricalQueryDeadline();
+			$capabilities = $this->configureHistoricalQueryDeadline();
+			$this->requireDemoStatementTimeoutSupport($capabilities);
 			$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
 			$diskGuard->verifyCleanupAccessPath();
 			$recovered = $this->recoverStaleDemoRuns();
@@ -1998,7 +2012,8 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function calculateDemo(string $start, string $end, float $started_at, array $options): array {
-		$this->configureHistoricalQueryDeadline();
+		$capabilities = $this->configureHistoricalQueryDeadline();
+		$this->requireDemoStatementTimeoutSupport($capabilities);
 		$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
 		$diskGuard->verifyCleanupAccessPath();
 		$this->recoverStaleDemoRuns();
@@ -2736,14 +2751,19 @@ class Concurrencycount implements \BMO {
 
 	private function fetchPjsipCdrRows(string $start, string $end, string $accountcode = ''): array {
 		$account_filter = $accountcode !== '' ? ' AND accountcode = :accountcode' : \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::ordinarySqlPredicate();
+		$this->workerCheckpoint();
+		$capabilities = $this->configureHistoricalQueryDeadline();
+		$legacyCalldateIndex = '';
+		if ($capabilities['adaptive_legacy_acquisition']) { $this->workerCheckpoint(); $legacyCalldateIndex = $this->verifyLegacyHistoricalAccessPath(); }
+		$this->workerCheckpoint();
 		$available = [];
 		foreach ($this->getCdrColumns() as $column) if (isset($column['Field'])) $available[$column['Field']] = true;
 		$identitySelect = (isset($available['linkedid']) ? '`linkedid`' : "'' AS linkedid") . ', ' . (isset($available['uniqueid']) ? '`uniqueid`' : "'' AS uniqueid");
-		$this->configureHistoricalQueryDeadline();
 		$acquisition = new \FreePBX\modules\Concurrencycount\Services\HistoricalCdrAcquisition(
-			function (string $rangeStart, string $rangeEnd, bool $inclusive) use ($identitySelect, $account_filter, $accountcode): \Generator {
+			function (string $rangeStart, string $rangeEnd, bool $inclusive) use ($identitySelect, $account_filter, $accountcode, $legacyCalldateIndex): \Generator {
 				$comparison = $inclusive ? 'calldate BETWEEN :start AND :end' : 'calldate >= :start AND calldate < :end';
-			$sql = "SELECT calldate, duration, channel, dstchannel, dst, accountcode, $identitySelect FROM cdr
+			$table = $legacyCalldateIndex === '' ? 'cdr' : 'cdr FORCE INDEX (`' . str_replace('`', '``', $legacyCalldateIndex) . '`)';
+			$sql = "SELECT calldate, duration, channel, dstchannel, dst, accountcode, $identitySelect FROM $table
 				WHERE disposition='ANSWERED' AND $comparison $account_filter
 				AND (channel LIKE 'PJSIP/%' OR dstchannel LIKE 'PJSIP/%')";
 			$params = [':start' => $rangeStart, ':end' => $rangeEnd];
@@ -2759,7 +2779,9 @@ class Concurrencycount implements \BMO {
 			}
 			},
 			function (\Throwable $exception): bool { return $this->isHistoricalQueryTimeout($exception); },
-			function (int $acquired = 0): void { $this->workerWork = [$acquired, 0, 'cdr-acquisition']; $this->workerCheckpoint(); }
+			function (int $acquired = 0): void { $this->workerWork = [$acquired, 0, 'cdr-acquisition']; $this->workerCheckpoint(); },
+			$capabilities['acquisition_window_seconds'],
+			$capabilities['adaptive_legacy_acquisition']
 		);
 		$rows = $acquisition->fetch($start, $end);
 		$this->workerCheckpoint();

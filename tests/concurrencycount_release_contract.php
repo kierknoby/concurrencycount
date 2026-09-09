@@ -57,6 +57,7 @@ $runtimeFiles = [
 	'Services/PjsipIdentityService.php',
 	'Services/HistoricalCallExclusionService.php',
 	'Services/HistoricalCdrAcquisition.php',
+	'Services/HistoricalDatabaseCapabilities.php',
 	'Services/DemoCleanupService.php',
 	'Services/DemoCleanupCoordinator.php',
 	'Services/DemoCleanupHeartbeat.php',
