@@ -1498,11 +1498,21 @@ class Concurrencycount implements \BMO {
 	}
 	private function configureHistoricalQueryDeadline(): void {
 		if ($this->queryDeadlineConfigured) return;
+
 		$version = (string)$this->cdrdb->query('SELECT VERSION()')->fetchColumn();
-		// Refuse unsupported servers rather than promise cancellation around blocking SQL.
-		if (stripos($version, 'MariaDB') !== false) $this->cdrdb->exec('SET SESSION max_statement_time=2');
-		elseif (version_compare($version, '5.7.8', '>=')) $this->cdrdb->exec('SET SESSION max_execution_time=2000');
-		else throw new \RuntimeException('Historical protection requires database statement timeout support.');
+		preg_match('/^(\d+\.\d+\.\d+)/', $version, $matches);
+		$numericVersion = $matches[1] ?? '0.0.0';
+
+		if (stripos($version, 'MariaDB') !== false) {
+			if (version_compare($numericVersion, '10.1.1', '>=')) {
+				$this->cdrdb->exec('SET SESSION max_statement_time=2');
+			}
+		} elseif (version_compare($numericVersion, '5.7.8', '>=')) {
+			$this->cdrdb->exec('SET SESSION max_execution_time=2000');
+		} else {
+			throw new \RuntimeException('Historical protection requires database statement timeout support.');
+		}
+
 		$this->cdrdb->exec('SET SESSION innodb_lock_wait_timeout=2');
 		$this->queryDeadlineConfigured = true;
 	}
