@@ -937,7 +937,11 @@ window._ccLiveLoaded = true;
 		$('#cc-historical-graph').addClass('is-loading');
 		$('#cc-historical-graph-loading').show();
 		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
-		$('#cc-historical-resolution').text(series.display_resolution === 'exact_events' ? 'Exact CDR event transitions' : 'Display uses bucket maxima; exact peak remains ' + series.exact_peak);
+		var resolutionText = 'Display uses bucket maxima; exact peak remains ' + series.exact_peak;
+		if (series.display_resolution === 'exact_events') resolutionText = 'Exact CDR event transitions';
+		if (series.display_resolution === 'floor_events') resolutionText = 'Exact floor-relevant CDR event transitions';
+		if (series.display_resolution === 'floor_events_sampled') resolutionText = 'Display samples real floor-qualified event boundaries; exact peak remains ' + series.exact_peak;
+		$('#cc-historical-resolution').text(resolutionText);
 		var thresholdConfig = historicalSeries.thresholds[name] || {};
 		historicalChartRenderScheduler.schedule(function () {
 			var container = document.getElementById('cc-historical-graph');

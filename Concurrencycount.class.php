@@ -858,9 +858,9 @@ class Concurrencycount implements \BMO {
 			}
 			$rows = $this->classifyPerNameRows($cdrRows, 'trunk', $identity)['rows'];
 			if ($trunk !== '') $rows = array_values(array_filter($rows, function ($row) use ($trunk) { return isset($row['identity']) && hash_equals($trunk, $row['identity']); }));
-			$graph = $service->trunkSeries($rows, $trunks, $range['start'], $range['end']);
+			$graph = $service->trunkSeries($rows, $trunks, $range['start'], $range['end'], $minimumConcurrency);
 		} else {
-			$graph = $service->overallSeries($this->classifyGroupRows($cdrRows, $identity)['rows'], $range['start'], $range['end']);
+			$graph = $service->overallSeries($this->classifyGroupRows($cdrRows, $identity)['rows'], $range['start'], $range['end'], $minimumConcurrency);
 		}
 		$settings = $this->getLiveSettings();
 		$graph['start'] = $range['start'];
