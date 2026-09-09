@@ -705,10 +705,19 @@ body:has(.concurrencycount) #page_body {
 
 .concurrencycount .cc-live-call-detail,
 .concurrencycount .cc-historical-graph {
+	min-width: 0;
+	max-width: 100%;
 	margin-top: 18px;
 	padding: 14px;
 	border: 1px solid #cbd3da;
 	background: #fff;
+}
+
+.concurrencycount .cc-historical-graph canvas {
+	display: block;
+	width: 100%;
+	max-width: 100%;
+	height: 220px;
 }
 
 .concurrencycount .cc-live-call-table {

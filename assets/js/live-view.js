@@ -1,3 +1,26 @@
+(function (root) {
+	'use strict';
+	root.CCChartRenderScheduler = function () {
+		var pending = false;
+		var latest = null;
+		function flush() {
+			pending = false;
+			var render = latest;
+			latest = null;
+			if (render) render();
+		}
+		return {
+			schedule: function (render) {
+				latest = render;
+				if (pending) return;
+				pending = true;
+				if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(flush);
+				else root.setTimeout(flush, 0);
+			}
+		};
+	};
+}(window));
+
 if (!window._ccLiveLoaded) {
 window._ccLiveLoaded = true;
 (function ($) {
@@ -22,6 +45,7 @@ window._ccLiveLoaded = true;
 	var charts = {overall: null, trunks: {}, historical: null};
 	var historicalResult = null;
 	var historicalSeries = null;
+	var historicalChartRenderScheduler = window.CCChartRenderScheduler();
 
 	function ajax(params) {
 		params = $.extend({}, params, {token: $('.concurrencycount').first().attr('data-csrf-token') || $('input[name="token"]').first().val() || ''});
@@ -717,9 +741,15 @@ window._ccLiveLoaded = true;
 		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
 		$('#cc-historical-resolution').text(series.display_resolution === 'exact_events' ? 'Exact CDR event transitions' : 'Display uses bucket maxima; exact peak remains ' + series.exact_peak);
 		var thresholdConfig = historicalSeries.thresholds[name] || {};
-		if (!charts.historical) charts.historical = new window.ConcurrencyChart(document.getElementById('cc-historical-chart'), {onSelect: function (point) { focusHistoricalPoint(name, point); }});
-		else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
-		charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0);
+		historicalChartRenderScheduler.schedule(function () {
+			var canvas = document.getElementById('cc-historical-chart');
+			if (!canvas) return;
+			if (!charts.historical || charts.historical.canvas !== canvas || canvas.__ccConcurrencyChart !== charts.historical) {
+				if (charts.historical) charts.historical.destroy();
+				charts.historical = new window.ConcurrencyChart(canvas, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
+			} else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
+			charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0);
+		});
 	}
 
 	function focusHistoricalPoint(name, point) {

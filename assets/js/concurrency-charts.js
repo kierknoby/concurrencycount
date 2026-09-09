@@ -2,6 +2,7 @@
 	'use strict';
 
 	function ConcurrencyChart(canvas, options) {
+		if (canvas.__ccConcurrencyChart && canvas.__ccConcurrencyChart !== this) canvas.__ccConcurrencyChart.destroy();
 		this.canvas = canvas;
 		this.context = canvas.getContext('2d');
 		this.options = options || {};
@@ -12,12 +13,18 @@
 		this.resize = this.resize.bind(this);
 		this.onPointer = this.onPointer.bind(this);
 		this.onClick = this.onClick.bind(this);
+		canvas.__ccConcurrencyChart = this;
 		canvas.setAttribute('tabindex', '0');
 		canvas.setAttribute('role', 'img');
 		canvas.addEventListener('mousemove', this.onPointer);
 		canvas.addEventListener('mouseleave', this.onPointer);
 		canvas.addEventListener('click', this.onClick);
 		window.addEventListener('resize', this.resize);
+		this.resizeObserver = null;
+		if (typeof window.ResizeObserver === 'function') {
+			this.resizeObserver = new window.ResizeObserver(this.resize);
+			this.resizeObserver.observe(canvas);
+		}
 		this.resize();
 	}
 
@@ -25,12 +32,12 @@
 		this.points = Array.isArray(points) ? points.slice() : [];
 		this.threshold = Math.max(0, parseInt(threshold, 10) || 0);
 		this.canvas.setAttribute('aria-label', this.describe());
-		this.draw();
+		this.resize();
 	};
 
 	ConcurrencyChart.prototype.setTheme = function (theme) {
 		this.theme = theme === 'dark' ? 'dark' : 'light';
-		this.draw();
+		this.resize();
 	};
 
 	ConcurrencyChart.prototype.palette = function () {
@@ -47,8 +54,12 @@
 
 	ConcurrencyChart.prototype.resize = function () {
 		var ratio = window.devicePixelRatio || 1;
-		var width = Math.max(240, this.canvas.clientWidth || 320);
-		var height = Math.max(100, this.canvas.clientHeight || 140);
+		var width = this.canvas.clientWidth;
+		var height = this.canvas.clientHeight;
+		// Hidden report panels have no usable layout box. Keep the supplied
+		// data and wait for the visible lifecycle resize instead of allowing
+		// fallback backing-store attributes to become intrinsic CSS dimensions.
+		if (!width || !height) return false;
 		if (this.canvas.width !== Math.round(width * ratio) || this.canvas.height !== Math.round(height * ratio)) {
 			this.canvas.width = Math.round(width * ratio);
 			this.canvas.height = Math.round(height * ratio);
@@ -57,9 +68,11 @@
 		this.width = width;
 		this.height = height;
 		this.draw();
+		return true;
 	};
 
 	ConcurrencyChart.prototype.draw = function () {
+		if (!this.width || !this.height) return;
 		var context = this.context;
 		var palette = this.palette();
 		var width = this.width || 320;
@@ -238,9 +251,11 @@
 
 	ConcurrencyChart.prototype.destroy = function () {
 		window.removeEventListener('resize', this.resize);
+		if (this.resizeObserver) this.resizeObserver.disconnect();
 		this.canvas.removeEventListener('mousemove', this.onPointer);
 		this.canvas.removeEventListener('mouseleave', this.onPointer);
 		this.canvas.removeEventListener('click', this.onClick);
+		if (this.canvas.__ccConcurrencyChart === this) this.canvas.__ccConcurrencyChart = null;
 	};
 
 	function formatTime(timestamp) {
