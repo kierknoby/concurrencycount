@@ -34,4 +34,21 @@ assert(!state.hasMeaningfulMessage('<span> \n&nbsp;</span>'), 'Empty generated m
 assert(state.hasMeaningfulMessage('Some calls were omitted.'), 'Meaningful report warning must remain visible');
 assert(state.hasMeaningfulMessage('<strong>Partial data:</strong> one source was unavailable.'), 'Meaningful notice text inside markup must remain visible');
 
+const submittedCriteria = {
+	name: 'Capacity year', mode: 'trunk', engine: 'sweep', preset: 'custom',
+	range_from: '2025-01-01', range_to: '2025-12-31', include_time: true,
+	from_time: '00:00', to_time: '23:59', filter: 'gamma', minimum_concurrency: 4,
+	start: '2025-01-01 00:00:00', end: '2025-12-31 23:59:59',
+	excluded_call_configuration: {count: 2, fingerprint: 'abc123'}
+};
+const savedCriteria = state.snapshotCriteria(submittedCriteria);
+const editDraft = state.snapshotCriteria(savedCriteria);
+assert(JSON.stringify(savedCriteria) === JSON.stringify(submittedCriteria), 'Edit Report must retain every submitted report criterion and exclusion snapshot');
+editDraft.minimum_concurrency = 5;
+editDraft.range_to = '2025-11-30';
+editDraft.excluded_call_configuration.count = 9;
+assert(savedCriteria.minimum_concurrency === 4 && savedCriteria.range_to === '2025-12-31' && savedCriteria.excluded_call_configuration.count === 2, 'Opening and editing a draft must not mutate the displayed result criteria');
+assert(JSON.stringify(state.snapshotCriteria(savedCriteria)) === JSON.stringify(savedCriteria), 'Run Again must reproduce the exact saved submitted criteria');
+assert(state.snapshotCriteria(editDraft).minimum_concurrency === 5 && state.snapshotCriteria(editDraft).range_to === '2025-11-30', 'Edited criteria must be captured for the revised submission');
+
 console.log('Historical run-state tests passed');

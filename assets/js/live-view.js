@@ -46,22 +46,66 @@
 		}
 	};
 
-	root.CCChartRenderScheduler = function () {
+	root.CCChartRenderScheduler = function (maximumAttempts) {
 		var pending = false;
 		var latest = null;
+		var nextId = 0;
+		maximumAttempts = Math.max(1, parseInt(maximumAttempts, 10) || 30);
+		function queue() {
+			pending = true;
+			if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(flush);
+			else root.setTimeout(flush, 16);
+		}
 		function flush() {
 			pending = false;
-			var render = latest;
-			latest = null;
-			if (render) render();
+			var job = latest;
+			if (!job) return;
+			var retry = job.render() === true;
+			if (latest !== job) return;
+			job.attempts++;
+			if (retry && job.attempts < maximumAttempts) queue();
+			else latest = null;
 		}
 		return {
 			schedule: function (render) {
-				latest = render;
+				latest = {id: ++nextId, render: render, attempts: 0};
 				if (pending) return;
-				pending = true;
-				if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(flush);
-				else root.setTimeout(flush, 0);
+				queue();
+			}
+		};
+	};
+	root.CCHistoricalGraphLifecycle = function (isCurrent) {
+		var stableDimensions = null;
+		var renderedDimensions = null;
+		function dimensionKey(measurement) {
+			return [measurement.containerWidth, measurement.containerHeight, measurement.cssWidth, measurement.cssHeight, measurement.ratio].join(':');
+		}
+		return {
+			step: function (measurement, render, verify) {
+				if (!isCurrent()) return {retry: false, reveal: false};
+				if (!measurement || measurement.containerWidth <= 0 || measurement.containerHeight <= 0 || measurement.cssWidth <= 0 || measurement.cssHeight <= 0) {
+					stableDimensions = null; renderedDimensions = null;
+					return {retry: true, reveal: false};
+				}
+				var dimensions = dimensionKey(measurement);
+				if (dimensions !== stableDimensions) {
+					stableDimensions = dimensions; renderedDimensions = null;
+					return {retry: true, reveal: false};
+				}
+				if (renderedDimensions === null) {
+					var rendered = render();
+					if (!rendered || !rendered.owned || rendered.backingWidth !== Math.round(measurement.cssWidth * measurement.ratio) || rendered.backingHeight !== Math.round(measurement.cssHeight * measurement.ratio)) {
+						stableDimensions = null;
+						return {retry: true, reveal: false};
+					}
+					renderedDimensions = dimensions;
+					return {retry: true, reveal: false};
+				}
+				if (dimensions !== renderedDimensions || !verify()) {
+					stableDimensions = dimensions; renderedDimensions = null;
+					return {retry: true, reveal: false};
+				}
+				return {retry: false, reveal: true};
 			}
 		};
 	};
@@ -92,6 +136,8 @@ window._ccLiveLoaded = true;
 	var historicalResult = null;
 	var historicalSeries = null;
 	var historicalChartRenderScheduler = window.CCChartRenderScheduler();
+	var historicalSelectedSeries = null;
+	var historicalLayoutObserver = null;
 	var continueToLiveWallAfterSave = false;
 
 	function ajax(params) {
@@ -870,24 +916,45 @@ window._ccLiveLoaded = true;
 		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
 		$('#cc-historical-series').html(buttons.join(''));
 		$('#cc-historical-series .cc-series-choice').on('click', function () { showHistoricalSeries($(this).data('series')); });
-		$('#cc-historical-graph').show();
+		var graph = $('#cc-historical-graph').show().addClass('is-loading');
+		$('#cc-historical-graph-loading').show();
+		if (!historicalLayoutObserver && typeof window.ResizeObserver === 'function') {
+			historicalLayoutObserver = new window.ResizeObserver(function () {
+				var container = document.getElementById('cc-historical-graph');
+				if (historicalSelectedSeries && container && container.offsetWidth > 0 && container.offsetHeight > 0 && graph.hasClass('is-loading')) showHistoricalSeries(historicalSelectedSeries);
+			});
+			historicalLayoutObserver.observe(graph.get(0));
+		}
 		showHistoricalSeries(selected);
 	}
 
 	function showHistoricalSeries(name) {
 		var series = historicalSeries.series[name];
 		if (!series) return;
+		historicalSelectedSeries = name;
+		var requestedGraph = historicalSeries;
+		var lifecycle = window.CCHistoricalGraphLifecycle(function () { return historicalSeries === requestedGraph && requestedGraph.series[name] === series; });
+		$('#cc-historical-graph').addClass('is-loading');
+		$('#cc-historical-graph-loading').show();
 		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
 		$('#cc-historical-resolution').text(series.display_resolution === 'exact_events' ? 'Exact CDR event transitions' : 'Display uses bucket maxima; exact peak remains ' + series.exact_peak);
 		var thresholdConfig = historicalSeries.thresholds[name] || {};
 		historicalChartRenderScheduler.schedule(function () {
+			var container = document.getElementById('cc-historical-graph');
 			var canvas = document.getElementById('cc-historical-chart');
-			if (!canvas) return;
-			if (!charts.historical || charts.historical.canvas !== canvas || canvas.__ccConcurrencyChart !== charts.historical) {
-				if (charts.historical) charts.historical.destroy();
-				charts.historical = new window.ConcurrencyChart(canvas, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
-			} else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
-			charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0);
+			var measurement = container && canvas ? {containerWidth: container.offsetWidth, containerHeight: container.offsetHeight, cssWidth: canvas.clientWidth, cssHeight: canvas.clientHeight, ratio: window.devicePixelRatio || 1} : null;
+			var outcome = lifecycle.step(measurement, function () {
+				if (!charts.historical || charts.historical.canvas !== canvas || canvas.__ccConcurrencyChart !== charts.historical) {
+					if (charts.historical) charts.historical.destroy();
+					charts.historical = new window.ConcurrencyChart(canvas, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
+				} else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
+				charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: requestedGraph.start_ts, maxTs: requestedGraph.end_ts});
+				return {owned: canvas.__ccConcurrencyChart === charts.historical, backingWidth: canvas.width, backingHeight: canvas.height};
+			}, function () {
+				return historicalSeries === requestedGraph && requestedGraph.series[name] === series && canvas.__ccConcurrencyChart === charts.historical && charts.historical.domain && charts.historical.domain.minTs === Number(requestedGraph.start_ts) && charts.historical.domain.maxTs === Number(requestedGraph.end_ts);
+			});
+			if (outcome.reveal) { $('#cc-historical-graph').removeClass('is-loading'); $('#cc-historical-graph-loading').hide(); }
+			return outcome.retry;
 		});
 	}
 

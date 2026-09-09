@@ -547,7 +547,9 @@ class Concurrencycount implements \BMO {
 				];
 			}
 			usort($calls, function ($a, $b) { return strcmp($b['excluded_at'], $a['excluded_at']); });
-			return ['status' => true, 'calls' => $calls, 'excluded_count' => count($calls), 'has_report_context' => $report !== null];
+			$identities = array_keys($stored);
+			sort($identities, SORT_STRING);
+			return ['status' => true, 'calls' => $calls, 'excluded_count' => count($calls), 'excluded_call_configuration' => ['count' => count($identities), 'fingerprint' => hash('sha256', implode("\n", $identities))], 'has_report_context' => $report !== null];
 		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
 	}
 
@@ -833,6 +835,7 @@ class Concurrencycount implements \BMO {
 			'from_time' => isset($_REQUEST['from_time']) ? (string)$_REQUEST['from_time'] : '00:00',
 			'to_time' => isset($_REQUEST['to_time']) ? (string)$_REQUEST['to_time'] : '23:59',
 			'filter' => isset($_REQUEST['filter']) ? (string)$_REQUEST['filter'] : '',
+			'minimum_concurrency' => isset($_REQUEST['minimum_concurrency']) ? $_REQUEST['minimum_concurrency'] : null,
 		];
 	}
 
@@ -1445,12 +1448,24 @@ class Concurrencycount implements \BMO {
 		if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
 
 		try {
+			// One in-request snapshot is used by filterHistoricalRows() through
+			// this object's cache and is also stamped onto the completed result.
+			$runExclusions = $this->getHistoricalCallExclusions();
+			$runExcludedIdentities = array_keys($runExclusions);
+			sort($runExcludedIdentities, SORT_STRING);
+			$runExclusionConfiguration = ['count' => count($runExcludedIdentities), 'fingerprint' => hash('sha256', implode("\n", $runExcludedIdentities))];
+			$expectedExclusionFingerprint = isset($_REQUEST['excluded_call_fingerprint']) ? trim((string)$_REQUEST['excluded_call_fingerprint']) : '';
+			if ($expectedExclusionFingerprint !== '') {
+				if (!preg_match('/^[a-f0-9]{64}$/', $expectedExclusionFingerprint)) throw new \InvalidArgumentException(_('Invalid Excluded Calls configuration fingerprint.'));
+				if (!hash_equals($expectedExclusionFingerprint, $runExclusionConfiguration['fingerprint'])) throw new \RuntimeException(_('Excluded Calls changed after this report was displayed. Reopen Edit Report to review the current configuration and try again.'));
+			}
 			if ($mode !== 'demo') {
 				$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
 				$start = $range['start'];
 				$end = $range['end'];
 			}
 			$results = $this->calculate($mode, $start, $end, $confirm_overrun, $options);
+			$results['excluded_call_configuration'] = $runExclusionConfiguration;
 			return ['status' => true, 'results' => $results];
 		} catch (HistoricalCalculationCancelled $cancelled) {
 			return ['status' => false, 'cancelled' => true, 'message' => _('Calculation stopped.')];

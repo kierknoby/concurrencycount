@@ -8,6 +8,7 @@
 		this.options = options || {};
 		this.theme = this.options.theme === 'dark' ? 'dark' : 'light';
 		this.points = [];
+		this.domain = null;
 		this.threshold = 0;
 		this.tooltip = null;
 		this.resize = this.resize.bind(this);
@@ -28,9 +29,10 @@
 		this.resize();
 	}
 
-	ConcurrencyChart.prototype.setData = function (points, threshold) {
+	ConcurrencyChart.prototype.setData = function (points, threshold, domain) {
 		this.points = Array.isArray(points) ? points.slice() : [];
 		this.threshold = Math.max(0, parseInt(threshold, 10) || 0);
+		this.domain = domain && isFinite(Number(domain.minTs)) && isFinite(Number(domain.maxTs)) && Number(domain.maxTs) > Number(domain.minTs) ? {minTs: Number(domain.minTs), maxTs: Number(domain.maxTs)} : null;
 		this.canvas.setAttribute('aria-label', this.describe());
 		this.resize();
 	};
@@ -157,8 +159,8 @@
 	};
 
 	ConcurrencyChart.prototype.bounds = function () {
-		var minTs = parseInt(this.points[0].ts, 10) || 0;
-		var maxTs = parseInt(this.points[this.points.length - 1].ts, 10) || minTs + 1;
+		var minTs = this.domain ? this.domain.minTs : (this.points.length ? (parseInt(this.points[0].ts, 10) || 0) : 0);
+		var maxTs = this.domain ? this.domain.maxTs : (this.points.length ? (parseInt(this.points[this.points.length - 1].ts, 10) || minTs + 1) : minTs + 1);
 		var maxValue = this.threshold;
 		for (var index = 0; index < this.points.length; index++) if (this.points[index].value !== null && typeof this.points[index].value !== 'undefined') maxValue = Math.max(maxValue, parseInt(this.points[index].value, 10) || 0);
 		return {minTs: minTs, maxTs: Math.max(minTs + 1, maxTs), maxValue: Math.max(1, maxValue)};
@@ -193,15 +195,16 @@
 		this.context.font = '11px sans-serif';
 		this.context.fillText(String(bounds.maxValue), 5, plot.top + 4);
 		this.context.fillText('0', 20, plot.bottom + 4);
-		this.context.fillText(formatTime(bounds.minTs), plot.left, this.height - 7);
-		var endLabel = formatTime(bounds.maxTs);
+		var span = bounds.maxTs - bounds.minTs;
+		this.context.fillText(formatAxisTimestamp(bounds.minTs, span), plot.left, this.height - 7);
+		var endLabel = formatAxisTimestamp(bounds.maxTs, span);
 		this.context.fillText(endLabel, plot.right - this.context.measureText(endLabel).width, this.height - 7);
 	};
 
 	ConcurrencyChart.prototype.drawTooltip = function (point, plot, bounds) {
 		var palette = this.palette();
 		var position = this.position(point, plot, bounds);
-		var text = formatTime(point.ts) + '  ' + point.value;
+		var text = formatPointTimestamp(point.ts, bounds.maxTs - bounds.minTs) + '  ' + point.value;
 		var width = this.context.measureText(text).width + 12;
 		var x = Math.min(this.width - width - 4, Math.max(4, position.x - width / 2));
 		var y = Math.max(4, position.y - 28);
@@ -262,5 +265,19 @@
 		return new Date(timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 	}
 
+	function formatAxisTimestamp(timestamp, span) {
+		var date = new Date(timestamp * 1000);
+		if (span <= 86400) return formatTime(timestamp);
+		if (span <= 7 * 86400) return date.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+		if (span <= 120 * 86400) return date.toLocaleDateString([], {month: 'short', day: 'numeric'});
+		return date.toLocaleDateString([], {month: 'short', year: 'numeric'});
+	}
+
+	function formatPointTimestamp(timestamp, span) {
+		if (span <= 86400) return formatTime(timestamp);
+		return new Date(timestamp * 1000).toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+	}
+
 	root.ConcurrencyChart = ConcurrencyChart;
+	root.ConcurrencyChart.formatAxisTimestamp = formatAxisTimestamp;
 }(typeof window !== 'undefined' ? window : this));

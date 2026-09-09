@@ -320,7 +320,7 @@ The CLI traps `SIGINT` (Ctrl+C) and `SIGTERM` when PHP PCNTL asynchronous signal
 
 #### Active calculation telemetry
 
-While a GUI Historical calculation is active or paused, its temporary panel shows Stop, modelled progress, engine phase, assessment time, estimate confidence, PBX impact, elapsed time, runtime allowance and the separately labelled maximum-runtime remainder. It remains visible while a decision modal is open. Per-second timer changes are outside the polite live region; only meaningful state changes are announced.
+While a GUI Historical calculation is active or paused, its temporary panel shows Stop, modelled engine completion, engine, assessment time, estimate confidence, PBX impact, elapsed time, maximum-runtime remaining and estimated time remaining. It remains visible while a decision modal is open. Per-second timer changes are outside the polite live region; only meaningful state changes are announced.
 
 The actual calculation process publishes its current and peak PHP memory, process CPU time, phase, work and accumulated query timing to server-owned state at a bounded cadence. Optional `/proc` reads add CPU utilisation, logical CPUs, available memory, swap activity, load, I/O wait and Linux pressure data. Missing files or metrics are omitted and never represented as zero. The separate non-overlapping two-second AJAX poll reads that persisted worker state and FreePBX Dashboard context; it never presents its own PHP process as the calculation process.
 
@@ -334,6 +334,8 @@ The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` modul
 
 The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse.
 
+For a completed report, **Edit Report** reopens the same configuration with the submitted criteria. Cancelling leaves the displayed result unchanged; **Run Again** replaces it only after the revised calculation completes successfully. The completed result records the global Excluded Calls configuration used, and a rerun stops clearly if that configuration changed outside the normal invalidate-and-regenerate workflow.
+
 A sixth report is rejected without replacing an existing tab. The five-report limit and slot allocation are enforced atomically by the backend as well as presented in the GUI.
 
 Persisted report-definition fields include:
@@ -342,6 +344,7 @@ Persisted report-definition fields include:
 - mode, engine and selected trunk/extension filter;
 - date preset identity and resolved/custom date information;
 - Include time and its From/To values;
+- Minimum concurrency;
 - active report state where applicable.
 
 Relative presets remain relative: **Last 7 days** is re-resolved against the current date on restore. **Custom** retains exact, valid calendar dates; impossible dates and reversed ranges are rejected.
@@ -361,7 +364,7 @@ Reopening the module restores tab definitions, regenerates the previously active
 
 ### Graphs, call detail and output
 
-Without a Minimum concurrency floor, Historical graph points retain exact numeric counts, including 1. With a floor, the complete graph is still calculated exactly, below-floor points are presented as gaps, and the actual calculated peak remains unchanged. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+Without a Minimum concurrency floor, Historical graph points retain exact numeric counts, including 1. With a floor, the complete graph is still calculated exactly, below-floor points are presented as gaps, and the actual calculated peak remains unchanged. The X axis always spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
 
 The detail path is conservative. CDR can prove the selected trunk leg, DID, source/destination and a directly recorded opposite PJSIP extension. Concurrency Count asks installed FreePBX `*_getdestinfo` providers for labels and safe local `config.php` edit links. Unresolved values remain plain text. It does not infer a historic IVR, queue or announcement chain from current configuration.
 

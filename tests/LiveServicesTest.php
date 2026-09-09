@@ -330,6 +330,8 @@ $trunkGraph = $graphs->trunkSeries([
 ], ['gamma', 'gamma-backup'], '2026-08-26 10:00:00', '2026-08-26 10:01:00');
 live_assert_same(2, $trunkGraph['series']['gamma']['exact_peak'], 'Historical trunk exact peak');
 live_assert_same('exact_events', $trunkGraph['series']['gamma']['display_resolution'], 'Short historical graph uses exact events');
+live_assert_same(strtotime('2026-08-26 10:00:00'), $trunkGraph['start_ts'], 'Historical graph exposes the selected window start as Unix seconds');
+live_assert_same(strtotime('2026-08-26 10:01:00'), $trunkGraph['end_ts'], 'Historical graph exposes the selected window end as Unix seconds');
 $overallGraph = $graphs->overallSeries([
 	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'extension_legs' => 2],
 	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'extension_legs' => 1],
@@ -363,5 +365,7 @@ $aggregated = $graphs->trunkSeries($manyRows, ['gamma'], '2026-01-01 00:00:00', 
 live_assert_same('bucket_maxima', $aggregated['series']['gamma']['display_resolution'], 'Large historical graph aggregates display points');
 live_assert_same(1, $aggregated['series']['gamma']['exact_peak'], 'Display aggregation preserves exact peak');
 live_assert_same(true, count($aggregated['series']['gamma']['points']) <= HistoricalGraphService::MAX_DISPLAY_POINTS, 'Display points are bounded');
+live_assert_same(strtotime('2026-01-01 00:00:00'), $aggregated['start_ts'], 'Aggregation cannot replace the selected X-domain start');
+live_assert_same(strtotime('2026-01-02 00:00:00'), $aggregated['end_ts'], 'Aggregation cannot replace the selected X-domain end');
 
 echo "Live service tests passed\n";

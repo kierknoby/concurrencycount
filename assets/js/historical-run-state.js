@@ -34,5 +34,20 @@
 			.replace(/[\s\u00a0]+/g, '') !== '';
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage};
+	function snapshotCriteria(source) {
+		source = source || {};
+		var snapshot = {};
+		['name', 'mode', 'engine', 'preset', 'range_from', 'range_to', 'include_time', 'from_time', 'to_time', 'filter', 'minimum_concurrency', 'start', 'end'].forEach(function (key) {
+			if (Object.prototype.hasOwnProperty.call(source, key)) snapshot[key] = source[key];
+		});
+		if (source.excluded_call_configuration) {
+			snapshot.excluded_call_configuration = {
+				count: Number(source.excluded_call_configuration.count) || 0,
+				fingerprint: String(source.excluded_call_configuration.fingerprint || '')
+			};
+		}
+		return snapshot;
+	}
+
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria};
 }));

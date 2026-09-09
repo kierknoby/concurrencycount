@@ -62,6 +62,8 @@ window._ccLoaded = true;
 	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
 	var activeReportId = null;
 	var wizardTargetReportId = null; // which report the open wizard will run into
+	var wizardEditingExisting = false;
+	var wizardExclusionConfiguration = null;
 	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
 	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-view.js
 	var generatedReportName = '';
@@ -381,6 +383,7 @@ window._ccLoaded = true;
 		renderResultWarning(r.warning);
 		$('#cc-download-cdr').toggle(r.mode === 'demo');
 		$('#cc-results').show();
+		$('#cc-edit-report').toggle(!!activeReportId && r.mode !== 'demo');
 		$(document).trigger('cc:historical-results', [r]);
 	}
 
@@ -995,7 +998,7 @@ window._ccLoaded = true;
 
 	function setHistoricalWorkspaceLocked(locked, reportId) {
 		workspaceLockReportId = locked ? reportId : null;
-		var fixedControls = $('#cc-tab-live, #cc-tab-historical, #cc-launch, #cc-demo-launch, #cc-identity-manage, #cc-live-wall-launch, #cc-live-wall-configure');
+		var fixedControls = $('#cc-tab-live, #cc-tab-historical, #cc-launch, #cc-demo-launch, #cc-identity-manage, #cc-edit-report, #cc-live-wall-launch, #cc-live-wall-configure');
 		fixedControls.prop('disabled', locked).attr('aria-disabled', locked ? 'true' : 'false');
 		fixedControls.each(function () {
 			var control = $(this);
@@ -1029,6 +1032,7 @@ window._ccLoaded = true;
 		$('#cc-report-landing').show();
 		$('#cc-report-active').hide();
 		$('#cc-report-active .cc-report-global-actions').show();
+		$('#cc-edit-report').hide();
 	}
 
 	function showTransientDemoResult() {
@@ -1038,6 +1042,7 @@ window._ccLoaded = true;
 		$('#cc-report-landing').hide();
 		$('#cc-report-active').show();
 		$('#cc-report-active .cc-report-global-actions').hide();
+		$('#cc-edit-report').hide();
 		$('#cc-report-loading, #cc-report-empty, #cc-historical-graph, #cc-email-row').hide();
 	}
 
@@ -1076,6 +1081,15 @@ window._ccLoaded = true;
 		newWizard(null);
 	}
 
+	function openEditReport() {
+		if (!activeReportId || !historicalReports[activeReportId] || !historicalReports[activeReportId].result) return;
+		var reportId = activeReportId;
+		ajax({command: 'listexcludedcalls', report_id: reportId}).done(function (response) {
+			if (!response.status || !historicalReports[reportId] || reportId !== activeReportId) { setStatus(response.message || 'Unable to load the current Excluded Calls configuration.', 'error'); return; }
+			newWizard(reportId, true, response.excluded_call_configuration || {count: response.excluded_count || 0, fingerprint: ''});
+		}).fail(function () { setStatus('Unable to load the current Excluded Calls configuration.', 'error'); });
+	}
+
 	function closeReportTab(id) {
 		if (workspaceLockReportId) return;
 		if (!historicalReports[id]) return;
@@ -1105,6 +1119,7 @@ window._ccLoaded = true;
 		$('#cc-report-landing').hide();
 		$('#cc-report-active').show();
 		$('#cc-report-active .cc-report-global-actions').show();
+		$('#cc-edit-report').toggle(!!report.result);
 		if (report.firstRunPending) {
 			$('#cc-report-empty, #cc-results').hide();
 			$('#cc-report-loading-text').text('Running ' + report.name + '...');
@@ -1176,19 +1191,32 @@ window._ccLoaded = true;
 
 	/* ---------- Wizard state machine ---------- */
 
-	function newWizard(reportId) {
+	function newWizard(reportId, preserveDisplayedResult, currentExclusionConfiguration) {
 		wizardTargetReportId = reportId || null;
 		var report = reportId ? historicalReports[reportId] : null;
-		wizardState = {mode: report ? report.mode : 'trunk', engine: report ? report.engine : 'original'};
-		$('#cc-report-name').val(report ? report.name : generatedReportName);
-		$('#cc-engine').val(report ? report.engine : 'original');
-		$('#cc-minimum-concurrency').val(report && report.minimum_concurrency ? report.minimum_concurrency : '');
-		selectMode(report ? report.mode : 'trunk');
+		var criteria = report && report.submittedCriteria ? report.submittedCriteria : report;
+		wizardEditingExisting = !!reportId;
+		wizardExclusionConfiguration = currentExclusionConfiguration || null;
+		wizardState = {mode: criteria ? criteria.mode : 'trunk', engine: criteria ? criteria.engine : 'original'};
+		$('#cc-report-name').val(criteria ? criteria.name : generatedReportName);
+		$('#cc-engine').val(criteria ? criteria.engine : 'original');
+		$('#cc-minimum-concurrency').val(criteria && criteria.minimum_concurrency ? criteria.minimum_concurrency : '');
+		$('#cc-report-filter').val(criteria && criteria.filter ? criteria.filter : '');
+		selectMode(criteria ? criteria.mode : 'trunk');
 		$('#cc-engine-group, #cc-wizard-mode-group').show();
-		$('#cc-results').hide();
-		setStatus('', null);
+		if (!preserveDisplayedResult) { $('#cc-results').hide(); setStatus('', null); }
 		updateModeDescription();
-		applyDatePreset(report ? report.preset : 'last7');
+		$('#cc-include-time').prop('checked', !!(criteria && criteria.include_time));
+		$('#cc-time-from').val(criteria && criteria.from_time ? criteria.from_time : '00:00');
+		$('#cc-time-to').val(criteria && criteria.to_time ? criteria.to_time : '23:59');
+		guiRange = criteria ? {kind: criteria.preset, from: criteria.range_from, to: criteria.range_to, includeTime: !!criteria.include_time, fromTime: criteria.from_time || '00:00', toTime: criteria.to_time || '23:59'} : null;
+		applyDatePreset(criteria ? criteria.preset : 'last7');
+		if (criteria) { guiRange.from = criteria.range_from; guiRange.to = criteria.range_to; updateDateRangeControls(); }
+		$('#cc-wizard-next').html('<i class="fa fa-play"></i> ' + (wizardEditingExisting ? 'Run Again' : 'Run report'));
+		var usedExclusions = criteria && criteria.excluded_call_configuration ? Number(criteria.excluded_call_configuration.count) || 0 : 0;
+		var currentExclusions = wizardExclusionConfiguration ? Number(wizardExclusionConfiguration.count) || 0 : usedExclusions;
+		$('#cc-edit-exclusions-group').toggle(wizardEditingExisting);
+		$('#cc-edit-exclusions-summary').text(usedExclusions === currentExclusions ? String(usedExclusions) : usedExclusions + ' used by this result · ' + currentExclusions + ' currently configured');
 		showWizard();
 	}
 
@@ -1197,6 +1225,8 @@ window._ccLoaded = true;
 		$('.cc-mode-option').removeClass('is-selected');
 		$('input[name="cc-wizard-mode"]:checked').closest('.cc-mode-option').addClass('is-selected');
 		$('#cc-mode-description').text(modeDescriptions[mode] || 'Choose what the report should measure.');
+		$('#cc-report-filter-group').toggle(mode !== 'group');
+		if (mode === 'group') $('#cc-report-filter').val('');
 	}
 
 	function applyDatePreset(kind) {
@@ -1308,10 +1338,21 @@ window._ccLoaded = true;
 			var canonical = window.CCDateRange.resolve(guiRange, new Date());
 			wizardState.mode = selectedMode();
 			if (wizardTargetReportId) {
-				historicalReports[wizardTargetReportId].minimum_concurrency = minimumConcurrency;
+				var existing = historicalReports[wizardTargetReportId];
+				var editedCriteria = {
+					name: reportName, mode: wizardState.mode, engine: $('#cc-engine').val() || 'original', preset: guiRange.kind,
+					range_from: guiRange.from, range_to: guiRange.to, include_time: !!guiRange.includeTime,
+					from_time: guiRange.fromTime, to_time: guiRange.toTime, filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency,
+					start: canonical.start, end: canonical.end,
+					excluded_call_configuration: wizardExclusionConfiguration || (existing.result ? existing.result.excluded_call_configuration : null)
+				};
 				hideWizard();
 				runTargetReportId = wizardTargetReportId;
-				executeRun(wizardState.mode, canonical.start, canonical.end);
+				executeRun(wizardState.mode, canonical.start, canonical.end, {
+					minimum_concurrency: minimumConcurrency || '',
+					filter: editedCriteria.filter,
+					excluded_call_fingerprint: editedCriteria.excluded_call_configuration ? editedCriteria.excluded_call_configuration.fingerprint : ''
+				}, editedCriteria.engine, null, editedCriteria);
 				return;
 			}
 			createAndRunReport(reportName, canonical, minimumConcurrency);
@@ -1337,7 +1378,7 @@ window._ccLoaded = true;
 			mode: wizardState.mode, engine: engine, preset: guiRange.kind,
 			range_from: guiRange.from, range_to: guiRange.to,
 			include_time: guiRange.includeTime ? '1' : '', from_time: guiRange.fromTime, to_time: guiRange.toTime,
-			filter: ''
+			filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency || ''
 		};
 		$('#cc-wizard-next').prop('disabled', true);
 		ajax(definition).done(function (response) {
@@ -1547,13 +1588,9 @@ window._ccLoaded = true;
 		if (processMemoryAvailable) $('#cc-telemetry-process-memory').text(formatTelemetryBytes(response.calculation_memory_current) + ' current / ' + formatTelemetryBytes(response.calculation_memory_peak) + ' peak');
 		$('#cc-telemetry-progress').text(Math.max(0, Math.min(100, Math.floor(Number(response.progress_percent) || 0))) + '%');
 		$('#cc-telemetry-engine').text(response.engine ? String(response.engine).replace(/^./, function (v) { return v.toUpperCase(); }) : '--');
-		var phase = response.calculation_phase || '--';
-		if (response.phase_items_total === null && Number(response.phase_items_processed) > 0) phase += ' (' + Number(response.phase_items_processed).toLocaleString() + ' rows)';
-		$('#cc-telemetry-phase').text(phase);
 		$('#cc-telemetry-confidence').text(response.eta_confidence || 'Calculating...');
 		$('#cc-telemetry-assessment').text(window.CCTelemetryFormat.duration(response.assessment_remaining_seconds || 0));
 		$('#cc-telemetry-impact').text(response.impact_status || 'Assessing...');
-		$('#cc-telemetry-allowance').text(window.CCTelemetryFormat.duration(response.runtime_allowance_seconds || 3600));
 		if (activeCalculation && response.decision !== 'paused_impact' && response.decision !== 'paused_runtime' && response.decision !== 'paused_critical') activeCalculation.decisionOpen = false;
 		if ((response.decision === 'paused_impact' || response.decision === 'paused_runtime' || response.decision === 'paused_critical') && activeCalculation && !activeCalculation.decisionOpen) {
 			activeCalculation.decisionOpen = true;
@@ -1679,11 +1716,15 @@ window._ccLoaded = true;
 		$('#cc-excluded-calls').prop('disabled', false).removeAttr('aria-disabled');
 	}
 
-	function executeRun(mode, start, end, extraParams, engineOverride, continuationRun) {
+	function executeRun(mode, start, end, extraParams, engineOverride, continuationRun, submittedCriteria) {
 		if (activeCalculation && activeCalculation !== continuationRun) return;
 		var targetReportId = continuationRun ? continuationRun.targetReportId : runTargetReportId;
 		var selectedEngine = engineOverride || $('#cc-engine').val() || 'original';
 		var run = continuationRun || {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, timerState: null, timerRenderTimer: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false, decisionOpen: false, assessmentAnnounced: false};
+		if (!continuationRun) {
+			var sourceReport = targetReportId && historicalReports[targetReportId] ? historicalReports[targetReportId] : {};
+			run.submittedCriteria = window.CCHistoricalRunState.snapshotCriteria(submittedCriteria || $.extend({}, sourceReport, {mode: mode, engine: selectedEngine, start: start, end: end, minimum_concurrency: sourceReport.minimum_concurrency || null}));
+		}
 		if (!continuationRun) {
 			activeCalculation = run;
 			if (targetReportId) selectTopTab(targetReportId);
@@ -1699,7 +1740,7 @@ window._ccLoaded = true;
 		if (!continuationRun) {
 			startCalculationTelemetry(run);
 			pollCalculationHeartbeat(run);
-			$('#cc-results').hide();
+			if (!targetReportId || !historicalReports[targetReportId] || !historicalReports[targetReportId].result) $('#cc-results').hide();
 		}
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id};
@@ -1748,7 +1789,7 @@ window._ccLoaded = true;
 				return;
 			}
 			setStatus('Count complete. ' + resp.results.rows_processed + ' rows processed.', 'success');
-			applyReportResult(targetReportId, resp.results, selectedEngine);
+			applyReportResult(targetReportId, resp.results, selectedEngine, run.submittedCriteria);
 		}).fail(function (request, textStatus, errorThrown) {
 			if (!window.CCHistoricalRunState.shouldReportFailure(run, textStatus)) return;
 			reportUnexpectedHistoricalAjaxFailure(request, textStatus, errorThrown);
@@ -1830,7 +1871,7 @@ window._ccLoaded = true;
 	 * definition that produced it, and only repaints the shared DOM surface
 	 * if that report is still the one visibly active.
 	 */
-	function applyReportResult(targetReportId, results, engineUsed) {
+	function applyReportResult(targetReportId, results, engineUsed, submittedCriteria) {
 		pendingPersistedRefresh = false;
 		if (targetReportId && historicalReports[targetReportId]) {
 			var report = historicalReports[targetReportId];
@@ -1839,13 +1880,15 @@ window._ccLoaded = true;
 			report.firstRunPending = false;
 			report.occurrenceCache = {};
 			report.graphSeries = null;
+			report.submittedCriteria = window.CCHistoricalRunState.snapshotCriteria($.extend({}, submittedCriteria || report, {excluded_call_configuration: results.excluded_call_configuration || null}));
+			$.extend(report, report.submittedCriteria);
 			report.mode = results.mode === 'demo' ? report.mode : results.mode;
 			report.engine = engineUsed;
 			persistReportDefinition(targetReportId, {
 				mode: report.mode, engine: report.engine, preset: report.preset,
 				range_from: report.range_from, range_to: report.range_to,
 				include_time: report.include_time ? '1' : '', from_time: report.from_time, to_time: report.to_time,
-				filter: report.filter || '', name: report.name
+				filter: report.filter || '', minimum_concurrency: report.minimum_concurrency || '', name: report.name
 			});
 		}
 		if (targetReportId === null || targetReportId === activeReportId) {
@@ -2056,6 +2099,7 @@ window._ccLoaded = true;
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
 		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
 		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
+		$('#cc-edit-report').off('click').on('click', openEditReport);
 		$('#cc-exclude-call-confirm').off('click').on('click', excludePendingCall);
 		$('#cc-restore-all-excluded').off('click').on('click', restoreAllExcludedCalls);
 		$('#cc-excluded-calls-rows').off('click.ccExcluded', '.cc-restore-excluded').on('click.ccExcluded', '.cc-restore-excluded', function () { restoreExcludedCall($(this).data('call-identity')); });
@@ -2109,7 +2153,8 @@ window._ccLoaded = true;
 			updateDateRangeControls();
 		});
 		$('#cc-wizard-cancel').off('click').on('click', function () {
-			setStatus('Session aborted.', 'warning');
+			if (!wizardEditingExisting) setStatus('Session aborted.', 'warning');
+			wizardEditingExisting = false;
 		});
 		$('#cc-wizard-value').off('keydown').on('keydown', function (e) {
 			if (e.which === 13) {

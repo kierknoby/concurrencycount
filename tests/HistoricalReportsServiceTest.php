@@ -24,6 +24,8 @@ $stored = $service->defaults();
 list($stored, $first) = $service->createReport($stored, hr_definition(), 'aaaa0000aaaa0000aaaa0000aaaa0000');
 hr_assert(1 === $first['number'], 'First report allocates number 1');
 hr_assert('Historic Report 1' === $first['name'], 'First report named Historic Report 1');
+list($minimumStored, $minimumReport) = $service->createReport($service->defaults(), hr_definition(['minimum_concurrency' => 4]), 'ffff1111ffff1111ffff1111ffff1111');
+hr_assert(4 === $minimumReport['minimum_concurrency'], 'Minimum concurrency persists as part of the editable report definition');
 list($stored, $second) = $service->createReport($stored, hr_definition(['mode' => 'extension', 'name' => 'Historic Report 2']), 'bbbb0000bbbb0000bbbb0000bbbb0000');
 hr_assert(2 === $second['number'], 'Second report allocates number 2');
 hr_assert('Historic Report 2' === $second['name'], 'Second report named Historic Report 2');
@@ -85,6 +87,10 @@ foreach (['', str_repeat('x', 81), "bad\nname"] as $invalidName) {
 	catch (InvalidArgumentException $exception) { $nameRejected = true; }
 	hr_assert($nameRejected, 'Invalid report name is rejected server-side');
 }
+$minimumRejected = false;
+try { $service->createReport($service->defaults(), hr_definition(['minimum_concurrency' => 0])); }
+catch (InvalidArgumentException $exception) { $minimumRejected = true; }
+hr_assert($minimumRejected, 'Invalid persisted Minimum concurrency is rejected');
 
 /* Custom preset retains exact persisted dates; relative preset only stores the preset identity + last-known dates */
 hr_assert('custom' === $reused['preset'] && '2026-01-01' === $reused['range_from'] && '2026-01-31' === $reused['range_to'], 'Custom preset persists its exact chosen dates');

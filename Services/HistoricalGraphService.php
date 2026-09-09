@@ -17,7 +17,7 @@ class HistoricalGraphService {
 			$exact = $this->eventsToPoints(isset($events[$trunk]) ? $events[$trunk] : [], $start, $end);
 			$series[$trunk] = $this->seriesResult($exact, $start, $end);
 		}
-		return ['mode' => 'trunk', 'source' => 'cdr_reconstructed', 'series' => $series];
+		return ['mode' => 'trunk', 'source' => 'cdr_reconstructed', 'start_ts' => strtotime($start), 'end_ts' => strtotime($end), 'series' => $series];
 	}
 
 	public function overallSeries(array $rows, string $start, string $end): array {
@@ -29,7 +29,7 @@ class HistoricalGraphService {
 		}
 		$exact = $this->eventsToPoints($events, $start, $end);
 		return [
-			'mode' => 'group', 'source' => 'cdr_reconstructed',
+			'mode' => 'group', 'source' => 'cdr_reconstructed', 'start_ts' => strtotime($start), 'end_ts' => strtotime($end),
 			'series' => ['overall' => $this->seriesResult($exact, $start, $end)],
 		];
 	}

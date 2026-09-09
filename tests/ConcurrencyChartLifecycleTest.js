@@ -51,12 +51,12 @@ assert(hidden.__ccConcurrencyChart === secondReplacement && windowStub.listeners
 secondReplacement.destroy();
 assert(hidden.__ccConcurrencyChart === null && !windowStub.listeners.resize, 'Destroy must release canvas ownership and listeners');
 
-function loadHistoricalScheduler(withAnimationFrame) {
+function loadHistoricalScheduler(withAnimationFrame, maximumAttempts) {
 	const frames = []; const timers = [];
 	const schedulerWindow = {_ccLiveLoaded: true, setTimeout: function (callback, delay) { timers.push({callback: callback, delay: delay}); }};
 	if (withAnimationFrame) schedulerWindow.requestAnimationFrame = function (callback) { frames.push(callback); };
 	vm.runInNewContext(fs.readFileSync(__dirname + '/../assets/js/live-view.js', 'utf8'), {window: schedulerWindow});
-	return {scheduler: schedulerWindow.CCChartRenderScheduler(), frames: frames, timers: timers};
+	return {scheduler: schedulerWindow.CCChartRenderScheduler(maximumAttempts), frames: frames, timers: timers, window: schedulerWindow};
 }
 
 const animationScheduler = loadHistoricalScheduler(true);
@@ -71,9 +71,83 @@ assert(rendered.length === 1 && rendered[0] === 'new', 'A stale queued render mu
 const fallbackScheduler = loadHistoricalScheduler(false);
 let fallbackRendered = false;
 fallbackScheduler.scheduler.schedule(function () { fallbackRendered = true; });
-assert(!fallbackRendered && fallbackScheduler.timers.length === 1 && fallbackScheduler.timers[0].delay === 0, 'Unavailable requestAnimationFrame must use one asynchronous fallback');
+assert(!fallbackRendered && fallbackScheduler.timers.length === 1 && fallbackScheduler.timers[0].delay === 16, 'Unavailable requestAnimationFrame must use one frame-paced asynchronous fallback');
 fallbackScheduler.timers.shift().callback();
 assert(fallbackRendered, 'Historical scheduling fallback must execute the requested render');
+
+const settlingScheduler = loadHistoricalScheduler(true, 6);
+let settlingAttempts = 0;
+settlingScheduler.scheduler.schedule(function () { settlingAttempts++; return settlingAttempts < 3; });
+settlingScheduler.frames.shift()();
+settlingScheduler.frames.shift()();
+settlingScheduler.frames.shift()();
+assert(settlingAttempts === 3 && settlingScheduler.frames.length === 0, 'Unusable and changing dimensions must rerender automatically until stable');
+
+const supersededScheduler = loadHistoricalScheduler(true, 6);
+const supersededRenders = [];
+supersededScheduler.scheduler.schedule(function () { supersededRenders.push('old'); return true; });
+supersededScheduler.frames.shift()();
+supersededScheduler.scheduler.schedule(function () { supersededRenders.push('new'); return false; });
+supersededScheduler.frames.shift()();
+assert(supersededRenders.join(',') === 'old,new' && supersededScheduler.frames.length === 0, 'A newer Historical series must supersede an older pending retry');
+
+const boundedScheduler = loadHistoricalScheduler(true, 3);
+let boundedAttempts = 0;
+boundedScheduler.scheduler.schedule(function () { boundedAttempts++; return true; });
+while (boundedScheduler.frames.length) boundedScheduler.frames.shift()();
+assert(boundedAttempts === 3, 'An unusable hidden graph must stop its active retry loop at the configured bound');
+
+let currentHistoricalToken = 'latest';
+const actualLifecycle = boundedScheduler.window.CCHistoricalGraphLifecycle(function () { return currentHistoricalToken === 'latest'; });
+let lifecycleRenders = 0;
+let suppliedDomain = null;
+let renderedSeriesId = null;
+function lifecycleRender() {
+	lifecycleRenders++;
+	renderedSeriesId = currentHistoricalToken;
+	suppliedDomain = {minTs: 1735689600, maxTs: 1767225599};
+	return {owned: true, backingWidth: 1200, backingHeight: 440};
+}
+function lifecycleVerify() { return suppliedDomain.minTs === 1735689600 && suppliedDomain.maxTs === 1767225599; }
+let lifecycleOutcome = actualLifecycle.step({containerWidth: 0, containerHeight: 0, cssWidth: 0, cssHeight: 0, ratio: 2}, lifecycleRender, lifecycleVerify);
+assert(lifecycleOutcome.retry && !lifecycleOutcome.reveal && lifecycleRenders === 0, 'Historical graph must begin loading without exposing a render when layout is unusable');
+lifecycleOutcome = actualLifecycle.step({containerWidth: 650, containerHeight: 310, cssWidth: 600, cssHeight: 220, ratio: 2}, lifecycleRender, lifecycleVerify);
+assert(lifecycleOutcome.retry && !lifecycleOutcome.reveal && lifecycleRenders === 0, 'The first usable dimensions must be treated as unsettled');
+lifecycleOutcome = actualLifecycle.step({containerWidth: 650, containerHeight: 310, cssWidth: 600, cssHeight: 220, ratio: 2}, lifecycleRender, lifecycleVerify);
+assert(lifecycleOutcome.retry && !lifecycleOutcome.reveal && lifecycleRenders === 1 && renderedSeriesId === 'latest' && suppliedDomain.minTs === 1735689600, 'Stable dimensions must render the latest data with its explicit report-window domain while retaining Loading');
+lifecycleOutcome = actualLifecycle.step({containerWidth: 650, containerHeight: 310, cssWidth: 600, cssHeight: 220, ratio: 2}, lifecycleRender, lifecycleVerify);
+assert(!lifecycleOutcome.retry && lifecycleOutcome.reveal && lifecycleRenders === 1, 'Loading must clear only after another stable frame verifies backing dimensions, ownership, data, and domain');
+
+const staleLifecycle = boundedScheduler.window.CCHistoricalGraphLifecycle(function () { return currentHistoricalToken === 'old'; });
+let staleRendered = false;
+const staleOutcome = staleLifecycle.step({containerWidth: 650, containerHeight: 310, cssWidth: 600, cssHeight: 220, ratio: 2}, function () { staleRendered = true; }, function () { return true; });
+assert(!staleOutcome.retry && !staleOutcome.reveal && !staleRendered, 'A newer Historical series must supersede an older settling lifecycle before it can render');
+
+let malformedVisible = false;
+const exhaustedLifecycle = boundedScheduler.window.CCHistoricalGraphLifecycle(function () { return true; });
+const exhausted = loadHistoricalScheduler(true, 2);
+exhausted.scheduler.schedule(function () {
+	const outcome = exhaustedLifecycle.step({containerWidth: 0, containerHeight: 0, cssWidth: 0, cssHeight: 0, ratio: 2}, function () { malformedVisible = true; }, function () { return false; });
+	if (outcome.reveal) malformedVisible = true;
+	return outcome.retry;
+});
+while (exhausted.frames.length) exhausted.frames.shift()();
+assert(!malformedVisible, 'Exhausting bounded retries must leave the malformed graph hidden in Loading state');
+const recoveredLifecycle = boundedScheduler.window.CCHistoricalGraphLifecycle(function () { return true; });
+const recoveredMeasurement = {containerWidth: 650, containerHeight: 310, cssWidth: 600, cssHeight: 220, ratio: 2};
+recoveredLifecycle.step(recoveredMeasurement, lifecycleRender, lifecycleVerify);
+recoveredLifecycle.step(recoveredMeasurement, lifecycleRender, lifecycleVerify);
+const recoveredOutcome = recoveredLifecycle.step(recoveredMeasurement, lifecycleRender, lifecycleVerify);
+assert(recoveredOutcome.reveal, 'ResizeObserver or secondary recovery must be able to restart settling and reveal the latest series');
+
+const yearStart = 1735689600;
+const yearEnd = 1767225599;
+const domainCanvas = canvasStub(640, 220);
+const domainChart = new Chart(domainCanvas);
+domainChart.setData([{ts: yearStart + 3600, value: 1}, {ts: yearStart + 50000, value: 3}], 0, {minTs: yearStart, maxTs: yearEnd});
+const yearBounds = domainChart.bounds();
+assert(yearBounds.minTs === yearStart && yearBounds.maxTs === yearEnd, 'Historical chart domain must use the selected report window rather than sparse qualifying points');
+assert(/2025/.test(Chart.formatAxisTimestamp(yearStart, yearEnd - yearStart)) && !/:/.test(Chart.formatAxisTimestamp(yearStart, yearEnd - yearStart)), 'A year-scale Historical axis must use calendar labels rather than same-day clock labels');
 
 const fullscreenWall = {requestFullscreen: function () { return {catch: function () {}}; }};
 const fullscreenDocument = {fullscreenElement: null};

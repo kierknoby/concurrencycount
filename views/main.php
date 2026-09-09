@@ -112,7 +112,7 @@ $_ccAssetVer = max(
 							</div>
 						</div>
 						<div id="cc-report-active" style="display:none;">
-							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
+							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button> <button type="button" id="cc-edit-report" class="btn btn-default"><i class="fa fa-pencil"></i> <?php echo _('Edit Report'); ?></button></div>
 							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title">
 								<div class="cc-calculation-panel-heading">
 									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
@@ -136,12 +136,10 @@ $_ccAssetVer = max(
 									<dl class="cc-telemetry-grid">
 								<div><dt><?php echo _('Engine completion'); ?></dt><dd id="cc-telemetry-progress">0%</dd></div>
 										<div><dt><?php echo _('Engine'); ?></dt><dd id="cc-telemetry-engine">--</dd></div>
-										<div><dt><?php echo _('Phase'); ?></dt><dd id="cc-telemetry-phase">--</dd></div>
 										<div><dt><?php echo _('Estimate confidence'); ?></dt><dd id="cc-telemetry-confidence"><?php echo _('Calculating...'); ?></dd></div>
 										<div><dt><?php echo _('Assessment remaining'); ?></dt><dd id="cc-telemetry-assessment">05:00</dd></div>
 										<div><dt><?php echo _('PBX impact'); ?></dt><dd id="cc-telemetry-impact"><?php echo _('Assessing...'); ?></dd></div>
 										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
-										<div><dt><?php echo _('Runtime allowance'); ?></dt><dd id="cc-telemetry-allowance">01:00:00</dd></div>
 										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
 										<div><dt><?php echo _('Estimated time remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Calculating...'); ?></dd></div>
 									</dl>
@@ -151,7 +149,7 @@ $_ccAssetVer = max(
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><div id="cc-historical-graph-loading" class="cc-historical-graph-loading"><span class="cc-spinner"></span> <?php echo _('Loading graph...'); ?></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"></div></div></div>
 								<div class="row"><div class="col-sm-12">
@@ -391,6 +389,15 @@ $_ccAssetVer = max(
 					<label for="cc-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
 					<input type="number" id="cc-minimum-concurrency" class="form-control" min="1" step="1" inputmode="numeric">
 					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. Leave blank to show all details. The completed summary and actual calculated peak are always retained.'); ?></span>
+				</div>
+				<div class="form-group" id="cc-report-filter-group">
+					<label for="cc-report-filter" class="control-label"><?php echo _('Endpoint filter'); ?></label>
+					<input type="text" id="cc-report-filter" class="form-control" maxlength="128" autocomplete="off">
+					<span class="help-block fpbx-help-block"><?php echo _('Optional exact configured trunk or extension identifier. Group reports do not use an endpoint filter.'); ?></span>
+				</div>
+				<div class="form-group" id="cc-edit-exclusions-group" style="display:none;">
+					<label class="control-label"><?php echo _('Excluded Calls'); ?></label>
+					<p id="cc-edit-exclusions-summary" class="form-control-static"></p>
 				</div>
 				<div class="form-group cc-date-range">
 					<label class="control-label"><?php echo _('Date range'); ?></label>

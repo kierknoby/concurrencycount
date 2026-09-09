@@ -153,6 +153,8 @@ class HistoricalReportsService {
 		$toTime = $this->normaliseClockTime(isset($definition['to_time']) ? $definition['to_time'] : '23:59');
 
 		$filter = isset($definition['filter']) ? substr((string)$definition['filter'], 0, 128) : '';
+		$minimumConcurrency = isset($definition['minimum_concurrency']) && $definition['minimum_concurrency'] !== '' && $definition['minimum_concurrency'] !== null ? filter_var($definition['minimum_concurrency'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) : null;
+		if ($minimumConcurrency === false) throw new \InvalidArgumentException('Minimum concurrency must be a positive whole number.');
 		if ($mode === 'group') $filter = '';
 		$missingReference = !empty($definition['missing_reference']);
 		if ($rangeFrom > $rangeTo) throw new \InvalidArgumentException('Historical report start date must not be after its end date.');
@@ -161,7 +163,7 @@ class HistoricalReportsService {
 			'name' => $name, 'mode' => $mode, 'engine' => $engine, 'preset' => $preset,
 			'range_from' => $rangeFrom, 'range_to' => $rangeTo,
 			'include_time' => $includeTime, 'from_time' => $fromTime, 'to_time' => $toTime,
-			'filter' => $filter, 'missing_reference' => $missingReference,
+			'filter' => $filter, 'minimum_concurrency' => $minimumConcurrency, 'missing_reference' => $missingReference,
 		];
 	}
 
