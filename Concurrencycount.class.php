@@ -50,7 +50,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.2.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -313,6 +313,8 @@ class Concurrencycount implements \BMO {
 				return $this->handleEmail();
 			case 'gettrunks':
 				return ['status' => true, 'trunks' => $this->getTrunks()];
+			case 'gethistoricalendpoints':
+				return ['status' => true, 'endpoints' => $this->getHistoricalEndpointInventory()];
 			case 'listhistoricalreports':
 				return ['status' => true] + $this->getHistoricalReports();
 			case 'createhistoricalreport':
@@ -392,6 +394,22 @@ class Concurrencycount implements \BMO {
 		$names = array_keys($this->getPjsipIdentityService()->configuredTrunks());
 		sort($names);
 		return $names;
+	}
+
+	public function getHistoricalEndpointInventory(): array {
+		$identity = $this->getPjsipIdentityService();
+		$trunks = [];
+		foreach ($identity->configuredTrunks() as $endpoint => $metadata) {
+			$name = trim((string)($metadata['name'] ?? ''));
+			$trunks[] = ['value' => $endpoint, 'label' => $name !== '' && $name !== $endpoint ? $name . ' (' . $endpoint . ')' : $endpoint];
+		}
+		$extensions = [];
+		foreach ($identity->configuredDevices() as $endpoint => $metadata) {
+			$extensions[] = ['value' => $endpoint, 'label' => sprintf(_('Extension %s'), $endpoint)];
+		}
+		usort($trunks, function ($left, $right) { return strnatcasecmp($left['label'], $right['label']); });
+		usort($extensions, function ($left, $right) { return strnatcasecmp($left['value'], $right['value']); });
+		return ['trunk' => $trunks, 'extension' => $extensions];
 	}
 
 	private function getPjsipIdentityService(): \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService {

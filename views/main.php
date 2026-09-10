@@ -392,8 +392,8 @@ $_ccAssetVer = max(
 				</div>
 				<div class="form-group" id="cc-report-filter-group">
 					<label for="cc-report-filter" class="control-label"><?php echo _('Endpoint filter'); ?></label>
-					<input type="text" id="cc-report-filter" class="form-control" maxlength="128" autocomplete="off">
-					<span class="help-block fpbx-help-block"><?php echo _('Optional exact configured trunk or extension identifier. Group reports do not use an endpoint filter.'); ?></span>
+					<select id="cc-report-filter" class="form-control" disabled><option value=""><?php echo _('Loading configured endpoints...'); ?></option></select>
+					<span id="cc-report-filter-help" class="help-block fpbx-help-block"><?php echo _('Choose All or one configured trunk or extension. Group reports do not use an endpoint filter.'); ?></span>
 				</div>
 				<div class="form-group" id="cc-edit-exclusions-group" style="display:none;">
 					<label class="control-label"><?php echo _('Excluded Calls'); ?></label>

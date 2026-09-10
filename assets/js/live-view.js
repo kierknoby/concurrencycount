@@ -892,6 +892,8 @@ window._ccLiveLoaded = true;
 	function loadHistoricalGraph(result, cachedSeries) {
 		historicalResult = result;
 		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message) {
+			historicalSeries = null;
+			historicalSelectedSeries = null;
 			$('#cc-historical-graph').hide();
 			return;
 		}
@@ -901,7 +903,7 @@ window._ccLiveLoaded = true;
 			return;
 		}
 		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : '', minimum_concurrency: result.minimum_concurrency || ''}).done(function (response) {
-			if (!response.status) return;
+			if (!response.status || historicalResult !== result) return;
 			historicalSeries = response.graph;
 			renderHistoricalSeries();
 			$(document).trigger('cc:historical-graph-loaded', [response.graph]);

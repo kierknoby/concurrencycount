@@ -49,5 +49,52 @@
 		return snapshot;
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria};
+	function clearReportResult(report) {
+		if (!report) return report;
+		report.result = null;
+		report.graphSeries = null;
+		report.occurrenceCache = {};
+		report.calculationPending = true;
+		return report;
+	}
+
+	function isDiscardableFirstRun(report) {
+		return !!report && report.firstRunPending === true;
+	}
+
+	function countingMessage(mode, start, end) {
+		return 'Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...';
+	}
+
+	function endpointChoices(inventory, mode, selected) {
+		selected = mode === 'group' ? '' : String(selected || '');
+		if (mode === 'group') return {disabled: true, selected: '', stale: false, options: []};
+		var source = inventory && Array.isArray(inventory[mode]) ? inventory[mode] : [];
+		var options = source.map(function (entry) { return {value: String(entry.value), label: String(entry.label || entry.value), stale: false}; });
+		var found = selected === '' || options.some(function (entry) { return entry.value === selected; });
+		if (!found) options.push({value: selected, label: selected + ' (no longer configured)', stale: true});
+		return {disabled: false, selected: selected, stale: !found, options: options};
+	}
+
+	function endpointSelectionForMode(mode, selections) {
+		if (mode === 'group') return '';
+		return String(selections && selections[mode] || '');
+	}
+
+	function requiresEndpointInventory(mode) {
+		return mode === 'trunk' || mode === 'extension';
+	}
+
+	function initialEndpointState(mode) {
+		var loadsInventory = requiresEndpointInventory(mode);
+		return {loadsInventory: loadsInventory, runDisabled: loadsInventory, filterDisabled: mode === 'group', filter: mode === 'group' ? '' : null};
+	}
+
+	function endpointModeAction(mode, inventoryLoaded, requestPending) {
+		if (!requiresEndpointInventory(mode)) return 'group';
+		if (inventoryLoaded) return 'render';
+		return requestPending ? 'wait' : 'load';
+	}
+
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria, clearReportResult: clearReportResult, isDiscardableFirstRun: isDiscardableFirstRun, countingMessage: countingMessage, endpointChoices: endpointChoices, endpointSelectionForMode: endpointSelectionForMode, requiresEndpointInventory: requiresEndpointInventory, initialEndpointState: initialEndpointState, endpointModeAction: endpointModeAction};
 }));

@@ -64,6 +64,10 @@ window._ccLoaded = true;
 	var wizardTargetReportId = null; // which report the open wizard will run into
 	var wizardEditingExisting = false;
 	var wizardExclusionConfiguration = null;
+	var historicalEndpointInventory = null;
+	var historicalEndpointInventoryRequest = null;
+	var wizardEndpointMode = null;
+	var wizardEndpointSelections = {trunk: '', extension: ''};
 	var runTargetReportId = null; // snapshot of the report a just-fired AJAX run belongs to
 	var historicalGraphTargetReportId = null; // snapshot for the graph-cache bridge to live-view.js
 	var generatedReportName = '';
@@ -86,11 +90,11 @@ window._ccLoaded = true;
 		return $('input[name="cc-wizard-mode"]:checked').val() || 'trunk';
 	}
 
-	function selectMode(mode) {
+	function selectMode(mode, endpoint) {
 		var input = $('input[name="cc-wizard-mode"][value="' + mode + '"]');
 		if (!input.length) input = $('#cc-mode-trunk');
 		input.prop('checked', true);
-		updateModeDescription();
+		updateModeDescription(endpoint);
 	}
 
 	/**
@@ -1120,10 +1124,12 @@ window._ccLoaded = true;
 		$('#cc-report-active').show();
 		$('#cc-report-active .cc-report-global-actions').show();
 		$('#cc-edit-report').toggle(!!report.result);
-		if (report.firstRunPending) {
+		if (report.firstRunPending || report.calculationPending) {
 			$('#cc-report-empty, #cc-results').hide();
 			$('#cc-report-loading-text').text('Running ' + report.name + '...');
 			$('#cc-report-loading').show();
+			var activeCriteria = report.submittedCriteria || report;
+			showActiveHistoricalStatus(report.mode, activeCriteria.start || report.range_from, activeCriteria.end || report.range_to);
 			return;
 		}
 		if (report.result) {
@@ -1197,15 +1203,18 @@ window._ccLoaded = true;
 		var criteria = report && report.submittedCriteria ? report.submittedCriteria : report;
 		wizardEditingExisting = !!reportId;
 		wizardExclusionConfiguration = currentExclusionConfiguration || null;
+		wizardEndpointMode = null;
+		wizardEndpointSelections = {trunk: '', extension: ''};
 		wizardState = {mode: criteria ? criteria.mode : 'trunk', engine: criteria ? criteria.engine : 'original'};
 		$('#cc-report-name').val(criteria ? criteria.name : generatedReportName);
 		$('#cc-engine').val(criteria ? criteria.engine : 'original');
 		$('#cc-minimum-concurrency').val(criteria && criteria.minimum_concurrency ? criteria.minimum_concurrency : '');
-		$('#cc-report-filter').val(criteria && criteria.filter ? criteria.filter : '');
-		selectMode(criteria ? criteria.mode : 'trunk');
+		var restoredEndpoint = criteria && criteria.filter ? criteria.filter : '';
+		if (criteria && criteria.mode !== 'group') wizardEndpointSelections[criteria.mode] = restoredEndpoint;
+		var initialMode = criteria ? criteria.mode : 'trunk';
+		selectMode(initialMode, restoredEndpoint);
 		$('#cc-engine-group, #cc-wizard-mode-group').show();
 		if (!preserveDisplayedResult) { $('#cc-results').hide(); setStatus('', null); }
-		updateModeDescription();
 		$('#cc-include-time').prop('checked', !!(criteria && criteria.include_time));
 		$('#cc-time-from').val(criteria && criteria.from_time ? criteria.from_time : '00:00');
 		$('#cc-time-to').val(criteria && criteria.to_time ? criteria.to_time : '23:59');
@@ -1220,13 +1229,58 @@ window._ccLoaded = true;
 		showWizard();
 	}
 
-	function updateModeDescription() {
+	function renderHistoricalEndpointChoices(mode, selected) {
+		var state = window.CCHistoricalRunState.endpointChoices(historicalEndpointInventory, mode, selected);
+		var select = $('#cc-report-filter').empty().prop('disabled', state.disabled);
+		if (mode !== 'group') select.append($('<option>').val('').text('All ' + (mode === 'trunk' ? 'trunks' : 'extensions')));
+		state.options.forEach(function (option) { select.append($('<option>').val(option.value).text(option.label)); });
+		select.val(state.selected);
+		if (mode !== 'group') wizardEndpointSelections[mode] = state.selected;
+		$('#cc-wizard-next').prop('disabled', state.stale);
+		$('#cc-report-filter-help').text(state.stale
+			? 'The saved endpoint is no longer configured. Choose All or another configured endpoint before running again.'
+			: (mode === 'group' ? 'Group reports include all attributable PJSIP extensions and do not use an endpoint filter.' : 'Choose All or one configured PJSIP ' + mode + '.'));
+	}
+
+	function loadHistoricalEndpointInventory(mode, selected) {
+		if (!window.CCHistoricalRunState.requiresEndpointInventory(mode)) {
+			renderHistoricalEndpointChoices('group', '');
+			return;
+		}
+		$('#cc-wizard-next').prop('disabled', true);
+		$('#cc-report-filter').prop('disabled', true).empty().append($('<option>').val('').text('Loading configured endpoints...'));
+		if (historicalEndpointInventoryRequest) return;
+		historicalEndpointInventoryRequest = ajax({command: 'gethistoricalendpoints'}).done(function (response) {
+			if (!response.status) {
+				if (selectedMode() === 'group') { $('#cc-wizard-next').prop('disabled', false); return; }
+				$('#cc-report-filter').prop('disabled', true).empty().append($('<option>').val('').text('Configured endpoints unavailable'));
+				showError(response.message || 'Unable to load configured endpoints.');
+				return;
+			}
+			historicalEndpointInventory = response.endpoints || {trunk: [], extension: []};
+			var currentMode = selectedMode();
+			renderHistoricalEndpointChoices(currentMode, window.CCHistoricalRunState.endpointSelectionForMode(currentMode, wizardEndpointSelections));
+		}).fail(function () {
+			if (selectedMode() === 'group') { $('#cc-wizard-next').prop('disabled', false); return; }
+			$('#cc-report-filter').prop('disabled', true).empty().append($('<option>').val('').text('Configured endpoints unavailable'));
+			showError('Unable to load configured endpoints.');
+		}).always(function () { historicalEndpointInventoryRequest = null; });
+	}
+
+	function updateModeDescription(endpoint) {
 		var mode = selectedMode();
+		if (wizardEndpointMode && wizardEndpointMode !== 'group') wizardEndpointSelections[wizardEndpointMode] = $('#cc-report-filter').val() || wizardEndpointSelections[wizardEndpointMode] || '';
+		if (typeof endpoint === 'string' && mode !== 'group') wizardEndpointSelections[mode] = endpoint;
+		var selected = window.CCHistoricalRunState.endpointSelectionForMode(mode, wizardEndpointSelections);
+		wizardEndpointMode = mode;
 		$('.cc-mode-option').removeClass('is-selected');
 		$('input[name="cc-wizard-mode"]:checked').closest('.cc-mode-option').addClass('is-selected');
 		$('#cc-mode-description').text(modeDescriptions[mode] || 'Choose what the report should measure.');
 		$('#cc-report-filter-group').toggle(mode !== 'group');
-		if (mode === 'group') $('#cc-report-filter').val('');
+		var endpointAction = window.CCHistoricalRunState.endpointModeAction(mode, !!historicalEndpointInventory, !!historicalEndpointInventoryRequest);
+		if (endpointAction === 'render') renderHistoricalEndpointChoices(mode, selected);
+		else if (endpointAction === 'group') renderHistoricalEndpointChoices('group', '');
+		else loadHistoricalEndpointInventory(mode, selected);
 	}
 
 	function applyDatePreset(kind) {
@@ -1346,6 +1400,8 @@ window._ccLoaded = true;
 					start: canonical.start, end: canonical.end,
 					excluded_call_configuration: wizardExclusionConfiguration || (existing.result ? existing.result.excluded_call_configuration : null)
 				};
+				window.CCHistoricalRunState.clearReportResult(existing);
+				clearHistoricalResultUi();
 				hideWizard();
 				runTargetReportId = wizardTargetReportId;
 				executeRun(wizardState.mode, canonical.start, canonical.end, {
@@ -1403,7 +1459,7 @@ window._ccLoaded = true;
 
 	function discardFailedFirstRun(targetReportId, message) {
 		var report = targetReportId ? historicalReports[targetReportId] : null;
-		if (!report || !report.firstRunPending) return false;
+		if (!window.CCHistoricalRunState.isDiscardableFirstRun(report)) return false;
 		if (report.firstRunCleanupAttempted) return true;
 		report.firstRunCleanupAttempted = true;
 		$('#cc-report-loading').hide();
@@ -1716,6 +1772,20 @@ window._ccLoaded = true;
 		$('#cc-excluded-calls').prop('disabled', false).removeAttr('aria-disabled');
 	}
 
+	function clearHistoricalResultUi() {
+		currentResults = null;
+		finalMode = null; finalStart = null; finalEnd = null;
+		finalDemoReport = null; finalDemoSize = null; finalDemoSeed = null;
+		$('#cc-results, #cc-historical-graph, #cc-email-row, #cc-report-empty').hide();
+		$('#cc-results-title, #cc-results-meta, #cc-results-body, #cc-historical-series, #cc-historical-resolution').empty();
+		$('#cc-results-warning').text('').prop('hidden', true).attr('aria-hidden', 'true');
+		$(document).trigger('cc:historical-results', [null, null]);
+	}
+
+	function showActiveHistoricalStatus(mode, start, end) {
+		setStatus(window.CCHistoricalRunState.countingMessage(mode, start, end), 'running');
+	}
+
 	function executeRun(mode, start, end, extraParams, engineOverride, continuationRun, submittedCriteria) {
 		if (activeCalculation && activeCalculation !== continuationRun) return;
 		var targetReportId = continuationRun ? continuationRun.targetReportId : runTargetReportId;
@@ -1735,7 +1805,7 @@ window._ccLoaded = true;
 		} else if (mode === 'demo') {
 			setStatus('Creating temporary demo CDR rows and counting from ' + start + ' to ' + end + '...', 'running');
 		} else {
-			setStatus('Counting PJSIP ' + mode + ' call data from ' + start + ' to ' + end + '. This may take a while on busy systems...', 'running');
+			showActiveHistoricalStatus(mode, start, end);
 		}
 		if (!continuationRun) {
 			startCalculationTelemetry(run);
@@ -1784,6 +1854,7 @@ window._ccLoaded = true;
 			}
 			if (!resp.status) {
 				if (discardFailedFirstRun(targetReportId, resp.message || 'Failed to run.')) return;
+				restoreStoppedReport(targetReportId);
 				setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + (resp.message || 'Failed to run.'), 'error');
 				pendingPersistedRefresh = false;
 				return;
@@ -1798,6 +1869,7 @@ window._ccLoaded = true;
 			activeCalculation = null;
 			finishCalculationUi(run);
 			if (discardFailedFirstRun(targetReportId, randomOops())) return;
+			restoreStoppedReport(targetReportId);
 			setStatus((pendingPersistedRefresh ? 'The saved change remains active, but the report could not be refreshed. ' : '') + randomOops(), 'error');
 			pendingPersistedRefresh = false;
 		});
@@ -1805,7 +1877,7 @@ window._ccLoaded = true;
 
 	function restoreStoppedReport(targetReportId) {
 		var report = targetReportId && historicalReports[targetReportId] ? historicalReports[targetReportId] : null;
-		if (report) report.firstRunPending = false;
+		if (report) { report.firstRunPending = false; report.calculationPending = false; }
 		if (targetReportId !== null && targetReportId !== activeReportId) return;
 		$('#cc-report-loading').hide();
 		if (report && report.result) {
@@ -1852,7 +1924,9 @@ window._ccLoaded = true;
 				finishCalculationUi(replacementForClosingReport);
 			}
 			$('#cc-overrun').modal('hide');
-			if (run.targetReportId && historicalReports[run.targetReportId]) closeReportTab(run.targetReportId);
+			var stoppedReport = run.targetReportId && historicalReports[run.targetReportId] ? historicalReports[run.targetReportId] : null;
+			if (window.CCHistoricalRunState.isDiscardableFirstRun(stoppedReport)) closeReportTab(run.targetReportId);
+			else if (stoppedReport) { restoreStoppedReport(run.targetReportId); setStatus('Calculation stopped.', 'warning'); }
 			else selectTopTab('historical');
 		}).fail(function () {
 			if (!activeCalculation || activeCalculation.sequence !== run.sequence) return;
@@ -1878,6 +1952,7 @@ window._ccLoaded = true;
 			report.result = results;
 			report.hasRun = true;
 			report.firstRunPending = false;
+			report.calculationPending = false;
 			report.occurrenceCache = {};
 			report.graphSeries = null;
 			report.submittedCriteria = window.CCHistoricalRunState.snapshotCriteria($.extend({}, submittedCriteria || report, {excluded_call_configuration: results.excluded_call_configuration || null}));
@@ -1976,6 +2051,7 @@ window._ccLoaded = true;
 				activeCalculation = null;
 				finishCalculationUi(run);
 				if (discardFailedFirstRun(targetReportId, 'Report run was cancelled.')) return;
+				restoreStoppedReport(targetReportId);
 				setStatus('Aborting as per user request.', 'warning');
 			}).fail(function () { setStatus('Unable to cancel the count.', 'error'); }).always(function () { button.prop('disabled', false); });
 		});
@@ -2138,6 +2214,10 @@ window._ccLoaded = true;
 			stirDemoSeed(Math.floor(touch.pageX - off.left), Math.floor(touch.pageY - off.top));
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
+		$('#cc-report-filter').off('change').on('change', function () {
+			if (selectedMode() !== 'group') wizardEndpointSelections[selectedMode()] = $(this).val() || '';
+			renderHistoricalEndpointChoices(selectedMode(), $(this).val() || '');
+		});
 		$('.cc-date-preset').off('click').on('click', function () {
 			applyDatePreset($(this).data('preset'));
 		});
