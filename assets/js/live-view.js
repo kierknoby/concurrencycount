@@ -896,23 +896,27 @@ window._ccLiveLoaded = true;
 		if (series.display_resolution === 'floor_events_sampled') resolutionText = 'Display samples real floor-qualified event boundaries; exact peak remains ' + series.exact_peak;
 		$('#cc-historical-resolution').text(resolutionText);
 		var thresholdConfig = historicalSeries.thresholds[name] || {};
-		var svg = document.getElementById('cc-historical-chart');
-		if (!historicalChart || historicalChart.svg !== svg) {
+		var image = document.getElementById('cc-historical-chart-image');
+		var overlay = document.getElementById('cc-historical-chart-overlay');
+		var tooltip = document.getElementById('cc-historical-chart-tooltip');
+		if (!historicalChart || historicalChart.image !== image) {
 			if (historicalChart) historicalChart.destroy();
-			historicalChart = new window.HistoricalSvgChart(svg, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
+			historicalChart = new window.HistoricalSvgChart(image, overlay, tooltip, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
 		} else historicalChart.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
-		historicalChart.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, series.exact_peak);
+		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
+		var graphSubtitle = resolutionText;
+		if (historicalResult.minimum_concurrency) graphSubtitle += ' · Minimum concurrency ' + historicalResult.minimum_concurrency;
+		historicalChart.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, series.exact_peak, {title: reportName + ' — ' + (name === 'overall' ? 'Overall' : name), subtitle: graphSubtitle});
 	}
 
 	function exportHistoricalGraph(format) {
 		if (!historicalChart || !historicalSelectedSeries) return;
 		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
-		var resolution = $('#cc-historical-resolution').text();
-		window.HistoricalGraphExport.download(String(format), historicalChart.svg, historicalChart.chart, {
+		window.HistoricalGraphExport.download(String(format), historicalChart.svgDocument, historicalChart.chart, {
 			report: reportName,
 			series: historicalSelectedSeries,
-			title: reportName + ' — ' + (historicalSelectedSeries === 'overall' ? 'Overall' : historicalSelectedSeries),
-			subtitle: resolution
+			title: historicalChart.metadata.title,
+			subtitle: historicalChart.metadata.subtitle
 		});
 	}
 
