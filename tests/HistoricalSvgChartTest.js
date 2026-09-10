@@ -19,10 +19,33 @@ assert(exact.paths.length === 2, 'Null floor gaps create separate SVG path segme
 assert((exact.paths[0].match(/H /g) || []).length >= 3 && (exact.paths[0].match(/V /g) || []).length === 2, 'Exact events generate horizontal-then-vertical step geometry');
 close(exact.x(yearStart + 561) - exact.x(yearStart + 500), (61 / (yearEnd - yearStart)) * (exact.plot.right - exact.plot.left), 'A 60-second inclusive interval keeps its real 61-second boundary relationship');
 assert(exact.paths[1].endsWith('H ' + exact.x(yearStart + 561)), 'A null boundary terminates its visible run at the real timestamp');
+assert(exact.runs.length === 2 && exact.runs[0].startTs === yearStart + 100 && exact.runs[0].endTs === yearStart + 280 && exact.runs[1].startTs === yearStart + 500 && exact.runs[1].endTs === yearStart + 561, 'Visible runs retain their exact real start and null-boundary timestamps');
 assert(exact.ticks[0].ts === yearStart && exact.ticks[4].ts === yearEnd, 'First and last tick labels belong to the explicit report domain');
 assert(exact.ticks[0].label === svg.formatAxisTimestamp(yearStart, yearEnd - yearStart) && exact.ticks[4].label === svg.formatAxisTimestamp(yearEnd, yearEnd - yearStart) && /2025/.test(exact.ticks[0].label) && /2025/.test(exact.ticks[4].label), 'Long-domain first and last labels use the exact range boundaries and calendar formatting');
 assert(exact.x(yearStart + 561) < exact.plot.left + 1, 'Activity concentrated near the start of a long domain remains mathematically concentrated there');
 close(exact.thresholdY, exact.plot.bottom - ((4 / 5) * (exact.plot.bottom - exact.plot.top)), 'Threshold Y position is deterministic from threshold and exact peak');
+
+const shortPoints = [
+	{ts: yearStart + 100, value: 5},
+	{ts: yearStart + 161, value: null},
+	{ts: yearStart + 500, value: 6},
+	{ts: yearStart + 561, value: null}
+];
+const shortRuns = svg.model(shortPoints, 5, {minTs: yearStart, maxTs: yearEnd}, 6);
+const exactPathsBeforeMarkers = JSON.stringify(shortRuns.paths);
+const wideMarkers = svg.markersForWidth(shortRuns, 1200, 7);
+const narrowMarkers = svg.markersForWidth(shortRuns, 600, 7);
+assert(wideMarkers.length === 2 && narrowMarkers.length === 2, 'Two separate sub-pixel qualifying runs receive two separate display markers at wide and narrow responsive sizes');
+assert(wideMarkers[0].startTs === yearStart + 100 && wideMarkers[0].endTs === yearStart + 161 && wideMarkers[1].startTs === yearStart + 500 && wideMarkers[1].endTs === yearStart + 561, 'Marker metadata retains each real qualifying run boundary');
+close((wideMarkers[0].width / (shortRuns.plot.right - shortRuns.plot.left)) * (1200 * 0.935), 7, 'Year-scale 60-second run receives a seven-pixel visual marker');
+close((narrowMarkers[0].width / (shortRuns.plot.right - shortRuns.plot.left)) * (600 * 0.935), 7, 'Marker remains perceptible without changing timestamps at a narrow responsive width');
+assert(JSON.stringify(shortRuns.paths) === exactPathsBeforeMarkers && shortRuns.paths[0].endsWith('H ' + shortRuns.x(yearStart + 161)), 'Adding marker geometry does not alter the exact SVG step path or its real exit timestamp');
+shortRuns.markers = wideMarkers;
+const shortMarkup = svg.markup(shortRuns);
+assert((shortMarkup.match(/class="cc-historical-svg-short-run"/g) || []).length === 2 && shortMarkup.indexOf('data-start-ts="' + (yearStart + 100) + '" data-end-ts="' + (yearStart + 161) + '"') !== -1, 'Marker layer remains separate from the exact paths and carries real run metadata');
+
+const broadRun = svg.model([{ts: 100, value: 5}, {ts: 500, value: null}], 5, {minTs: 0, maxTs: 1000}, 5);
+assert(svg.markersForWidth(broadRun, 1000, 7).length === 0 && broadRun.paths[0].endsWith('H ' + broadRun.x(500)), 'A sufficiently wide qualifying run uses only its true horizontal span without display widening');
 
 const openEnded = svg.model([{ts: yearStart + 1000, value: 3}], 0, {minTs: yearStart, maxTs: yearEnd}, 3);
 assert(openEnded.paths[0].endsWith('H ' + openEnded.plot.right), 'A final visible state explicitly extends to the report-domain end without requiring a duplicate range-end point');
@@ -53,6 +76,11 @@ const secondPointClientX = 100 + (800 * (0.05 + (0.935 * 0.75)));
 interactionChart.onPointer({clientX: secondPointClientX});
 interactionChart.onClick({clientX: secondPointClientX});
 assert(tooltipText.textContent.indexOf('  4') !== -1 && selectedPoint && selectedPoint.ts === 75, 'Tooltip and click selection share the corrected responsive pointer mapping');
+selectedPoint = null;
+interactionChart.chart = shortRuns;
+const shortRunRatio = 0.05 + (0.935 * ((shortRuns.runs[1].anchorTs - yearStart) / (yearEnd - yearStart)));
+interactionChart.onClick({clientX: 100 + (800 * shortRunRatio)});
+assert(selectedPoint && selectedPoint.ts === yearStart + 500, 'Clicking a short-run marker location selects its real underlying event timestamp');
 assert(svg.describe(exact).indexOf('4 visible points') !== -1 && svg.describe(exact).indexOf('peak 5') !== -1, 'Accessible description reports visible points and the exact peak');
 const requestedResult = {id: 'old'};
 assert(svg.isCurrentResult(requestedResult, requestedResult) && !svg.isCurrentResult(null, requestedResult) && !svg.isCurrentResult({id: 'new'}, requestedResult), 'A late Historical AJAX result cannot repaint a cleared or replaced result');

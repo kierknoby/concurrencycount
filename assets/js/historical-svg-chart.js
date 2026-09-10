@@ -34,28 +34,54 @@
 		var maxValue = Math.max(1, threshold, exactPeak);
 		var x = function (ts) { return PLOT.left + (((Number(ts) - minTs) / (maxTs - minTs)) * (PLOT.right - PLOT.left)); };
 		var y = function (value) { return PLOT.bottom - ((Number(value) / maxValue) * (PLOT.bottom - PLOT.top)); };
-		var paths = [], commands = [], previous = null, visible = [];
-		function finish() { if (commands.length) paths.push(commands.join(' ')); commands = []; previous = null; }
+		var paths = [], commands = [], previous = null, visible = [], runs = [], currentRun = null;
+		function finish(endTs) {
+			if (commands.length) paths.push(commands.join(' '));
+			if (currentRun) {
+				currentRun.endTs = endTs;
+				currentRun.anchorTs = currentRun.startTs + ((endTs - currentRun.startTs) / 2);
+				currentRun.anchorX = x(currentRun.anchorTs);
+				currentRun.y = y(currentRun.peakValue);
+				runs.push(currentRun);
+			}
+			commands = []; previous = null; currentRun = null;
+		}
 		points.forEach(function (point) {
 			if (point.value === null || typeof point.value === 'undefined') {
 				if (previous) commands.push('H ' + x(point.ts));
-				finish();
+				finish(Number(point.ts));
 				return;
 			}
 			var px = x(point.ts), py = y(point.value);
 			visible.push({point: point, x: px, y: py});
-			if (!previous) commands.push('M ' + px + ' ' + py);
+			if (!previous) {
+				commands.push('M ' + px + ' ' + py);
+				currentRun = {startTs: Number(point.ts), endTs: null, anchorTs: null, anchorX: null, y: py, peakValue: Number(point.value), firstPoint: point};
+			}
 			else commands.push('H ' + px + ' V ' + py);
+			if (currentRun && Number(point.value) > currentRun.peakValue) currentRun.peakValue = Number(point.value);
 			previous = point;
 		});
 		if (previous) commands.push('H ' + PLOT.right);
-		finish();
+		finish(maxTs);
 		var ticks = [];
 		for (var tick = 0; tick < 5; tick++) {
 			var timestamp = minTs + (((maxTs - minTs) * tick) / 4);
 			ticks.push({ts: timestamp, x: x(timestamp), label: axisTimestamp(timestamp, maxTs - minTs)});
 		}
-		return {width: WIDTH, height: HEIGHT, plot: PLOT, minTs: minTs, maxTs: maxTs, maxValue: maxValue, threshold: threshold, thresholdY: threshold ? y(threshold) : null, paths: paths, visible: visible, ticks: ticks, x: x, y: y, exactPeak: exactPeak};
+		return {width: WIDTH, height: HEIGHT, plot: PLOT, minTs: minTs, maxTs: maxTs, maxValue: maxValue, threshold: threshold, thresholdY: threshold ? y(threshold) : null, paths: paths, visible: visible, runs: runs, markers: [], ticks: ticks, x: x, y: y, exactPeak: exactPeak};
+	}
+
+	function markersForWidth(chart, renderedWidth, minimumPixels) {
+		minimumPixels = Math.max(2, Number(minimumPixels) || 7);
+		var plotPixels = Math.max(1, Number(renderedWidth) * 0.935);
+		return chart.runs.filter(function (run) {
+			return ((run.endTs - run.startTs) / (chart.maxTs - chart.minTs)) * plotPixels < minimumPixels;
+		}).map(function (run) {
+			var logicalWidth = (minimumPixels / plotPixels) * (chart.plot.right - chart.plot.left);
+			var displayX = Math.max(chart.plot.left, Math.min(chart.plot.right - logicalWidth, run.anchorX - (logicalWidth / 2)));
+			return {startTs: run.startTs, endTs: run.endTs, anchorTs: run.anchorTs, x: run.anchorX, displayX: displayX, y: run.y, width: logicalWidth, value: run.peakValue, point: run.firstPoint};
+		});
 	}
 
 	function markup(chart) {
@@ -64,6 +90,7 @@
 		out += '<path class="cc-historical-svg-axis" d="M ' + chart.plot.left + ' ' + chart.plot.top + ' V ' + chart.plot.bottom + ' H ' + chart.plot.right + '"/>';
 		if (chart.thresholdY !== null) out += '<path class="cc-historical-svg-threshold" d="M ' + chart.plot.left + ' ' + chart.thresholdY + ' H ' + chart.plot.right + '"/>';
 		chart.paths.forEach(function (path) { out += '<path class="cc-historical-svg-series" d="' + path + '"/>'; });
+		(chart.markers || []).forEach(function (marker) { out += '<rect class="cc-historical-svg-short-run" x="' + marker.displayX + '" y="' + (marker.y - 3) + '" width="' + marker.width + '" height="6" rx="3" data-start-ts="' + marker.startTs + '" data-end-ts="' + marker.endTs + '"/>'; });
 		out += '</svg>';
 		if (chart.thresholdY !== null) out += '<text class="cc-historical-svg-threshold-label" x="5.5%" y="' + Math.max(10, chart.thresholdY - 4) + '">Threshold ' + chart.threshold + '</text>';
 		out += '<text class="cc-historical-svg-label" x="8" y="' + (chart.plot.top + 5) + '">' + chart.maxValue + '</text><text class="cc-historical-svg-label" x="3%" y="' + (chart.plot.bottom + 4) + '">0</text>';
@@ -101,6 +128,8 @@
 	}
 	HistoricalSvgChart.prototype.setData = function (points, threshold, domain, exactPeak) {
 		this.chart = model(points, threshold, domain, exactPeak);
+		var rect = this.svg.getBoundingClientRect();
+		this.chart.markers = markersForWidth(this.chart, rect.width > 0 ? rect.width : WIDTH, 7);
 		this.svg.innerHTML = markup(this.chart);
 		this.svg.setAttribute('aria-label', describe(this.chart));
 	};
@@ -128,5 +157,5 @@
 	};
 	HistoricalSvgChart.isCurrentResult = isCurrentResult;
 
-	return {HistoricalSvgChart: HistoricalSvgChart, model: model, markup: markup, describe: describe, nearest: nearest, formatAxisTimestamp: axisTimestamp, isCurrentResult: isCurrentResult};
+	return {HistoricalSvgChart: HistoricalSvgChart, model: model, markersForWidth: markersForWidth, markup: markup, describe: describe, nearest: nearest, formatAxisTimestamp: axisTimestamp, isCurrentResult: isCurrentResult};
 }));

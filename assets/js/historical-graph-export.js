@@ -6,7 +6,7 @@
 }(typeof self !== 'undefined' ? self : this, function (root) {
 	'use strict';
 	var EXPORT_WIDTH = 1000, GRAPH_HEIGHT = 220, HEADER_HEIGHT = 40;
-	var STYLE = '.cc-historical-svg-background{fill:#fff}.cc-historical-svg-axis{fill:none;stroke:#d8dde3;stroke-width:1}.cc-historical-svg-series{fill:none;stroke:#2675a8;stroke-width:2}.cc-historical-svg-threshold{fill:none;stroke:#b83232;stroke-width:1;stroke-dasharray:5 4}.cc-historical-svg-label{fill:#52606b;font:11px sans-serif}.cc-historical-svg-threshold-label{fill:#8f2525;font:11px sans-serif}.cc-historical-svg-tooltip{display:none}';
+	var STYLE = '.cc-historical-svg-background{fill:#fff}.cc-historical-svg-axis{fill:none;stroke:#d8dde3;stroke-width:1}.cc-historical-svg-series{fill:none;stroke:#2675a8;stroke-width:2}.cc-historical-svg-short-run{fill:#2675a8;stroke:#fff;stroke-width:1}.cc-historical-svg-threshold{fill:none;stroke:#b83232;stroke-width:1;stroke-dasharray:5 4}.cc-historical-svg-label{fill:#52606b;font:11px sans-serif}.cc-historical-svg-threshold-label{fill:#8f2525;font:11px sans-serif}.cc-historical-svg-tooltip{display:none}';
 
 	function escapeXml(value) { return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 	function sanitizeFilename(value) {
@@ -38,6 +38,9 @@
 				else if (command === 'V') { y = Number(tokens[index++]); out.push(px(x) + ' ' + py(y) + ' l'); }
 			}
 			commands.push('0.15 0.46 0.66 RG 2 w ' + out.join(' ') + ' S');
+		});
+		(chart.markers || []).forEach(function (marker) {
+			commands.push('0.15 0.46 0.66 rg ' + px(marker.displayX) + ' ' + py(marker.y + 3) + ' ' + marker.width + ' 6 re f');
 		});
 		commands.push('0.32 0.38 0.42 rg BT /F1 10 Tf ' + (offsetX + 8) + ' ' + py(chart.plot.top + 5) + ' Td (' + chart.maxValue + ') Tj ET');
 		commands.push('BT /F1 10 Tf ' + px(28) + ' ' + py(chart.plot.bottom + 4) + ' Td (0) Tj ET');

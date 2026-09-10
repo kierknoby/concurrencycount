@@ -729,6 +729,7 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-historical-svg-background { fill: #fff; }
 .concurrencycount .cc-historical-svg-axis { fill: none; stroke: #d8dde3; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .concurrencycount .cc-historical-svg-series { fill: none; stroke: #2675a8; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.concurrencycount .cc-historical-svg-short-run { fill: #2675a8; stroke: #fff; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .concurrencycount .cc-historical-svg-threshold { fill: none; stroke: #b83232; stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 .concurrencycount .cc-historical-svg-label { fill: #52606b; font: 11px sans-serif; }
 .concurrencycount .cc-historical-svg-threshold-label { fill: #8f2525; font: 11px sans-serif; }
