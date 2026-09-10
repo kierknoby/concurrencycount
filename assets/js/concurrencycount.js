@@ -1646,7 +1646,6 @@ window._ccLoaded = true;
 		$('#cc-telemetry-progress').text(Math.max(0, Math.min(100, Math.floor(Number(response.progress_percent) || 0))) + '%');
 		$('#cc-telemetry-engine').text(response.engine ? String(response.engine).replace(/^./, function (v) { return v.toUpperCase(); }) : '--');
 		$('#cc-telemetry-confidence').text(response.eta_confidence || 'Calculating...');
-		$('#cc-telemetry-assessment').text(window.CCTelemetryFormat.duration(response.assessment_remaining_seconds || 0));
 		$('#cc-telemetry-impact').text(response.impact_status || 'Assessing...');
 		if (activeCalculation && response.decision !== 'paused_impact' && response.decision !== 'paused_runtime' && response.decision !== 'paused_critical') activeCalculation.decisionOpen = false;
 		if ((response.decision === 'paused_impact' || response.decision === 'paused_runtime' || response.decision === 'paused_critical') && activeCalculation && !activeCalculation.decisionOpen) {

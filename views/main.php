@@ -119,6 +119,7 @@ $_ccAssetVer = max(
 								<div class="cc-calculation-panel-heading">
 									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
 									<div id="cc-report-loading" class="text-muted"><span class="cc-spinner"></span> <strong id="cc-calculation-panel-title"><?php echo _('Calculating...'); ?></strong> <span id="cc-report-loading-text"></span></div>
+									<div class="cc-calculation-engine"><span><?php echo _('Engine'); ?>:</span> <strong id="cc-telemetry-engine">--</strong></div>
 								</div>
 								<div class="cc-telemetry-group cc-telemetry-resources" aria-labelledby="cc-telemetry-resources-title">
 									<h4 id="cc-telemetry-resources-title"><?php echo _('System resources'); ?></h4>
@@ -136,14 +137,12 @@ $_ccAssetVer = max(
 								<div class="cc-telemetry-group cc-telemetry-calculation" aria-labelledby="cc-telemetry-calculation-title">
 									<h4 id="cc-telemetry-calculation-title"><?php echo _('Calculation'); ?></h4>
 									<dl class="cc-telemetry-grid">
-								<div><dt><?php echo _('Engine completion'); ?></dt><dd id="cc-telemetry-progress">0%</dd></div>
-										<div><dt><?php echo _('Engine'); ?></dt><dd id="cc-telemetry-engine">--</dd></div>
-										<div><dt><?php echo _('Estimate confidence'); ?></dt><dd id="cc-telemetry-confidence"><?php echo _('Calculating...'); ?></dd></div>
-										<div><dt><?php echo _('Assessment remaining'); ?></dt><dd id="cc-telemetry-assessment">05:00</dd></div>
-										<div><dt><?php echo _('PBX impact'); ?></dt><dd id="cc-telemetry-impact"><?php echo _('Assessing...'); ?></dd></div>
-										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
-										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
+										<div><dt><?php echo _('Engine completion'); ?></dt><dd id="cc-telemetry-progress">0%</dd></div>
 										<div><dt><?php echo _('Estimated time remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Calculating...'); ?></dd></div>
+										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
+										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+										<div><dt><?php echo _('ETA confidence'); ?></dt><dd id="cc-telemetry-confidence"><?php echo _('Calculating...'); ?></dd></div>
+										<div><dt><?php echo _('PBX impact'); ?></dt><dd id="cc-telemetry-impact"><?php echo _('Assessing...'); ?></dd></div>
 									</dl>
 								</div>
 							</section>

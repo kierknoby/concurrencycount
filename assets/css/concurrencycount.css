@@ -948,6 +948,8 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-calculation-panel-heading { display:flex; align-items:center; justify-content:flex-start; gap:20px; }
 .concurrencycount .cc-calculation-panel-heading #cc-calculation-stop { flex:0 0 auto; }
 .concurrencycount .cc-calculation-panel-heading #cc-report-loading { min-width:0; overflow-wrap:anywhere; }
+.concurrencycount .cc-calculation-engine { flex:0 0 auto; margin-left:auto; color:#52606b; white-space:nowrap; }
+.concurrencycount .cc-calculation-engine strong { color:#26343d; }
 .concurrencycount .cc-telemetry-group { margin-top:16px; padding-top:12px; border-top:1px solid #d8e0e5; }
 .concurrencycount .cc-telemetry-group h4 { margin:0 0 9px; font-size:14px; font-weight:700; }
 .concurrencycount .cc-telemetry-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 18px; margin:0; }
@@ -1043,4 +1045,5 @@ body.cc-wall-active { overflow:hidden; }
 	.concurrencycount .cc-telemetry-grid,
 	.concurrencycount .cc-telemetry-resources .cc-telemetry-grid { grid-template-columns:1fr; }
 	.concurrencycount .cc-calculation-panel-heading { align-items:flex-start; flex-direction:column; gap:10px; }
+	.concurrencycount .cc-calculation-engine { margin-left:0; }
 }

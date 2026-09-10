@@ -308,9 +308,10 @@ admin_contract_assert(strpos($javascript, "setStatus('Stopping calculation...', 
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long calculations must release the PHP session lock for the authenticated Stop request');
 admin_contract_assert(strpos($class, 'HistoricalCalculationControl') !== false && strpos($class, 'HistoricalCalculationCancelled') !== false, 'Backend cooperative cancellation control missing');
 admin_contract_assert(strpos($view, 'id="cc-calculation-panel"') !== false && strpos($view, 'style="display:none;"') !== false, 'Telemetry panel must be hidden while idle');
-foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-progress', 'cc-telemetry-engine', 'cc-telemetry-confidence', 'cc-telemetry-assessment', 'cc-telemetry-impact', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
+foreach (['cc-telemetry-cpu', 'cc-telemetry-memory', 'cc-telemetry-swap', 'cc-telemetry-disk', 'cc-telemetry-progress', 'cc-telemetry-engine', 'cc-telemetry-confidence', 'cc-telemetry-impact', 'cc-telemetry-elapsed', 'cc-telemetry-runtime', 'cc-telemetry-eta'] as $telemetryId) {
 	admin_contract_assert(strpos($view, 'id="' . $telemetryId . '"') !== false, 'Historical telemetry field missing: ' . $telemetryId);
 }
+admin_contract_assert(strpos($view, 'id="cc-telemetry-assessment"') === false && strpos($view, 'Assessment remaining') === false && strpos($javascript, "$('#cc-telemetry-assessment')") === false, 'The removed assessment countdown must have no visible field or dead frontend selector');
 admin_contract_assert(strpos($view, 'id="cc-telemetry-phase"') === false && strpos($javascript, "$('#cc-telemetry-phase')") === false, 'Internal calculation phase must not be exposed as GUI telemetry');
 admin_contract_assert(strpos($view, 'id="cc-telemetry-allowance"') === false && strpos($javascript, "$('#cc-telemetry-allowance')") === false, 'Runtime allowance must remain absent from the telemetry panel');
 admin_contract_assert(strpos($view, 'id="cc-excluded-calls"') < strpos($view, 'id="cc-edit-report"') && strpos($javascript, "$('#cc-edit-report').off('click').on('click', openEditReport)") !== false, 'Edit Report must appear immediately after Excluded Calls and reopen the shared report wizard');
@@ -355,6 +356,18 @@ $panelStart = strpos($view, '<section id="cc-calculation-panel"');
 $panelEnd = strpos($view, '</section>', $panelStart);
 $panel = substr($view, $panelStart, $panelEnd - $panelStart);
 admin_contract_assert(strpos($panel, 'id="cc-calculation-stop"') < strpos($panel, 'id="cc-report-loading"'), 'Stop must precede the calculating status');
+admin_contract_assert(strpos($panel, 'id="cc-telemetry-engine"') < strpos($panel, 'cc-telemetry-resources') && strpos($panel, 'cc-calculation-engine') !== false, 'The dynamic Engine value must appear at the right side of the calculation panel heading');
+$calculationTelemetry = substr($panel, strpos($panel, 'cc-telemetry-calculation'));
+$calculationTelemetryOrder = ['cc-telemetry-progress', 'cc-telemetry-eta', 'cc-telemetry-runtime', 'cc-telemetry-elapsed', 'cc-telemetry-confidence', 'cc-telemetry-impact'];
+$lastTelemetryPosition = -1;
+foreach ($calculationTelemetryOrder as $telemetryId) {
+	$telemetryPosition = strpos($calculationTelemetry, 'id="' . $telemetryId . '"');
+	admin_contract_assert($telemetryPosition !== false && $telemetryPosition > $lastTelemetryPosition, 'Calculation telemetry must use the specified three-column row order: ' . $telemetryId);
+	$lastTelemetryPosition = $telemetryPosition;
+}
+admin_contract_assert(substr_count($calculationTelemetry, '<dd id="cc-telemetry-') === 6 && strpos($css, '.cc-telemetry-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));') !== false, 'Calculation telemetry must contain exactly six values arranged as three desktop columns by two rows');
+admin_contract_assert(strpos($panel, "_('ETA confidence')") !== false && strpos($panel, 'Estimate confidence') === false, 'Calculation telemetry must use the ETA confidence label');
+admin_contract_assert(strpos($readme, 'engine appears in the panel heading opposite **Stop**') !== false && strpos($readme, 'six values in three columns') !== false && strpos($readme, 'without a separate visible countdown') !== false, 'README must describe the active calculation telemetry presentation');
 admin_contract_assert(strpos($view, 'System load (5 min)') !== false && strpos($view, 'this is not a percentage') !== false, 'System load needs accurate five-minute wording and concise explanation');
 admin_contract_assert(strpos($javascript, "load += ' across '") !== false && strpos($javascript, "' CPUs'") !== false, 'System load must include native logical CPU context when available');
 admin_contract_assert(strpos($javascript, "$('#cc-telemetry-swap-item').toggle(!!swap)") !== false, 'Swap must appear only when native data is valid');
