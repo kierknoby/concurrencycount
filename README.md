@@ -1,6 +1,4 @@
-# Concurrency Count 2.2.0 for FreePBX/PBXact 16 and 17
-
-**NOT CURRENTLY SUITABLE FOR PRODUCTION.**
+# v2.2.0
 
 ## Overview
 
@@ -219,9 +217,11 @@ Unknown or deleted endpoints seen in Historical CDRs appear as endpoint anomalie
 
 Historical Reports query candidate answered PJSIP CDR rows, remove globally excluded logical calls, classify endpoint sides, apply the selected reporting mode, and pass the same eligible dataset to Original or Sweep.
 
-**Minimum concurrency** is an optional, inclusive output floor for Trunk, Extension, Group and Demo reports. Blank shows every detailed result; a value of 4 shows only detailed entities or periods whose calculated concurrency is 4 or greater. The full calculation always completes first, and the report period, completion state, calculation summary and actual peak remain visible even when no detail reaches the floor. A distinct notice separates that state from a report with no eligible Historical data. The same floor is applied to the GUI, Historical graph presentation, CSV/download, email, CLI and Demo output. Below-floor graph points are presented as gaps; the complete underlying graph calculation and actual peak remain unchanged. The floor does not affect Live View, CDR acquisition, engine calculations, assessment, telemetry, pause decisions or cleanup.
+**Minimum concurrency** is an inclusive output floor for Trunk, Extension, Group and Demo reports. Historic Reports default to 2 and cannot be set below 2; a value of 4 shows only detailed entities or periods whose calculated concurrency is 4 or greater. The full calculation always completes first, and the report period, completion state, calculation summary and actual peak remain visible even when no detail reaches the floor. A distinct notice separates that state from a report with no eligible Historical data. The same floor is applied to the GUI, Historical graph presentation, CSV/download, email, CLI and Demo output. Below-floor graph points are presented as gaps; the complete underlying graph calculation and actual peak remain unchanged. The floor does not affect Live View, CDR acquisition, engine calculations, assessment, telemetry, pause decisions or cleanup.
 
-The floor is temporary per open browser report and is not added to the persisted Historical Report definition. Changing it therefore reruns the exact calculation. Completed results cannot currently be reused safely because the browser receives only the transformed detail and the server does not retain a separate unfiltered completed result; adding such retention would create a larger result cache outside this scoped feature.
+**Maximum runtime** is stored with each Historic Report in whole minutes. It defaults to 60 minutes and accepts values from 5 through 1440. A GUI calculation starts with that saved allowance; any increase made from the administrator decision dialog applies only to the active run and does not change the report definition.
+
+The floor is stored in the Historical Report definition and restored by **Edit Report**. Changing it reruns the exact calculation. Completed results cannot currently be reused safely because the browser receives only the transformed detail and the server does not retain a separate unfiltered completed result; adding such retention would create a larger result cache outside this scoped feature.
 
 ### Trunk Concurrency
 
@@ -347,6 +347,7 @@ Persisted report-definition fields include:
 - date preset identity and resolved/custom date information;
 - Include time and its From/To values;
 - Minimum concurrency;
+- Maximum runtime in minutes;
 - active report state where applicable.
 
 Relative presets remain relative: **Last 7 days** is re-resolved against the current date on restore. **Custom** retains exact, valid calendar dates; impossible dates and reversed ranges are rejected.
@@ -366,9 +367,9 @@ Reopening the module restores tab definitions, regenerates the previously active
 
 ### Graphs, call detail and output
 
-Without a Minimum concurrency floor, Historical graph points retain exact numeric counts, including 1. With a floor, the complete graph is still calculated exactly, below-floor points are presented as gaps, and the actual calculated peak remains unchanged. The X axis always spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+The complete Historical graph is calculated with exact numeric counts. Points below the effective Minimum concurrency floor are presented as gaps, while the actual calculated peak remains unchanged. The X axis always spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
 
-Historical series buttons are independent selections. **Select All** adds every available series and **Unselect All** clears the graph until at least one series is selected. Selected series share one generated graph image and report-window axis, with colours distributed deterministically across the complete available-series inventory, a built-in legend and separately identified thresholds. The initial graph still selects only the series with the highest exact peak. Graph exports contain exactly the currently selected series; single-series filenames use its name, while multiple-series filenames use a bounded count such as `15-series`.
+Historical series buttons are independent selections. Every available series is selected when a fresh graph result is first rendered. **Select All** restores every available series and **Unselect All** clears the graph until at least one series is selected. Selected series share one generated graph image and report-window axis, with colours distributed deterministically across the complete available-series inventory, a built-in legend and separately identified thresholds. Graph exports contain exactly the currently selected series; single-series filenames use its name, while multiple-series filenames use a bounded count such as `15-series`.
 
 The detail path is conservative. CDR can prove the selected trunk leg, DID, source/destination and a directly recorded opposite PJSIP extension. Concurrency Count asks installed FreePBX `*_getdestinfo` providers for labels and safe local `config.php` edit links. Unresolved values remain plain text. It does not infer a historic IVR, queue or announcement chain from current configuration.
 
@@ -493,7 +494,7 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 ## Demo
 
-Demo is an administrator/test-PBX accuracy and performance workflow. The GUI generates Light, Medium or Heavy Trunk, Extension or Group fixtures. CLI examples are:
+Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load, randomises a reproducible seed and historical CDR range, and can save that scenario definition for later Trunk, Extension or Group runs without storing synthetic rows. Demo Minimum concurrency defaults to 2. CLI examples are:
 
 ```bash
 fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345

@@ -462,6 +462,23 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertCount(3, $result);
 	}
 
+	public function testDemoScenarioValidationPreservesReproducibleDefinition(): void {
+		$scenario = ['seed' => 12345, 'size' => 'medium', 'rows' => 1000, 'start' => '2005-04-01 10:00:00', 'end' => '2005-04-01 12:00:00'];
+		$this->assertSame($scenario, $this->invokePrivate('normaliseDemoScenario', [$scenario]));
+	}
+
+	public function testDemoScenarioRowsMustMatchSelectedLoad(): void {
+		$rejected = false;
+		try { $this->invokePrivate('normaliseDemoScenario', [['seed' => 12345, 'size' => 'light', 'rows' => 1000, 'start' => '2005-04-01 10:00:00', 'end' => '2005-04-01 12:00:00']]); }
+		catch (\InvalidArgumentException $exception) { $rejected = true; }
+		$this->assertTrue($rejected);
+	}
+
+	public function testSavedDemoScenarioBuildsIdenticalSyntheticInput(): void {
+		$args = ['2005-04-01 10:00:00', '2005-04-01 12:00:00', 'medium', 12345, 'CCDEMOaaaaaaaa', 'extension', '', 100];
+		$this->assertSame($this->invokePrivate('buildDemoRows', $args), $this->invokePrivate('buildDemoRows', $args));
+	}
+
 	/* ---------- helpers ---------- */
 
 	private function invokePrivate(string $name, array $args) {

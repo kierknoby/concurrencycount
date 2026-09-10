@@ -24,8 +24,12 @@ $stored = $service->defaults();
 list($stored, $first) = $service->createReport($stored, hr_definition(), 'aaaa0000aaaa0000aaaa0000aaaa0000');
 hr_assert(1 === $first['number'], 'First report allocates number 1');
 hr_assert('Historic Report 1' === $first['name'], 'First report named Historic Report 1');
+hr_assert(2 === $first['minimum_concurrency'], 'New reports default Minimum concurrency to 2');
+hr_assert(60 === $first['maximum_runtime_minutes'], 'New reports default Maximum runtime to 60 minutes');
 list($minimumStored, $minimumReport) = $service->createReport($service->defaults(), hr_definition(['minimum_concurrency' => 4]), 'ffff1111ffff1111ffff1111ffff1111');
 hr_assert(4 === $minimumReport['minimum_concurrency'], 'Minimum concurrency persists as part of the editable report definition');
+$runtimeReport = $service->createReport($service->defaults(), hr_definition(['maximum_runtime_minutes' => 120]), 'ffff2222ffff2222ffff2222ffff2222')[1];
+hr_assert(120 === $runtimeReport['maximum_runtime_minutes'], 'Maximum runtime persists as part of the editable report definition');
 list($stored, $second) = $service->createReport($stored, hr_definition(['mode' => 'extension', 'name' => 'Historic Report 2']), 'bbbb0000bbbb0000bbbb0000bbbb0000');
 hr_assert(2 === $second['number'], 'Second report allocates number 2');
 hr_assert('Historic Report 2' === $second['name'], 'Second report named Historic Report 2');
@@ -75,6 +79,7 @@ $legacy = $service->reconcileStored(['reports' => [
 	'legacy00000000000000000000000000' => $legacyDefinition,
 ]]);
 hr_assert('Historic Report 4' === $legacy['reports']['legacy00000000000000000000000000']['name'], 'Legacy title-only report reconciles to a display name');
+hr_assert(2 === $legacy['reports']['legacy00000000000000000000000000']['minimum_concurrency'] && 60 === $legacy['reports']['legacy00000000000000000000000000']['maximum_runtime_minutes'], 'Legacy reports resolve missing floor and runtime fields without mutating storage');
 $legacyWithoutTitle = $legacyDefinition;
 unset($legacyWithoutTitle['title']);
 $legacyWithoutTitle['number'] = 3;
@@ -87,10 +92,20 @@ foreach (['', str_repeat('x', 81), "bad\nname"] as $invalidName) {
 	catch (InvalidArgumentException $exception) { $nameRejected = true; }
 	hr_assert($nameRejected, 'Invalid report name is rejected server-side');
 }
-$minimumRejected = false;
-try { $service->createReport($service->defaults(), hr_definition(['minimum_concurrency' => 0])); }
-catch (InvalidArgumentException $exception) { $minimumRejected = true; }
-hr_assert($minimumRejected, 'Invalid persisted Minimum concurrency is rejected');
+foreach ([null, '', 0, 1] as $legacyMinimum) {
+	$normalised = $service->createReport($service->defaults(), hr_definition(['minimum_concurrency' => $legacyMinimum]))[1];
+	hr_assert(2 === $normalised['minimum_concurrency'], 'Legacy Minimum concurrency resolves to 2');
+}
+foreach ([5, 60, 120, 1440] as $runtimeMinutes) {
+	$normalised = $service->createReport($service->defaults(), hr_definition(['maximum_runtime_minutes' => $runtimeMinutes]))[1];
+	hr_assert($runtimeMinutes === $normalised['maximum_runtime_minutes'], 'Valid Maximum runtime is retained');
+}
+foreach ([4, 1441, 5.5, 'five'] as $invalidRuntime) {
+	$rejected = false;
+	try { $service->createReport($service->defaults(), hr_definition(['maximum_runtime_minutes' => $invalidRuntime])); }
+	catch (InvalidArgumentException $exception) { $rejected = true; }
+	hr_assert($rejected, 'Invalid Maximum runtime is rejected');
+}
 
 /* Custom preset retains exact persisted dates; relative preset only stores the preset identity + last-known dates */
 hr_assert('custom' === $reused['preset'] && '2026-01-01' === $reused['range_from'] && '2026-01-31' === $reused['range_to'], 'Custom preset persists its exact chosen dates');

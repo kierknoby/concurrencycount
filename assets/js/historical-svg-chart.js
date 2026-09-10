@@ -14,9 +14,44 @@
 		var offset = (lightness / 100) - (chroma / 2);
 		return '#' + rgb.map(function (part) { return ('0' + Math.round((part + offset) * 255).toString(16)).slice(-2); }).join('').toUpperCase();
 	}
+	function labForHex(hex) {
+		var channels = [1, 3, 5].map(function (offset) { var value = parseInt(hex.slice(offset, offset + 2), 16) / 255; return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4); });
+		var x = (channels[0] * 0.4124 + channels[1] * 0.3576 + channels[2] * 0.1805) / 0.95047;
+		var y = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+		var z = (channels[0] * 0.0193 + channels[1] * 0.1192 + channels[2] * 0.9505) / 1.08883;
+		var convert = function (value) { return value > 0.008856 ? Math.pow(value, 1 / 3) : (7.787 * value) + (16 / 116); };
+		x = convert(x); y = convert(y); z = convert(z);
+		return {l: (116 * y) - 16, a: 500 * (x - y), b: 200 * (y - z)};
+	}
+	function perceptualDistance(left, right) { var dl = left.l - right.l, da = left.a - right.a, db = left.b - right.b; return Math.sqrt((dl * dl) + (da * da) + (db * db)); }
+	function colourCandidates() {
+		var candidates = [], seen = {};
+		for (var hue = 0; hue < 360; hue += 5) [58, 72, 84].forEach(function (saturation) { [32, 38, 44].forEach(function (lightness) { var hex = hslHex(hue, saturation, lightness); if (!seen[hex]) { seen[hex] = true; candidates.push({hex: hex, lab: labForHex(hex)}); } }); });
+		return candidates;
+	}
+	function fallbackColour(name, index) {
+		var hash = 2166136261, text = String(name) + ':' + index;
+		for (var character = 0; character < text.length; character++) { hash ^= text.charCodeAt(character); hash = Math.imul(hash, 16777619); }
+		hash >>>= 0;
+		return hslHex((hash % 36000) / 100, 58 + ((hash >>> 9) % 23), 34 + ((hash >>> 17) % 13));
+	}
 	function coloursForInventory(names) {
-		var sorted = names.map(String).filter(function (name, index, all) { return all.indexOf(name) === index; }).sort(function (left, right) { return left < right ? -1 : (left > right ? 1 : 0); }), colours = {};
-		sorted.forEach(function (name, index) { colours[name] = hslHex((211 + (index * 137.507764)) % 360, 64 + ((index % 3) * 6), 38 + ((Math.floor(index / 3) % 3) * 6)); });
+		var sorted = names.map(String).filter(function (name, index, all) { return all.indexOf(name) === index; }).sort(function (left, right) { return left < right ? -1 : (left > right ? 1 : 0); }), colours = {}, candidates = colourCandidates(), allocated = [];
+		var seed = hslHex(210, 72, 38), seedIndex = candidates.map(function (candidate) { return candidate.hex; }).indexOf(seed);
+		if (seedIndex < 0) seedIndex = 0;
+		for (var index = 0; index < sorted.length && candidates.length; index++) {
+			var chosenIndex = seedIndex;
+			if (allocated.length) {
+				var bestDistance = -1;
+				candidates.forEach(function (candidate, candidateIndex) {
+					var minimumDistance = Infinity;
+					allocated.forEach(function (selected) { minimumDistance = Math.min(minimumDistance, perceptualDistance(candidate.lab, selected.lab)); });
+					if (minimumDistance > bestDistance) { bestDistance = minimumDistance; chosenIndex = candidateIndex; }
+				});
+			}
+			var chosen = candidates.splice(chosenIndex, 1)[0]; allocated.push(chosen); colours[sorted[index]] = chosen.hex; seedIndex = 0;
+		}
+		for (; index < sorted.length; index++) colours[sorted[index]] = fallbackColour(sorted[index], index);
 		return colours;
 	}
 
@@ -128,8 +163,9 @@
 		});
 		return best;
 	}
-	function initialSelection(names, seriesMap) { if (!names.length) return []; var selected = names[0]; for (var index = 1; index < names.length; index++) if (seriesMap[names[index]].exact_peak > seriesMap[selected].exact_peak) selected = names[index]; return [selected]; }
+	function initialSelection(names) { return names.slice(); }
 	function toggleSelection(selected, name) { var next = selected.slice(), index = next.indexOf(name); if (index >= 0) next.splice(index, 1); else next.push(name); return next; }
+	function selectionPresentation(names, selected) { var series = {}; names.forEach(function (name) { var active = selected.indexOf(name) >= 0; series[name] = {selected: active, buttonClass: active ? 'btn-primary' : 'btn-default', ariaPressed: active ? 'true' : 'false'}; }); return {bulkClass: 'btn-default', bulkAriaPressed: null, series: series}; }
 	function isCurrentResult(current, requested) { return current === requested; }
 	function describe(chart) { return !chart.series.length ? 'Concurrency chart with no selected series' : 'Concurrency chart with ' + chart.series.length + ' selected series and peak ' + chart.exactPeak; }
 	function HistoricalSvgChart(image, overlay, tooltip, options) {
@@ -146,7 +182,7 @@
 	HistoricalSvgChart.prototype.onClick = function (event) { var candidate = this.candidate(event); if (candidate && typeof this.options.onSelect === 'function') this.options.onSelect(candidate.seriesName, candidate.point); };
 	HistoricalSvgChart.prototype.destroy = function () { this.overlay.removeEventListener('mousemove', this.onPointer); this.overlay.removeEventListener('mouseleave', this.onLeave); this.overlay.removeEventListener('click', this.onClick); if (this.objectUrl) this.revokeImageUrl(this.objectUrl); this.image.removeAttribute('src'); this.tooltip.style.display = 'none'; this.chart = null; this.metadata = {}; this.svgDocument = ''; this.objectUrl = null; };
 	HistoricalSvgChart.isCurrentResult = isCurrentResult;
-	HistoricalSvgChart.selection = {initial: initialSelection, toggle: toggleSelection, all: function (names) { return names.slice(); }};
+	HistoricalSvgChart.selection = {initial: initialSelection, toggle: toggleSelection, all: function (names) { return names.slice(); }, presentation: selectionPresentation};
 	HistoricalSvgChart.coloursForInventory = coloursForInventory;
-	return {HistoricalSvgChart: HistoricalSvgChart, model: model, multiModel: multiModel, documentFor: documentFor, nearestSeriesPoint: nearestSeriesPoint, selection: HistoricalSvgChart.selection, coloursForInventory: coloursForInventory, formatAxisTimestamp: axisTimestamp, isCurrentResult: isCurrentResult, width: WIDTH, baseHeight: BASE_HEIGHT, minimumRunWidth: MINIMUM_RUN_WIDTH};
+	return {HistoricalSvgChart: HistoricalSvgChart, model: model, multiModel: multiModel, documentFor: documentFor, nearestSeriesPoint: nearestSeriesPoint, selection: HistoricalSvgChart.selection, coloursForInventory: coloursForInventory, labForHex: labForHex, perceptualDistance: perceptualDistance, formatAxisTimestamp: axisTimestamp, isCurrentResult: isCurrentResult, width: WIDTH, baseHeight: BASE_HEIGHT, minimumRunWidth: MINIMUM_RUN_WIDTH};
 }));

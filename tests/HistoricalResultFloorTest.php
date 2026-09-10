@@ -9,8 +9,15 @@ function floor_assert($condition, string $message): void {
 }
 
 $floor = new HistoricalResultFloor();
-floor_assert($floor->normalise(null) === null, 'Null must disable the floor');
-floor_assert($floor->normalise('  ') === null, 'Blank must disable the floor');
+floor_assert($floor->normalise(null) === null, 'Demo null must continue to disable the optional floor');
+floor_assert($floor->normalise('  ') === null, 'Demo blank must continue to disable the optional floor');
+floor_assert($floor->normaliseHistorical(null) === 2 && $floor->normaliseHistorical('  ') === 2, 'Historical null and blank must resolve to the default floor');
+floor_assert($floor->normaliseHistorical(0) === 2 && $floor->normaliseHistorical(' 0 ') === 2 && $floor->normaliseHistorical(1) === 2, 'Legacy Historical floors below 2 must resolve to 2');
+foreach ([-1, '1.5', 'four', true, 2147483648] as $invalidHistorical) {
+	$rejected = false;
+	try { $floor->normaliseHistorical($invalidHistorical); } catch (InvalidArgumentException $e) { $rejected = true; }
+	floor_assert($rejected, 'Invalid Historical floor was accepted: ' . var_export($invalidHistorical, true));
+}
 floor_assert($floor->normalise('4') === 4, 'Integer string must be accepted');
 floor_assert($floor->normalise(2147483647) === 2147483647, 'Upper bound must be accepted');
 foreach ([0, -1, '1.5', 'four', true, 2147483648] as $invalid) {
@@ -26,7 +33,7 @@ $perName = [
 	'trunk_entities' => ['zero' => [], 'one' => [], 'two' => [], 'three' => [], 'boundary' => ['id' => 2], 'peak' => ['id' => 3]],
 ];
 $unchanged = $floor->apply($perName, null);
-floor_assert($unchanged['per_name'] === $perName['per_name'] && $unchanged['minimum_concurrency'] === null, 'Blank floor must preserve detail');
+floor_assert($unchanged['per_name'] === $perName['per_name'] && $unchanged['minimum_concurrency'] === null, 'Optional Demo floor behavior must remain available');
 $filtered = $floor->apply($perName, 4);
 floor_assert($filtered['per_name'] === ['boundary' => 4, 'peak' => 5], 'Per-name floor must be inclusive');
 floor_assert(array_keys($filtered['peak_occurrences']) === ['boundary', 'peak'], 'Trunk occurrences must follow visible trunks');
@@ -82,8 +89,8 @@ floor_assert($emptyFiltered['empty_message'] === $empty['empty_message'] && !iss
 $graph = ['mode' => 'group', 'series' => ['overall' => ['exact_peak' => 5, 'points' => [
 	['ts' => 1, 'value' => 1], ['ts' => 2, 'value' => 3], ['ts' => 3, 'value' => 4], ['ts' => 4, 'value' => 5],
 ]]]];
-$blankGraph = $floor->applyGraph($graph, null);
-floor_assert($blankGraph['series']['overall']['points'] === $graph['series']['overall']['points'], 'Blank graph floor must preserve every display point');
+$blankGraph = $floor->applyGraph($graph, $floor->normaliseHistorical(null));
+floor_assert($blankGraph['series']['overall']['points'][0]['value'] === null && $blankGraph['series']['overall']['points'][1]['value'] === 3, 'Blank Historical graph floor must apply the effective default of 2');
 $filteredGraph = $floor->applyGraph($graph, 4);
 floor_assert($filteredGraph['series']['overall']['points'] === [['ts' => 1, 'value' => null], ['ts' => 2, 'value' => null], ['ts' => 3, 'value' => 4], ['ts' => 4, 'value' => 5]], 'Graph floor must hide lower values as gaps and include its exact boundary and higher points');
 floor_assert($filteredGraph['series']['overall']['exact_peak'] === 5, 'Graph floor must preserve the exact underlying peak');

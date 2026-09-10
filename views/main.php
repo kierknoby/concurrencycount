@@ -280,16 +280,15 @@ $_ccAssetVer = max(
 					<strong><?php echo _('Demo writes to CDR.'); ?></strong>
 					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and normally use historical dates around 2001 so they are isolated from live reporting periods. Cleanup is verified after the run, but it is still best-effort if the server or database dies mid-run.'); ?>
 				</div>
-				<div class="form-group">
-					<label class="control-label"><?php echo _('Randomise'); ?></label>
-					<input type="text" id="cc-demo-seed" class="form-control" readonly style="margin-bottom:8px;">
-					<div id="cc-demo-entropy" class="cc-demo-entropy">
-						<span><?php echo _('Move inside this box to stir the seed. A new seed is created every time this window opens.'); ?></span>
+				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
+				<div class="form-group"><label class="control-label"><?php echo _('Load'); ?></label>
+					<div class="btn-group" data-toggle="buttons" id="cc-demo-loads">
+					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><label class="btn btn-default<?php echo $value === 'medium' ? ' active' : ''; ?>"><input type="radio" name="cc-demo-load" value="<?php echo $value; ?>" <?php echo $value === 'medium' ? 'checked' : ''; ?>><?php echo $label; ?></label><?php endforeach; ?>
 					</div>
-					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('New random seed ready.'); ?></span>
 				</div>
+				<div class="form-group"><button type="button" class="btn btn-default" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button> <button type="button" class="btn btn-default" id="cc-demo-save"><i class="fa fa-save"></i> <?php echo _('Save selection'); ?></button><span class="help-block" id="cc-demo-selection-status"></span></div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
-				<p class="text-muted"><?php echo _('The randomiser selects the date range and load size automatically. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
+				<p class="text-muted"><?php echo _('Randomise creates a new reproducible scenario using the selected load. Saving stores only its definition, never synthetic CDR rows.'); ?></p>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Compare engines'); ?></label>
 					<?php foreach ($availableEngines as $id => $engine): ?>
@@ -303,8 +302,8 @@ $_ccAssetVer = max(
 				</div>
 				<div class="form-group">
 					<label for="cc-demo-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
-					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="1" step="1" inputmode="numeric">
-					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. Leave blank to show all details.'); ?></span>
+					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2.'); ?></span>
 				</div>
 			</div>
 			<div class="modal-footer">
@@ -387,9 +386,14 @@ $_ccAssetVer = max(
 					<span class="help-block fpbx-help-block"><?php echo _('The engine changes how concurrency is calculated, not what the selected report measures. Original is recommended; Sweep is experimental.'); ?></span>
 				</div>
 				<div class="form-group">
+					<label for="cc-maximum-runtime" class="control-label"><?php echo _('Maximum runtime'); ?></label>
+					<input type="number" id="cc-maximum-runtime" class="form-control" min="5" max="1440" step="1" inputmode="numeric" value="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES; ?>" data-default="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES; ?>" data-default-seconds="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES * 60; ?>">
+					<span class="help-block fpbx-help-block"><?php echo _('Maximum time this calculation may run before it is stopped or requires administrator action. Default 60 minutes. Maximum 1440 minutes.'); ?></span>
+				</div>
+				<div class="form-group">
 					<label for="cc-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
-					<input type="number" id="cc-minimum-concurrency" class="form-control" min="1" step="1" inputmode="numeric">
-					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. Leave blank to show all details. The completed summary and actual calculated peak are always retained.'); ?></span>
+					<input type="number" id="cc-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2. The completed summary and actual calculated peak are always retained.'); ?></span>
 				</div>
 				<div class="form-group" id="cc-report-filter-group">
 					<label for="cc-report-filter" class="control-label"><?php echo _('Endpoint filter'); ?></label>
@@ -474,6 +478,7 @@ $_ccAssetVer = max(
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/demo-scenario.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-svg-chart.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-graph-export.js?v=<?php echo $_ccAssetVer; ?>"></script>

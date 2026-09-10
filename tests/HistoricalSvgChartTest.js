@@ -5,22 +5,36 @@ function assert(condition, message) { if (!condition) throw new Error(message); 
 function close(actual, expected, message) { if (Math.abs(actual - expected) > 0.000001) throw new Error(message + ': expected ' + expected + ', got ' + actual); }
 
 const yearStart = 1735689600, yearEnd = 1767225599;
-const seriesMap = {A: {exact_peak: 5}, B: {exact_peak: 8}, C: {exact_peak: 4}};
-assert(JSON.stringify(svg.selection.initial(['A', 'B', 'C'], seriesMap)) === JSON.stringify(['B']), 'Initial selection remains exactly the existing highest-peak default');
+assert(JSON.stringify(svg.selection.initial(['A', 'B', 'C'])) === JSON.stringify(['A', 'B', 'C']), 'Initial selection contains every available series');
 let selected = svg.selection.toggle(['A'], 'B');
 assert(JSON.stringify(selected) === JSON.stringify(['A', 'B']), 'Selecting a second series retains the first');
 selected = svg.selection.toggle(selected, 'A');
 assert(JSON.stringify(selected) === JSON.stringify(['B']), 'Deselecting one series retains the others');
 assert(JSON.stringify(svg.selection.all(['A', 'B', 'C'])) === JSON.stringify(['A', 'B', 'C']), 'Select All selects every available series without a limit');
+const initialButtons = svg.selection.presentation(['A', 'B', 'C'], svg.selection.initial(['A', 'B', 'C']));
+assert(initialButtons.bulkClass === 'btn-default' && initialButtons.bulkAriaPressed === null && Object.keys(initialButtons.series).every(function (name) { return initialButtons.series[name].buttonClass === 'btn-primary' && initialButtons.series[name].ariaPressed === 'true'; }), 'Initial bulk controls are white commands while every initial series button is green and pressed');
+const emptyButtons = svg.selection.presentation(['A', 'B', 'C'], []);
+assert(Object.keys(emptyButtons.series).every(function (name) { return emptyButtons.series[name].buttonClass === 'btn-default' && emptyButtons.series[name].ariaPressed === 'false'; }), 'Unselect All leaves every series button white and unpressed');
+const individualButtons = svg.selection.presentation(['A', 'B', 'C'], ['B']);
+assert(individualButtons.series.A.buttonClass === 'btn-default' && individualButtons.series.B.buttonClass === 'btn-primary' && individualButtons.series.C.buttonClass === 'btn-default', 'Only individually selected series receive the green selected state');
 const largeNames = ['20260827', 'InterVoIP', 'MAGRATHEA-IN-1', 'MAGRATHEA-IN-2', 'MAGRATHEA-IN-3', 'MAGRATHEA-IN-4', 'MAGRATHEA-IN-5', 'MAGRATHEA-OUT', 'SBCSRV1-MAN', 'SBCSRV2-LON', 'SBCSRV3-MAN', 'SBCSRV4-LON', 'ST22017T002', 'fpbx-1-d92ylejHZE3q', 'fpbx-2-d92ylejHZE3q'];
 const inventoryColours = svg.coloursForInventory(largeNames), largeColours = largeNames.map(function (name) { return inventoryColours[name]; });
 assert(new Set(largeColours).size === 15 && largeColours.every(function (colour) { return /^#[0-9A-F]{6}$/.test(colour); }), 'The actual 15-series PBX inventory receives 15 distinct six-digit colours');
-function colourDistance(left, right) { return Math.sqrt([1, 3, 5].reduce(function (sum, offset) { return sum + Math.pow(parseInt(left.slice(offset, offset + 2), 16) - parseInt(right.slice(offset, offset + 2), 16), 2); }, 0)); }
-['MAGRATHEA-IN-1', 'MAGRATHEA-IN-3', 'MAGRATHEA-IN-5'].forEach(function (name, index, group) { group.slice(index + 1).forEach(function (other) { assert(colourDistance(inventoryColours[name], inventoryColours[other]) > 100, name + ' and ' + other + ' must be visibly separated'); }); });
-assert(colourDistance(inventoryColours['MAGRATHEA-IN-2'], inventoryColours['MAGRATHEA-IN-4']) > 100, 'The previously similar IN-2 and IN-4 colours must be visibly separated');
+assert(inventoryColours['20260827'] === '#1B61A7' && inventoryColours['MAGRATHEA-IN-1'] === '#CE1212' && inventoryColours['MAGRATHEA-IN-5'] === '#8C1752', 'Normal 15-series inventory retains the established perceptual farthest-point allocation');
+function colourDistance(left, right) { return svg.perceptualDistance(svg.labForHex(left), svg.labForHex(right)); }
+const sortedLargeNames = largeNames.slice().sort();
+for (let earlyIndex = 1; earlyIndex < 6; earlyIndex++) { let minimumDistance = Infinity; for (let priorIndex = 0; priorIndex < earlyIndex; priorIndex++) minimumDistance = Math.min(minimumDistance, colourDistance(inventoryColours[sortedLargeNames[earlyIndex]], inventoryColours[sortedLargeNames[priorIndex]])); assert(minimumDistance > 60, 'Each early farthest-point colour must retain meaningful perceptual separation'); }
+['MAGRATHEA-IN-1', 'MAGRATHEA-IN-3', 'MAGRATHEA-IN-5'].forEach(function (name, index, group) { group.slice(index + 1).forEach(function (other) { assert(colourDistance(inventoryColours[name], inventoryColours[other]) > 45, name + ' and ' + other + ' must be perceptually separated'); }); });
+assert(colourDistance(inventoryColours['MAGRATHEA-IN-2'], inventoryColours['MAGRATHEA-IN-4']) > 45, 'The previously similar IN-2 and IN-4 colours must be perceptually separated');
+assert(JSON.stringify(svg.coloursForInventory(largeNames)) === JSON.stringify(svg.coloursForInventory(largeNames.slice().reverse())), 'Colour allocation is deterministic for the same complete inventory regardless of input order');
 const stableColour = inventoryColours['MAGRATHEA-IN-3'];
 const subsetSpecs = ['MAGRATHEA-IN-1', 'MAGRATHEA-IN-3'].map(function (name) { return {name: name, color: inventoryColours[name], points: [], exactPeak: 0}; });
 assert(svg.coloursForInventory(largeNames)['MAGRATHEA-IN-3'] === stableColour && svg.multiModel(subsetSpecs, {minTs: 0, maxTs: 1}).series[1].color === stableColour, 'Changing the selected subset does not change a series colour while the full inventory is unchanged');
+const oversizedNames = [];
+for (let oversizedIndex = 0; oversizedIndex < 700; oversizedIndex++) oversizedNames.push('OVERSIZED-PBX-SERIES-' + String(oversizedIndex).padStart(4, '0'));
+const oversizedColours = svg.coloursForInventory(oversizedNames);
+assert(oversizedNames.every(function (name) { return typeof oversizedColours[name] === 'string' && /^#[0-9A-F]{6}$/.test(oversizedColours[name]); }), 'Inventories beyond the perceptual candidate pool still assign every series a valid colour');
+assert(JSON.stringify(oversizedColours) === JSON.stringify(svg.coloursForInventory(oversizedNames.slice().reverse())), 'Oversized-inventory fallback allocation is deterministic for the same complete inventory');
 
 const shortA = [{ts: yearStart + 100, value: 5}, {ts: yearStart + 130, value: 6}, {ts: yearStart + 161, value: null}, {ts: yearStart + 500, value: 5}, {ts: yearStart + 561, value: null}];
 const shortB = [{ts: yearStart + 8640000, value: 4}, {ts: yearStart + 8640061, value: null}];

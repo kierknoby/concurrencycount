@@ -6,11 +6,21 @@ class HistoricalResultFloor {
 	// Portable signed integer ceiling across supported PHP/database boundaries;
 	// it is an input-safety limit, not a meaningful PBX concurrency target.
 	public const MAXIMUM = 2147483647;
+	public const DEFAULT_HISTORICAL_MINIMUM = 2;
 
 	public function normalise($value): ?int {
 		if ($value === null || (is_string($value) && trim($value) === '')) return null;
 		if (is_bool($value) || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MAXIMUM]]) === false) {
 			throw new \InvalidArgumentException('Minimum concurrency must be a positive whole number.');
+		}
+		return (int)$value;
+	}
+
+	public function normaliseHistorical($value): int {
+		$comparable = is_string($value) ? trim($value) : $value;
+		if ($comparable === null || $comparable === '' || $comparable === 0 || $comparable === '0' || $comparable === 1 || $comparable === '1') return self::DEFAULT_HISTORICAL_MINIMUM;
+		if (is_bool($value) || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => self::DEFAULT_HISTORICAL_MINIMUM, 'max_range' => self::MAXIMUM]]) === false) {
+			throw new \InvalidArgumentException('Minimum concurrency must be a whole number of 2 or greater.');
 		}
 		return (int)$value;
 	}

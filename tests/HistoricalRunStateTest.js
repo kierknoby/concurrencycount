@@ -7,6 +7,15 @@ function assert(condition, message) {
 	if (!condition) throw new Error(message);
 }
 
+[null, undefined, '', 0, 1].forEach(value => assert(state.normaliseMinimumConcurrency(value) === 2, 'Legacy/blank Minimum concurrency must resolve to 2'));
+assert(state.normaliseMinimumConcurrency(7) === 7, 'Minimum concurrency above 2 must remain intact');
+[5, 60, 120, 1440].forEach(value => assert(state.normaliseMaximumRuntimeMinutes(value) === value, 'Valid Maximum runtime must remain intact'));
+[4, 1441, 5.5, 'five', ''].forEach(value => {
+	let rejected = false;
+	try { state.normaliseMaximumRuntimeMinutes(value); } catch (error) { rejected = true; }
+	assert(rejected, 'Invalid Maximum runtime must be rejected');
+});
+
 assert(!state.shouldReportFailure({id, sequence: 1, intentionalAbortReason: 'stop'}, 'abort'), 'Stop-triggered run abort must be suppressed');
 assert(!state.shouldReportFailure({id, sequence: 2, intentionalAbortReason: 'superseded'}, 'abort'), 'Superseded run abort must be suppressed');
 assert(!state.shouldReportFailure({id, sequence: 8, intentionalAbortReason: 'abandoned'}, 'abort'), 'Page/module abandonment abort must be suppressed');
@@ -37,7 +46,7 @@ assert(state.hasMeaningfulMessage('<strong>Partial data:</strong> one source was
 const submittedCriteria = {
 	name: 'Capacity year', mode: 'trunk', engine: 'sweep', preset: 'custom',
 	range_from: '2025-01-01', range_to: '2025-12-31', include_time: true,
-	from_time: '00:00', to_time: '23:59', filter: 'gamma', minimum_concurrency: 4,
+	from_time: '00:00', to_time: '23:59', filter: 'gamma', minimum_concurrency: 4, maximum_runtime_minutes: 120,
 	start: '2025-01-01 00:00:00', end: '2025-12-31 23:59:59',
 	excluded_call_configuration: {count: 2, fingerprint: 'abc123'}
 };
@@ -49,7 +58,7 @@ editDraft.range_to = '2025-11-30';
 editDraft.excluded_call_configuration.count = 9;
 assert(savedCriteria.minimum_concurrency === 4 && savedCriteria.range_to === '2025-12-31' && savedCriteria.excluded_call_configuration.count === 2, 'Opening and editing a draft must not mutate the displayed result criteria');
 assert(JSON.stringify(state.snapshotCriteria(savedCriteria)) === JSON.stringify(savedCriteria), 'Run Again must reproduce the exact saved submitted criteria');
-assert(state.snapshotCriteria(editDraft).minimum_concurrency === 5 && state.snapshotCriteria(editDraft).range_to === '2025-11-30', 'Edited criteria must be captured for the revised submission');
+assert(state.snapshotCriteria(editDraft).minimum_concurrency === 5 && state.snapshotCriteria(editDraft).maximum_runtime_minutes === 120 && state.snapshotCriteria(editDraft).range_to === '2025-11-30', 'Edited criteria and Maximum runtime must be captured for the revised submission');
 
 const rerunReport = {result: {global_max: 9}, graphSeries: {series: {}}, occurrenceCache: {one: {}}, firstRunPending: false};
 state.clearReportResult(rerunReport);

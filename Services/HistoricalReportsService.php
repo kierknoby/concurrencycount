@@ -14,6 +14,10 @@ class HistoricalReportsService {
 	const ALLOWED_ENGINES = ['original', 'sweep'];
 	const ALLOWED_PRESETS = ['today', 'yesterday', 'last7', 'last30', 'month', 'year', 'lastyear', 'custom'];
 	const MAX_NAME_LENGTH = 80;
+	const DEFAULT_MINIMUM_CONCURRENCY = 2;
+	const DEFAULT_MAXIMUM_RUNTIME_MINUTES = 60;
+	const MINIMUM_RUNTIME_MINUTES = 5;
+	const MAXIMUM_RUNTIME_MINUTES = 1440;
 
 	public function defaults(): array {
 		return ['version' => 1, 'active_id' => null, 'reports' => []];
@@ -70,6 +74,12 @@ class HistoricalReportsService {
 
 	public function findById(array $stored, string $id): ?array {
 		return isset($stored['reports'][$id]) ? $stored['reports'][$id] : null;
+	}
+
+	/** Convert a server-normalised saved report definition into its GUI run allowance. */
+	public function runtimeAllowanceSeconds(array $report): int {
+		$normalised = $this->normaliseDefinition($report);
+		return $normalised['maximum_runtime_minutes'] * 60;
 	}
 
 	/**
@@ -153,8 +163,17 @@ class HistoricalReportsService {
 		$toTime = $this->normaliseClockTime(isset($definition['to_time']) ? $definition['to_time'] : '23:59');
 
 		$filter = isset($definition['filter']) ? substr((string)$definition['filter'], 0, 128) : '';
-		$minimumConcurrency = isset($definition['minimum_concurrency']) && $definition['minimum_concurrency'] !== '' && $definition['minimum_concurrency'] !== null ? filter_var($definition['minimum_concurrency'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]) : null;
-		if ($minimumConcurrency === false) throw new \InvalidArgumentException('Minimum concurrency must be a positive whole number.');
+		$minimumValue = $definition['minimum_concurrency'] ?? null;
+		$minimumComparable = is_string($minimumValue) ? trim($minimumValue) : $minimumValue;
+		if ($minimumComparable === null || $minimumComparable === '' || $minimumComparable === 0 || $minimumComparable === '0' || $minimumComparable === 1 || $minimumComparable === '1') {
+			$minimumConcurrency = self::DEFAULT_MINIMUM_CONCURRENCY;
+		} else {
+			$minimumConcurrency = filter_var($minimumValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => self::DEFAULT_MINIMUM_CONCURRENCY, 'max_range' => 2147483647]]);
+			if ($minimumConcurrency === false) throw new \InvalidArgumentException('Minimum concurrency must be a whole number of 2 or greater.');
+		}
+		$runtimeValue = $definition['maximum_runtime_minutes'] ?? self::DEFAULT_MAXIMUM_RUNTIME_MINUTES;
+		$maximumRuntimeMinutes = filter_var($runtimeValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => self::MINIMUM_RUNTIME_MINUTES, 'max_range' => self::MAXIMUM_RUNTIME_MINUTES]]);
+		if ($maximumRuntimeMinutes === false) throw new \InvalidArgumentException('Maximum runtime must be a whole number between 5 and 1440 minutes.');
 		if ($mode === 'group') $filter = '';
 		$missingReference = !empty($definition['missing_reference']);
 		if ($rangeFrom > $rangeTo) throw new \InvalidArgumentException('Historical report start date must not be after its end date.');
@@ -163,7 +182,7 @@ class HistoricalReportsService {
 			'name' => $name, 'mode' => $mode, 'engine' => $engine, 'preset' => $preset,
 			'range_from' => $rangeFrom, 'range_to' => $rangeTo,
 			'include_time' => $includeTime, 'from_time' => $fromTime, 'to_time' => $toTime,
-			'filter' => $filter, 'minimum_concurrency' => $minimumConcurrency, 'missing_reference' => $missingReference,
+			'filter' => $filter, 'minimum_concurrency' => $minimumConcurrency, 'maximum_runtime_minutes' => $maximumRuntimeMinutes, 'missing_reference' => $missingReference,
 		];
 	}
 

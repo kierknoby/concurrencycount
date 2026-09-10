@@ -50,7 +50,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.2.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'getdemoscenario', 'savedemoscenario', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -60,6 +60,7 @@ class Concurrencycount implements \BMO {
 	const PJSIP_IDENTITY_OVERRIDES_KEY = 'pjsip_identity_overrides';
 	const HISTORICAL_CALL_EXCLUSIONS_KEY = 'historical_call_exclusions';
 	const DEMO_RUN_KEY_PREFIX = 'demo_run:';
+	const DEMO_SCENARIO_KEY = 'demo_saved_scenario';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
@@ -79,6 +80,7 @@ class Concurrencycount implements \BMO {
 	private $workerWork = [0, 0, 'preparing'];
 	private $workerGuard = null;
 	private $workerRuntime = null;
+	private $workerRuntimeAllowance = self::MAX_RUNTIME;
 	private $workerEngine = 'original';
 	private $workerEngineIndex = 0;
 	private $workerEngineCount = 1;
@@ -278,9 +280,13 @@ class Concurrencycount implements \BMO {
 		$this->requireValidCsrfToken();
 		$command = isset($_REQUEST['command']) ? $_REQUEST['command'] : '';
 
-		switch ($command) {
-			case 'demopreflight':
-				return $this->handleDemoPreflight();
+			switch ($command) {
+				case 'demopreflight':
+					return $this->handleDemoPreflight();
+				case 'getdemoscenario':
+					return ['status' => true, 'scenario' => $this->getSavedDemoScenario()];
+				case 'savedemoscenario':
+					return $this->handleSaveDemoScenario();
 			case 'calculationdecision':
 				return $this->handleCalculationDecision();
 			case 'historicalprotection':
@@ -854,12 +860,13 @@ class Concurrencycount implements \BMO {
 			'to_time' => isset($_REQUEST['to_time']) ? (string)$_REQUEST['to_time'] : '23:59',
 			'filter' => isset($_REQUEST['filter']) ? (string)$_REQUEST['filter'] : '',
 			'minimum_concurrency' => isset($_REQUEST['minimum_concurrency']) ? $_REQUEST['minimum_concurrency'] : null,
+			'maximum_runtime_minutes' => isset($_REQUEST['maximum_runtime_minutes']) ? $_REQUEST['maximum_runtime_minutes'] : \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES,
 		];
 	}
 
 	public function getHistoricalGraph(string $mode, string $start, string $end, string $trunk = '', $minimumConcurrency = null): array {
 		$floorService = new \FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor();
-		$minimumConcurrency = $floorService->normalise($minimumConcurrency);
+		$minimumConcurrency = $floorService->normaliseHistorical($minimumConcurrency);
 		$mode = $this->normaliseMode($mode);
 		if (!in_array($mode, ['trunk', 'group'], true)) {
 			throw new \InvalidArgumentException(_('Historical graphs support Trunk Concurrency and Group Concurrency.'));
@@ -1424,6 +1431,7 @@ class Concurrencycount implements \BMO {
 		$confirm_overrun = !empty($_REQUEST['confirm_overrun']);
 		$options = $this->requestDemoOptions();
 		$options['filter'] = isset($_REQUEST['filter']) ? trim((string)$_REQUEST['filter']) : '';
+		$options['minimum_concurrency'] = isset($_REQUEST['minimum_concurrency']) ? $_REQUEST['minimum_concurrency'] : null;
 		$calculationId = isset($_REQUEST['calculation_id']) ? trim((string)$_REQUEST['calculation_id']) : '';
 		$control = null;
 		$previousIgnoreUserAbort = null;
@@ -1431,14 +1439,23 @@ class Concurrencycount implements \BMO {
 		if ($mode === null) return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
 		if ($calculationId !== '') {
 			try {
+				$runtimeAllowanceSeconds = self::MAX_RUNTIME;
+				if ($mode !== 'demo') {
+					$historicalReportId = isset($_REQUEST['historical_report_id']) ? trim((string)$_REQUEST['historical_report_id']) : '';
+					if ($historicalReportId === '') throw new \InvalidArgumentException(_('A valid saved Historical report is required to start this calculation.'));
+					$report = $this->getHistoricalReportDefinition($historicalReportId);
+					$reportService = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+					$runtimeAllowanceSeconds = $reportService->runtimeAllowanceSeconds($report);
+				}
 				$control = new \FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl($this->getSettingsRepository());
 				$calculationId = $control->validateId($calculationId);
 				$owner = $this->guiCalculationOwner();
-				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner, $confirm_overrun): bool {
-					return $control->admitGui($calculationId, $owner);
+				$admitted = $this->withGuiCalculationLock(function () use ($control, $calculationId, $owner, $runtimeAllowanceSeconds): bool {
+					return $control->admitGui($calculationId, $owner, $runtimeAllowanceSeconds);
 				});
 				if (!$admitted) return ['status' => false, 'admission_busy' => true, 'message' => _('A previous Historical calculation is still stopping. Please try again shortly.')];
 				$options['runtime_started_at'] = $control->runtimeStartedAt($calculationId, $owner);
+				$options['runtime_allowance_seconds'] = $control->owned($calculationId, $owner)['runtime_allowance_seconds'];
 				$this->workerControl = $control; $this->workerId = $calculationId; $this->workerOwner = $owner;
 				$lastCancellationCheck = 0.0;
 				$options['cancellation_check'] = function () use ($control, $calculationId, &$lastCancellationCheck): bool {
@@ -1935,10 +1952,11 @@ class Concurrencycount implements \BMO {
 		// allowance; this headroom lets a logical timeout enter mandatory cleanup.
 		set_time_limit(($this->workerControl !== null ? 86400 : self::MAX_RUNTIME) + self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN);
 		$floorService = new \FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor();
-		$minimumConcurrency = $floorService->normalise($options['minimum_concurrency'] ?? null);
+		$minimumConcurrency = $floorService->normaliseHistorical($options['minimum_concurrency'] ?? null);
 		$started_at = isset($options['runtime_started_at']) && is_numeric($options['runtime_started_at'])
 			? (float)$options['runtime_started_at']
 			: \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
+		$this->workerRuntimeAllowance = isset($options['runtime_allowance_seconds']) ? (int)$options['runtime_allowance_seconds'] : self::MAX_RUNTIME;
 		$engine_id = $this->normaliseEngineId(isset($options['engine']) ? $options['engine'] : 'original');
 		$this->workerEngine = $engine_id; $this->workerEngineIndex = 0; $this->workerEngineCount = 1;
 		$filter = isset($options['filter']) ? trim((string)$options['filter']) : '';
@@ -1947,7 +1965,7 @@ class Concurrencycount implements \BMO {
 
 		$this->workerCancellation = $cancellationCheck; $this->workerProgress = $progressUpdate;
 		$this->workerGuard = new \FreePBX\modules\Concurrencycount\Services\HistoricalMemoryGuard();
-		$this->workerRuntime = new \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator(self::MAX_RUNTIME, $started_at, $started_at, true);
+		$this->workerRuntime = new \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator($this->workerRuntimeAllowance, $started_at, $started_at, true);
 		$this->assessment = $this->workerControl !== null ? new \FreePBX\modules\Concurrencycount\Services\HistoricalAssessment($started_at, (int)$this->getSettingsRepository()->get('historical_pbx_protection', 90)) : null;
 		$this->workerCadence = $this->assessment !== null ? new \FreePBX\modules\Concurrencycount\Services\HistoricalTelemetryCadence() : null;
 		$this->workerLast = -INF; $this->workerWork = [0, 0, 'preparing'];
@@ -1987,7 +2005,7 @@ class Concurrencycount implements \BMO {
 
 	private function engineOptions(array $all_names, float $started_at, bool $confirm_overrun, ?callable $cancellationCheck = null, ?callable $progressUpdate = null): array {
 		$estimator = new \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator(
-			self::MAX_RUNTIME,
+			$this->workerRuntimeAllowance,
 			$started_at,
 			\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now(),
 			$confirm_overrun
@@ -2017,7 +2035,7 @@ class Concurrencycount implements \BMO {
 				$assessment = $estimator->evaluate($processed, $total, $now);
 				if ($progressUpdate !== null) call_user_func($progressUpdate, $assessment);
 				if ($assessment['abort']) {
-					throw new \Exception(sprintf(_('Script exceeded the maximum runtime of %d seconds. Aborting to protect system stability.'), self::MAX_RUNTIME));
+					throw new \Exception(sprintf(_('Script exceeded the maximum runtime of %d seconds. Aborting to protect system stability.'), $this->workerRuntimeAllowance));
 				}
 				if ($assessment['warn']) {
 					$ex = new RuntimeOverrunPending(_('Estimated time exceeds the maximum runtime.'));
@@ -2033,6 +2051,34 @@ class Concurrencycount implements \BMO {
 	 * Temporary demo fixture. Rows are inserted with a unique accountcode,
 	 * counted via the normal CDR queries, then removed in a finally block.
 	 */
+	private function normaliseDemoScenario($scenario): array {
+		if (!is_array($scenario)) throw new \InvalidArgumentException('Invalid Demo scenario.');
+		$size = $this->normaliseDemoSize($scenario['size'] ?? '');
+		$seed = filter_var($scenario['seed'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
+		if ($seed === false) throw new \InvalidArgumentException('Demo seed must be a positive whole number.');
+		$rows = filter_var($scenario['rows'] ?? null, FILTER_VALIDATE_INT);
+		$limits = ['light' => [25, 140], 'medium' => [650, 2200], 'heavy' => [7000, 14000]];
+		if ($rows === false || $rows < $limits[$size][0] || $rows > $limits[$size][1]) throw new \InvalidArgumentException('Demo row count does not match the selected load.');
+		$range = $this->normaliseDemoRange((string)($scenario['start'] ?? ''), (string)($scenario['end'] ?? ''));
+		return ['seed' => (int)$seed, 'size' => $size, 'rows' => (int)$rows, 'start' => $range['start'], 'end' => $range['end']];
+	}
+
+	private function getSavedDemoScenario(): ?array {
+		$stored = $this->getSettingsRepository()->get(self::DEMO_SCENARIO_KEY, null);
+		if (!is_array($stored)) return null;
+		try { return $this->normaliseDemoScenario($stored); }
+		catch (\Throwable $exception) { return null; }
+	}
+
+	private function handleSaveDemoScenario(): array {
+		try {
+			$decoded = json_decode((string)($_REQUEST['scenario'] ?? ''), true);
+			$scenario = $this->normaliseDemoScenario($decoded);
+			$this->getSettingsRepository()->set(self::DEMO_SCENARIO_KEY, $scenario);
+			return ['status' => true, 'scenario' => $scenario];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
 	private function handleDemoPreflight(): array {
 		try {
 			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');

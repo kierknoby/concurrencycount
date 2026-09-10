@@ -44,8 +44,8 @@ window._ccLoaded = true;
 	var finalDemoEngines = ['original'];
 	var currentResults = null;
 	var demoSeed = 0;
-	var demoMoves = 0;
 	var demoPlan = null;
+	var savedDemoPlan = null;
 	var guiRange = null;
 	var modeDescriptions = {
 		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
@@ -105,6 +105,14 @@ window._ccLoaded = true;
 	function escapeHtml(s) {
 		if (s === null || s === undefined) return '';
 		return $('<div>').text(String(s)).html();
+	}
+
+	function historicalDefaultRuntimeMinutes() {
+		return Number($('#cc-maximum-runtime').attr('data-default'));
+	}
+
+	function historicalDefaultRuntimeSeconds() {
+		return Number($('#cc-maximum-runtime').attr('data-default-seconds'));
 	}
 
 	function ajax(params, requestOptions) {
@@ -176,9 +184,37 @@ window._ccLoaded = true;
 	function showDemoPrompt() {
 		$('#cc-results').hide();
 		setStatus('', null);
-		$('#cc-demo-minimum-concurrency').val('');
-		randomiseDemoSeed('New random seed ready.');
+		$('#cc-demo-error').hide().text('');
+		$('#cc-demo-minimum-concurrency').val('2');
 		$('#cc-demo').modal('show');
+		ajax({command: 'getdemoscenario'}).done(function (response) {
+			if (response.status && response.scenario) { savedDemoPlan = response.scenario; applyDemoPlan(savedDemoPlan, true); }
+			else randomiseDemoScenario();
+		}).fail(function () { randomiseDemoScenario(); showDemoError('Unable to restore the saved Demo selection. A new scenario is ready.'); });
+	}
+
+	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
+	function selectedDemoLoad() { return $('input[name="cc-demo-load"]:checked').val() || 'medium'; }
+	function applyDemoPlan(plan, saved) {
+		demoPlan = $.extend({}, plan); demoSeed = Number(demoPlan.seed) >>> 0;
+		$('input[name="cc-demo-load"][value="' + demoPlan.size + '"]').prop('checked', true).closest('label').addClass('active').siblings().removeClass('active');
+		renderDemoPlan();
+		$('#cc-demo-selection-status').text(saved ? 'Saved selection restored.' : 'Current scenario is not saved.');
+	}
+	function updateDemoSelectionStatus() {
+		$('#cc-demo-selection-status').text(savedDemoPlan && window.CCDemoScenario.equal(demoPlan, savedDemoPlan) ? 'Saved selection.' : 'Current scenario is not saved.');
+	}
+	function randomiseDemoScenario() {
+		var nextSeed = ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) & 0x7fffffff) >>> 0;
+		applyDemoPlan(window.CCDemoScenario.build(nextSeed || 1, selectedDemoLoad()), false);
+	}
+	function saveDemoScenario() {
+		if (!demoPlan) return showDemoError('Randomise a Demo scenario before saving.');
+		$('#cc-demo-error').hide(); $('#cc-demo-save').prop('disabled', true);
+		ajax({command: 'savedemoscenario', scenario: JSON.stringify(demoPlan)}).done(function (response) {
+			if (!response.status || !response.scenario) return showDemoError(response.message || 'Unable to save the Demo selection.');
+			savedDemoPlan = response.scenario; applyDemoPlan(savedDemoPlan, true);
+		}).fail(function () { showDemoError('Unable to save the Demo selection.'); }).always(function () { $('#cc-demo-save').prop('disabled', false); });
 	}
 
 	function runDemo(report) {
@@ -187,25 +223,24 @@ window._ccLoaded = true;
 		try {
 			minimumConcurrency = readMinimumConcurrency('#cc-demo-minimum-concurrency');
 		} catch (error) {
-			setStatus(error.message, 'error');
+			showDemoError(error.message);
 			return;
 		}
-		var seedField = parseInt($('#cc-demo-seed').val(), 10);
-		if (!isNaN(seedField)) {
-			demoSeed = seedField >>> 0;
-		}
-		demoPlan = buildDemoPlan(demoSeed, report);
-		renderDemoPlan();
+		if (!demoPlan) { showDemoError('Randomise a Demo scenario before running.'); return; }
 		var engines = selectedDemoEngines();
 		if (demoPlan.size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
 			return;
 		}
+		$('#cc-demo-error').hide();
+		$('.cc-demo-run-mode').prop('disabled', true);
+		$('#cc-demo-selection-status').text('Checking Demo safety requirements...');
 		ajax({command: 'demopreflight', demo_size: demoPlan.size, demo_rows: String(demoPlan.rows)}).done(function (response) {
 			if (!response.status || !response.preflight) {
-				setStatus(response.message || 'Demo cannot start safely.', 'error');
+				showDemoError(response.message || 'Demo cannot start safely.');
 				return;
 			}
 			var plan = response.preflight;
+			updateDemoSelectionStatus();
 			var prompt = 'Demo disk preflight\n\nSynthetic CDR rows: ' + plan.rows.toLocaleString() +
 				'\nConservative storage need: ' + formatTelemetryBytes(plan.required_bytes) +
 				'\nDatabase filesystem free: ' + formatTelemetryBytes(plan.free_bytes) +
@@ -216,12 +251,8 @@ window._ccLoaded = true;
 			// Demo results are transient and use the shared Historical surface.
 			runTargetReportId = null;
 			showTransientDemoResult();
-			executeRun('demo', demoPlan.start, demoPlan.end, {
-				demo_report: report, demo_size: demoPlan.size, demo_rows: String(demoPlan.rows),
-				demo_seed: String(demoSeed >>> 0), demo_engines: engines.join(','),
-				minimum_concurrency: minimumConcurrency === null ? '' : String(minimumConcurrency)
-			});
-		});
+			executeRun('demo', demoPlan.start, demoPlan.end, window.CCDemoScenario.runParameters(demoPlan, report, engines, minimumConcurrency));
+		}).fail(function () { showDemoError('Demo preflight request failed. Check the PBX connection and try again.'); }).always(function () { $('.cc-demo-run-mode').prop('disabled', false); updateDemoSelectionStatus(); });
 	}
 
 	function selectedDemoEngines() {
@@ -234,51 +265,6 @@ window._ccLoaded = true;
 			$('.cc-demo-engine[value="original"]').prop('checked', true);
 		}
 		return engines;
-	}
-
-	function updateDemoSeedStatus(prefix) {
-		$('#cc-demo-seed').val(String(demoSeed >>> 0));
-		$('#cc-demo-entropy-status').text(prefix + ' Seed: ' + (demoSeed >>> 0) + '. Movement samples: ' + demoMoves + '.');
-		demoPlan = buildDemoPlan(demoSeed, 'trunk');
-		renderDemoPlan();
-	}
-
-	function randomiseDemoSeed(prefix) {
-		demoSeed = ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) & 0x7fffffff) >>> 0;
-		demoMoves = 0;
-		$('#cc-demo-entropy').removeClass('cc-demo-entropy-active');
-		updateDemoSeedStatus(prefix || 'Randomised again.');
-	}
-
-	function stirDemoSeed(x, y) {
-		demoMoves++;
-		demoSeed = (((demoSeed * 33) >>> 0) ^ (x << 16) ^ y ^ Date.now()) >>> 0;
-		$('#cc-demo-entropy').addClass('cc-demo-entropy-active');
-		updateDemoSeedStatus('Movement captured.');
-	}
-
-	function buildDemoPlan(seed, report) {
-		var rng = seededRng(seed);
-		var roll = rng();
-		var size = roll > 0.92 ? 'heavy' : (roll > 0.45 ? 'medium' : 'light');
-		var rows = size === 'heavy'
-			? randRange(rng, 7000, 14000)
-			: (size === 'medium' ? randRange(rng, 650, 2200) : randRange(rng, 25, 140));
-		var dayOffset = randRange(rng, 0, 6200);
-		var hour = randRange(rng, 0, 23);
-		var minute = randRange(rng, 0, 59);
-		var durationMinutes = size === 'heavy'
-			? randRange(rng, 360, 10080)
-			: (size === 'medium' ? randRange(rng, 90, 2160) : randRange(rng, 20, 240));
-		var startDate = new Date(2001, 0, 1 + dayOffset, hour, minute, 0);
-		var endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
-		return {
-			report: report,
-			size: size,
-			rows: rows,
-			start: formatDateTime(startDate),
-			end: formatDateTime(endDate)
-		};
 	}
 
 	function seededRng(seed) {
@@ -297,8 +283,9 @@ window._ccLoaded = true;
 		if (!demoPlan) return;
 		$('#cc-demo-plan').html(
 			'<dt>Load</dt><dd>' + escapeHtml(demoPlan.size) + ' (' + escapeHtml(demoPlan.rows) + ' calls)</dd>' +
+			'<dt>Seed</dt><dd>' + escapeHtml(demoPlan.seed) + '</dd>' +
 			'<dt>CDR write range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>' +
-			'<dt>Accountcode</dt><dd>CCDEMO*</dd>'
+			'<dt>Accountcode</dt><dd>CCDEMO&lt;unique-run-id&gt;</dd>'
 		);
 	}
 
@@ -366,10 +353,11 @@ window._ccLoaded = true;
 		$('#cc-results-meta').html(
 			'<dt>From</dt><dd>' + escapeHtml(r.start) + '</dd>' +
 			'<dt>To</dt><dd>' + escapeHtml(r.end) + '</dd>' +
-			'<dt>Engine</dt><dd>' + escapeHtml(r.engine || (r.engines ? 'comparison' : 'original')) + '</dd>' +
-			'<dt>Rows processed</dt><dd>' + escapeHtml(r.rows_processed) + '</dd>' +
-			(r.minimum_concurrency === null || typeof r.minimum_concurrency === 'undefined' ? '' : '<dt>Minimum concurrency</dt><dd>' + escapeHtml(r.minimum_concurrency) + '</dd>')
-		);
+				'<dt>Engine</dt><dd>' + escapeHtml(r.engine || (r.engines ? 'comparison' : 'original')) + '</dd>' +
+				'<dt>Rows processed</dt><dd>' + escapeHtml(r.rows_processed) + '</dd>' +
+				(r.minimum_concurrency === null || typeof r.minimum_concurrency === 'undefined' ? '' : '<dt>Minimum concurrency</dt><dd>' + escapeHtml(r.minimum_concurrency) + '</dd>') +
+				(r.mode !== 'demo' && activeReportId && historicalReports[activeReportId] ? '<dt>Maximum runtime</dt><dd>' + escapeHtml(historicalReports[activeReportId].maximum_runtime_minutes || historicalDefaultRuntimeMinutes()) + ' minutes</dd>' : '')
+			);
 
 		var body = $('#cc-results-body');
 		body.data('demoRows', r.rows_inserted || '');
@@ -1209,7 +1197,8 @@ window._ccLoaded = true;
 		wizardState = {mode: criteria ? criteria.mode : 'trunk', engine: criteria ? criteria.engine : 'original'};
 		$('#cc-report-name').val(criteria ? criteria.name : generatedReportName);
 		$('#cc-engine').val(criteria ? criteria.engine : 'original');
-		$('#cc-minimum-concurrency').val(criteria && criteria.minimum_concurrency ? criteria.minimum_concurrency : '');
+		$('#cc-minimum-concurrency').val(criteria && Number(criteria.minimum_concurrency) >= 2 ? criteria.minimum_concurrency : 2);
+		$('#cc-maximum-runtime').val(criteria && criteria.maximum_runtime_minutes ? criteria.maximum_runtime_minutes : historicalDefaultRuntimeMinutes());
 		var restoredEndpoint = criteria && criteria.filter ? criteria.filter : '';
 		if (criteria && criteria.mode !== 'group') wizardEndpointSelections[criteria.mode] = restoredEndpoint;
 		var initialMode = criteria ? criteria.mode : 'trunk';
@@ -1390,6 +1379,7 @@ window._ccLoaded = true;
 		guiRange.toTime = $('#cc-time-to').val() || '23:59';
 		try {
 			var minimumConcurrency = readMinimumConcurrency('#cc-minimum-concurrency');
+			var maximumRuntimeMinutes = readMaximumRuntimeMinutes('#cc-maximum-runtime');
 			var canonical = window.CCDateRange.resolve(guiRange, new Date());
 			wizardState.mode = selectedMode();
 			if (wizardTargetReportId) {
@@ -1397,7 +1387,7 @@ window._ccLoaded = true;
 				var editedCriteria = {
 					name: reportName, mode: wizardState.mode, engine: $('#cc-engine').val() || 'original', preset: guiRange.kind,
 					range_from: guiRange.from, range_to: guiRange.to, include_time: !!guiRange.includeTime,
-					from_time: guiRange.fromTime, to_time: guiRange.toTime, filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency,
+					from_time: guiRange.fromTime, to_time: guiRange.toTime, filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency, maximum_runtime_minutes: maximumRuntimeMinutes,
 					start: canonical.start, end: canonical.end,
 					excluded_call_configuration: wizardExclusionConfiguration || (existing.result ? existing.result.excluded_call_configuration : null)
 				};
@@ -1405,29 +1395,39 @@ window._ccLoaded = true;
 				clearHistoricalResultUi();
 				hideWizard();
 				runTargetReportId = wizardTargetReportId;
-				executeRun(wizardState.mode, canonical.start, canonical.end, {
-					minimum_concurrency: minimumConcurrency || '',
-					filter: editedCriteria.filter,
-					excluded_call_fingerprint: editedCriteria.excluded_call_configuration ? editedCriteria.excluded_call_configuration.fingerprint : ''
-				}, editedCriteria.engine, null, editedCriteria);
+				ajax($.extend({command: 'updatehistoricalreport', id: wizardTargetReportId}, editedCriteria)).done(function (response) {
+					if (!response.status || !response.report) {
+						existing.calculationPending = false;
+						setStatus(response.message || 'Unable to save the report settings.', 'error');
+						return;
+					}
+					historicalReports[wizardTargetReportId] = $.extend(existing, response.report);
+					executeRun(wizardState.mode, canonical.start, canonical.end, {
+						minimum_concurrency: minimumConcurrency,
+						filter: editedCriteria.filter,
+						excluded_call_fingerprint: editedCriteria.excluded_call_configuration ? editedCriteria.excluded_call_configuration.fingerprint : ''
+					}, editedCriteria.engine, null, editedCriteria);
+				}).fail(function () {
+					existing.calculationPending = false;
+					setStatus('Unable to save the report settings.', 'error');
+				});
 				return;
 			}
-			createAndRunReport(reportName, canonical, minimumConcurrency);
+			createAndRunReport(reportName, canonical, minimumConcurrency, maximumRuntimeMinutes);
 		} catch (error) {
 			showError(error.message || 'Choose a valid date range.');
 		}
 	}
 
 	function readMinimumConcurrency(selector) {
-		var raw = $.trim($(selector).val());
-		if (raw === '') return null;
-		if (!/^\d+$/.test(raw)) throw new Error('Minimum concurrency must be a positive whole number.');
-		var value = Number(raw);
-		if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) throw new Error('Minimum concurrency must be a positive whole number.');
-		return value;
+		return window.CCHistoricalRunState.normaliseMinimumConcurrency($(selector).val());
 	}
 
-	function createAndRunReport(reportName, canonical, minimumConcurrency) {
+	function readMaximumRuntimeMinutes(selector) {
+		return window.CCHistoricalRunState.normaliseMaximumRuntimeMinutes($(selector).val());
+	}
+
+	function createAndRunReport(reportName, canonical, minimumConcurrency, maximumRuntimeMinutes) {
 		var engine = $('#cc-engine').val() || 'original';
 		var definition = {
 			command: 'createhistoricalreport', name: reportName,
@@ -1435,7 +1435,7 @@ window._ccLoaded = true;
 			mode: wizardState.mode, engine: engine, preset: guiRange.kind,
 			range_from: guiRange.from, range_to: guiRange.to,
 			include_time: guiRange.includeTime ? '1' : '', from_time: guiRange.fromTime, to_time: guiRange.toTime,
-			filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency || ''
+			filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency, maximum_runtime_minutes: maximumRuntimeMinutes
 		};
 		$('#cc-wizard-next').prop('disabled', true);
 		ajax(definition).done(function (response) {
@@ -1445,6 +1445,7 @@ window._ccLoaded = true;
 			}
 			var report = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null, firstRunPending: true}, response.report);
 			report.minimum_concurrency = minimumConcurrency;
+			report.maximum_runtime_minutes = maximumRuntimeMinutes;
 			historicalReports[report.id] = report;
 			hideWizard();
 			renderTopReportTabs();
@@ -1704,10 +1705,11 @@ window._ccLoaded = true;
 	}
 
 	function startCalculationTelemetry(run) {
+		var initialRuntimeAllowance = Number(run.initialRuntimeAllowance) || historicalDefaultRuntimeSeconds();
 		$('#cc-telemetry-cpu, #cc-telemetry-memory, #cc-telemetry-swap, #cc-telemetry-disk').text('--');
 		$('#cc-telemetry-swap-item').hide();
 		$('#cc-telemetry-elapsed').text('00:00:00');
-		$('#cc-telemetry-runtime').text('01:00:00');
+		$('#cc-telemetry-runtime').text(window.CCTelemetryFormat.duration(initialRuntimeAllowance));
 		$('#cc-telemetry-eta').text('Calculating...');
 		$('#cc-telemetry-progress').text('0%');
 		$('#cc-telemetry-confidence').text('Calculating...');
@@ -1717,7 +1719,7 @@ window._ccLoaded = true;
 		$('#cc-excluded-calls').prop('disabled', true).attr('aria-disabled', 'true');
 		$('#cc-report-loading').show();
 		$('#cc-calculation-panel').show();
-		run.timerState = window.CCTelemetryFormat.synchronize(null, {elapsed: 0, runtime_remaining: 3600, eta_reliable: false, estimated_remaining: null}, monotonicNow());
+		run.timerState = window.CCTelemetryFormat.synchronize(null, {elapsed: 0, runtime_remaining: initialRuntimeAllowance, runtime_allowance_seconds: initialRuntimeAllowance, eta_reliable: false, estimated_remaining: null}, monotonicNow());
 		scheduleCalculationTimerRender(run);
 		pollCalculationTelemetry(run);
 	}
@@ -1793,6 +1795,7 @@ window._ccLoaded = true;
 		var run = continuationRun || {id: newCalculationId(), sequence: ++calculationSequence, targetReportId: targetReportId, request: null, stopping: false, intentionalAbortReason: null, telemetryTimer: null, telemetryRequest: null, timerState: null, timerRenderTimer: null, heartbeatTimer: null, heartbeatRequest: null, abandonmentSent: false, decisionOpen: false, assessmentAnnounced: false};
 		if (!continuationRun) {
 			var sourceReport = targetReportId && historicalReports[targetReportId] ? historicalReports[targetReportId] : {};
+			run.initialRuntimeAllowance = mode === 'demo' ? historicalDefaultRuntimeSeconds() : (Number(sourceReport.maximum_runtime_minutes) || historicalDefaultRuntimeMinutes()) * 60;
 			run.submittedCriteria = window.CCHistoricalRunState.snapshotCriteria(submittedCriteria || $.extend({}, sourceReport, {mode: mode, engine: selectedEngine, start: start, end: end, minimum_concurrency: sourceReport.minimum_concurrency || null}));
 		}
 		if (!continuationRun) {
@@ -1815,6 +1818,7 @@ window._ccLoaded = true;
 
 		var params = {command: 'run', mode: mode, start_date: start, end_date: end, calculation_id: run.id};
 		if (targetReportId && historicalReports[targetReportId]) {
+			params.historical_report_id = targetReportId;
 			params.filter = historicalReports[targetReportId].filter || '';
 			params.minimum_concurrency = historicalReports[targetReportId].minimum_concurrency || '';
 		}
@@ -1963,7 +1967,7 @@ window._ccLoaded = true;
 				mode: report.mode, engine: report.engine, preset: report.preset,
 				range_from: report.range_from, range_to: report.range_to,
 				include_time: report.include_time ? '1' : '', from_time: report.from_time, to_time: report.to_time,
-				filter: report.filter || '', minimum_concurrency: report.minimum_concurrency || '', name: report.name
+					filter: report.filter || '', minimum_concurrency: report.minimum_concurrency, maximum_runtime_minutes: report.maximum_runtime_minutes, name: report.name
 			});
 		}
 		if (targetReportId === null || targetReportId === activeReportId) {
@@ -1976,7 +1980,7 @@ window._ccLoaded = true;
 	function calculationDecision(run, action, done) {
 		if (!window.CCHistoricalRunState.isSameRun(activeCalculation, run)) return;
 		var minutes = Number($('#cc-runtime-allowance-minutes').val());
-		var currentMinutes = Math.ceil(Number(run.timerState && run.timerState.runtimeAllowance || 3600) / 60);
+		var currentMinutes = Math.ceil(Number(run.timerState && run.timerState.runtimeAllowance || run.initialRuntimeAllowance || historicalDefaultRuntimeSeconds()) / 60);
 		if (!Number.isInteger(minutes) || minutes < currentMinutes || minutes > 1440) {
 			setStatus('Runtime allowance must be a whole number of minutes, cannot decrease, and cannot exceed 1440 minutes.', 'error');
 			return;
@@ -2003,7 +2007,7 @@ window._ccLoaded = true;
 		var impact = response.impact_status || 'High';
 		$('#cc-overrun-message').text((response.impact_reason || 'Potentially concerning PBX impact was observed while this calculation was running.') +
 			' PBX impact: ' + impact + '. Progress: ' + Math.floor(Number(response.progress_percent) || 0) + '%.');
-		$('#cc-runtime-allowance-minutes').val(Math.ceil(Number(response.runtime_allowance_seconds || 3600) / 60));
+		$('#cc-runtime-allowance-minutes').val(Math.ceil(Number(response.runtime_allowance_seconds || run.initialRuntimeAllowance || historicalDefaultRuntimeSeconds()) / 60));
 		var modal = $('#cc-overrun');
 		setStatus('Calculation paused for administrator review.', 'warning');
 		$('#cc-overrun-yes').off('click').on('click', function () { calculationDecision(run, 'continue'); });
@@ -2204,14 +2208,10 @@ window._ccLoaded = true;
 		$('.cc-demo-run-mode').off('click').on('click', function () {
 			runDemo($(this).data('report'));
 		});
-		$('#cc-demo-entropy').off('mousemove touchmove').on('mousemove', function (e) {
-			var off = $(this).offset();
-			stirDemoSeed(Math.floor(e.pageX - off.left), Math.floor(e.pageY - off.top));
-		}).on('touchmove', function (e) {
-			var touch = e.originalEvent.touches && e.originalEvent.touches[0];
-			if (!touch) return;
-			var off = $(this).offset();
-			stirDemoSeed(Math.floor(touch.pageX - off.left), Math.floor(touch.pageY - off.top));
+		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
+		$('#cc-demo-save').off('click').on('click', saveDemoScenario);
+		$('input[name="cc-demo-load"]').off('change').on('change', function () {
+			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build(demoPlan.seed, selectedDemoLoad()), false);
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-report-filter').off('change').on('change', function () {

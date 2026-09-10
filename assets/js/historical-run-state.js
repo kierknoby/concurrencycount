@@ -37,7 +37,7 @@
 	function snapshotCriteria(source) {
 		source = source || {};
 		var snapshot = {};
-		['name', 'mode', 'engine', 'preset', 'range_from', 'range_to', 'include_time', 'from_time', 'to_time', 'filter', 'minimum_concurrency', 'start', 'end'].forEach(function (key) {
+		['name', 'mode', 'engine', 'preset', 'range_from', 'range_to', 'include_time', 'from_time', 'to_time', 'filter', 'minimum_concurrency', 'maximum_runtime_minutes', 'start', 'end'].forEach(function (key) {
 			if (Object.prototype.hasOwnProperty.call(source, key)) snapshot[key] = source[key];
 		});
 		if (source.excluded_call_configuration) {
@@ -47,6 +47,23 @@
 			};
 		}
 		return snapshot;
+	}
+
+	function normaliseMinimumConcurrency(value) {
+		var raw = String(value === null || value === undefined ? '' : value).trim();
+		if (raw === '' || raw === '0' || raw === '1') return 2;
+		if (!/^\d+$/.test(raw)) throw new Error('Minimum concurrency must be a whole number of 2 or greater.');
+		var number = Number(raw);
+		if (!Number.isSafeInteger(number) || number < 2 || number > 2147483647) throw new Error('Minimum concurrency must be a whole number of 2 or greater.');
+		return number;
+	}
+
+	function normaliseMaximumRuntimeMinutes(value) {
+		var raw = String(value === null || value === undefined ? '' : value).trim();
+		if (!/^\d+$/.test(raw)) throw new Error('Maximum runtime must be a whole number between 5 and 1440 minutes.');
+		var number = Number(raw);
+		if (!Number.isSafeInteger(number) || number < 5 || number > 1440) throw new Error('Maximum runtime must be a whole number between 5 and 1440 minutes.');
+		return number;
 	}
 
 	function clearReportResult(report) {
@@ -96,5 +113,5 @@
 		return requestPending ? 'wait' : 'load';
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria, clearReportResult: clearReportResult, isDiscardableFirstRun: isDiscardableFirstRun, countingMessage: countingMessage, endpointChoices: endpointChoices, endpointSelectionForMode: endpointSelectionForMode, requiresEndpointInventory: requiresEndpointInventory, initialEndpointState: initialEndpointState, endpointModeAction: endpointModeAction};
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria, normaliseMinimumConcurrency: normaliseMinimumConcurrency, normaliseMaximumRuntimeMinutes: normaliseMaximumRuntimeMinutes, clearReportResult: clearReportResult, isDiscardableFirstRun: isDiscardableFirstRun, countingMessage: countingMessage, endpointChoices: endpointChoices, endpointSelectionForMode: endpointSelectionForMode, requiresEndpointInventory: requiresEndpointInventory, initialEndpointState: initialEndpointState, endpointModeAction: endpointModeAction};
 }));

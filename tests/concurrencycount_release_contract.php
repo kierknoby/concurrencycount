@@ -75,7 +75,7 @@ foreach ($runtimeFiles as $file) {
 }
 
 $readme = file_get_contents($root . '/README.md');
-contract_assert(strpos($readme, '# Concurrency Count 2.2.0 ') === 0, 'README release heading mismatch');
-contract_assert(strpos($readme, 'FreePBX/PBXact 16 and 17') !== false, 'README compatibility claim missing');
+contract_assert(strpos($readme, "# v2.2.0\n") === 0, 'README release heading mismatch');
+contract_assert(strpos($readme, 'FreePBX 16 or 17') !== false, 'README compatibility claim missing');
 contract_assert(strpos($readme, 'FreePBX/PBXact ' . '17 only') === false, 'README still excludes FreePBX 16');
 echo "Release compatibility contract passed\n";

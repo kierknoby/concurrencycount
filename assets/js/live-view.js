@@ -897,9 +897,11 @@ window._ccLiveLoaded = true;
 	function redrawHistoricalSelection() {
 		var names = Object.keys(historicalSeries.series || {});
 		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
+		var buttonState = window.HistoricalSvgChart.selection.presentation(names, historicalSelectedSeries);
+		$('#cc-historical-series .cc-series-select-all, #cc-historical-series .cc-series-unselect-all').removeClass('btn-primary active').addClass(buttonState.bulkClass).removeAttr('aria-pressed');
 		$('#cc-historical-series .cc-series-choice').each(function () {
-			var selected = historicalSelectedSeries.indexOf(String($(this).attr('data-series'))) >= 0;
-			$(this).toggleClass('btn-primary', selected).toggleClass('btn-default', !selected).attr('aria-pressed', selected ? 'true' : 'false');
+			var state = buttonState.series[String($(this).attr('data-series'))];
+			$(this).toggleClass('btn-primary', state.selected).toggleClass('btn-default', !state.selected).attr('aria-pressed', state.ariaPressed);
 		});
 		if (!historicalSelectedSeries.length) {
 			if (historicalChart) { historicalChart.destroy(); historicalChart = null; }

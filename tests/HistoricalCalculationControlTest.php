@@ -3,10 +3,12 @@
 require_once __DIR__ . '/../Services/SettingsRepository.php';
 require_once __DIR__ . '/../Services/HistoricalCalculationControl.php';
 require_once __DIR__ . '/../Services/HistoricalRuntimeEstimator.php';
+require_once __DIR__ . '/../Services/HistoricalReportsService.php';
 
 use FreePBX\modules\Concurrencycount\Services\SettingsRepository;
 use FreePBX\modules\Concurrencycount\Services\HistoricalCalculationControl;
 use FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator;
+use FreePBX\modules\Concurrencycount\Services\HistoricalReportsService;
 
 function control_assert($condition, string $message): void {
 	if (!$condition) throw new Exception($message);
@@ -80,35 +82,35 @@ $control->finish($early);
 
 $guiEarly = 'cccccccccccccccccccccccccccccccc';
 control_assert($control->cancelOwned($guiEarly, $owner ?? hash('sha256', 'owner-one'), 1005), 'Authenticated GUI Stop before registration creates an owned tombstone');
-control_assert(!$control->admitGui($guiEarly, hash('sha256', 'owner-one'), 1005), 'Owned GUI tombstone prevents late registration');
+control_assert(!$control->admitGui($guiEarly, hash('sha256', 'owner-one'), 3600, 1005), 'Owned GUI tombstone prevents late registration');
 $control->finish($guiEarly);
 
 $owner = hash('sha256', 'owner-one');
 $otherOwner = hash('sha256', 'owner-two');
 $guiFirst = '11111111111111111111111111111111';
 $guiSecond = '22222222222222222222222222222222';
-control_assert($control->admitGui($guiFirst, $owner, 2000), 'First GUI calculation is admitted for its ownership scope');
-control_assert(!$control->admitGui($guiFirst, $owner, 2000), 'Duplicate Run request with the same calculation ID is not admitted twice');
-control_assert(!$control->admitGui($guiSecond, $owner, 2001), 'Second GUI calculation for the same owner is rejected before engine admission');
-control_assert($control->admitGui($guiSecond, $otherOwner, 2001), 'A different authenticated GUI ownership scope is independent');
+control_assert($control->admitGui($guiFirst, $owner, 3600, 2000), 'First GUI calculation is admitted for its ownership scope');
+control_assert(!$control->admitGui($guiFirst, $owner, 3600, 2000), 'Duplicate Run request with the same calculation ID is not admitted twice');
+control_assert(!$control->admitGui($guiSecond, $owner, 3600, 2001), 'Second GUI calculation for the same owner is rejected before engine admission');
+control_assert($control->admitGui($guiSecond, $otherOwner, 3600, 2001), 'A different authenticated GUI ownership scope is independent');
 control_assert($control->heartbeat($guiFirst, $owner, 2005), 'Healthy owner heartbeat renews the exact calculation lease');
 control_assert(!$control->heartbeat($guiFirst, $otherOwner, 2006), 'Another ownership scope cannot renew a GUI lease');
 control_assert(!$control->heartbeat($guiSecond, $owner, 2006), 'A stale owner/calculation pairing cannot renew a newer run');
 control_assert(!$control->shouldStop($guiFirst, 2024), 'Renewed GUI lease remains healthy before expiry');
 control_assert($control->shouldStop($guiFirst, 2025), 'Missing heartbeat expires at the documented lease boundary');
-control_assert(!$control->admitGui('33333333333333333333333333333333', $owner, 2025), 'Expired but not-yet-unwound GUI work still blocks replacement admission');
+control_assert(!$control->admitGui('33333333333333333333333333333333', $owner, 3600, 2025), 'Expired but not-yet-unwound GUI work still blocks replacement admission');
 $control->finish($guiFirst);
-control_assert($control->admitGui('33333333333333333333333333333333', $owner, 2026), 'Replacement is admitted only after abandoned work performs terminal cleanup');
+control_assert($control->admitGui('33333333333333333333333333333333', $owner, 3600, 2026), 'Replacement is admitted only after abandoned work performs terminal cleanup');
 $control->finish('33333333333333333333333333333333');
 $control->cancel($guiSecond, 2002);
 control_assert($control->shouldStop($guiSecond, 2002), 'GUI cancellation remains a cooperative checkpoint condition');
-control_assert(!$control->admitGui('44444444444444444444444444444444', $otherOwner, 2002), 'Cancellation request alone does not permit backend overlap');
+control_assert(!$control->admitGui('44444444444444444444444444444444', $otherOwner, 3600, 2002), 'Cancellation request alone does not permit backend overlap');
 $control->finish($guiSecond);
-control_assert($control->admitGui('44444444444444444444444444444444', $otherOwner, 2003), 'Cancelled calculation permits replacement after it unwinds');
+control_assert($control->admitGui('44444444444444444444444444444444', $otherOwner, 3600, 2003), 'Cancelled calculation permits replacement after it unwinds');
 $control->finish('44444444444444444444444444444444');
 
 $continued = '55555555555555555555555555555555';
-control_assert($control->admitGui($continued, $owner, 3000, 500.0), 'Initial GUI attempt receives one server-owned runtime origin');
+control_assert($control->admitGui($continued, $owner, 3600, 3000, 500.0), 'Initial GUI attempt receives one server-owned runtime origin');
 control_assert($control->runtimeStartedAt($continued, $owner) === 500.0, 'Initial runtime origin is retained exactly');
 $control->updateTelemetry($continued, 35.0, 7200.0, true, 3005);
 control_assert($control->pauseForWarning($continued, $owner, 3010), 'Predictive warning preserves the registered calculation-control record');
@@ -126,7 +128,7 @@ $control->finish($continued);
 control_assert($control->status($continued) === null, 'Stop/terminal cleanup removes runtime-deadline and telemetry state');
 
 $adjusted = '66666666666666666666666666666666';
-control_assert($control->admitGui($adjusted, $owner, time(), 1000.0), 'Runtime-adjustment run admitted');
+control_assert($control->admitGui($adjusted, $owner, 3600, time(), 1000.0), 'Runtime-adjustment run admitted');
 $before = $control->owned($adjusted, $owner);
 $partialMinute = false; try { $control->decide($adjusted, $owner, 'allowance', 3630, 1300.0); } catch (InvalidArgumentException $e) { $partialMinute = true; }
 control_assert($partialMinute && $control->owned($adjusted, $owner)['runtime_allowance_seconds'] === 3600, 'Non-minute runtime allowance is rejected atomically');
@@ -143,12 +145,43 @@ control_assert($reassessed['assessment_generation'] === 1 && (float)$reassessed[
 $control->finish($adjusted);
 
 $criticalRun = '77777777777777777777777777777777';
-control_assert($control->admitGui($criticalRun, $owner, time(), 2000.0), 'Critical-protection run admitted');
+control_assert($control->admitGui($criticalRun, $owner, 3600, time(), 2000.0), 'Critical-protection run admitted');
 $control->workerDecision($criticalRun, $owner, 'paused_impact');
 $control->decide($criticalRun, $owner, 'continue', null, 2100.0);
 $criticalState = $control->workerDecision($criticalRun, $owner, 'paused_critical');
 control_assert($criticalState['decision'] === 'paused_critical', 'Continue Anyway must never suppress a later Critical pause');
 $control->finish($criticalRun);
+
+$reportService = new HistoricalReportsService();
+$reportDefinition = [
+	'name' => 'Runtime admission', 'mode' => 'trunk', 'engine' => 'original', 'preset' => 'last7',
+	'range_from' => '2026-09-01', 'range_to' => '2026-09-07', 'include_time' => false,
+	'from_time' => '00:00', 'to_time' => '23:59', 'filter' => '', 'minimum_concurrency' => 2,
+];
+foreach ([5 => 300, 60 => 3600, 120 => 7200, 1440 => 86400] as $minutes => $seconds) {
+	$report = $reportService->createReport($reportService->defaults(), array_merge($reportDefinition, ['maximum_runtime_minutes' => $minutes]))[1];
+	$runId = str_repeat(dechex(($minutes % 15) + 1), 32);
+	control_assert($control->admitGui($runId, $owner, $reportService->runtimeAllowanceSeconds($report), time(), 3000.0), 'A saved report admits its configured GUI runtime allowance');
+	control_assert($control->owned($runId, $owner)['runtime_allowance_seconds'] === $seconds, 'Saved report minutes convert exactly to the server-owned GUI seconds allowance');
+	$control->finish($runId);
+}
+$legacyReport = $reportService->normaliseDefinition($reportDefinition);
+$legacyRun = '88888888888888888888888888888888';
+control_assert($control->admitGui($legacyRun, $owner, $reportService->runtimeAllowanceSeconds($legacyReport), time(), 3000.0), 'A legacy saved report without a runtime field receives the authoritative default');
+control_assert($control->owned($legacyRun, $owner)['runtime_allowance_seconds'] === 3600, 'Legacy saved report default converts to 3600 seconds');
+$legacyBeforeExtension = $legacyReport['maximum_runtime_minutes'];
+$control->decide($legacyRun, $owner, 'allowance', 7200, 3001.0);
+control_assert($control->owned($legacyRun, $owner)['runtime_allowance_seconds'] === 7200 && $legacyReport['maximum_runtime_minutes'] === $legacyBeforeExtension, 'Temporary allowance increase changes only the calculation-control record');
+$control->publish($legacyRun, ['runtime_remaining' => 7199.0]);
+control_assert((float)$control->status($legacyRun)['runtime_remaining'] === 7199.0, 'Telemetry retains runtime remaining against the authoritative configured allowance');
+$control->finish($legacyRun);
+
+foreach ([240, 86460, 330] as $invalidInitialAllowance) {
+	$rejected = false;
+	try { $control->admitGui('99999999999999999999999999999999', $owner, $invalidInitialAllowance); }
+	catch (InvalidArgumentException $exception) { $rejected = true; }
+	control_assert($rejected, 'GUI admission rejects an invalid initial runtime allowance');
+}
 
 $expired = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 $control->begin($expired, 1);

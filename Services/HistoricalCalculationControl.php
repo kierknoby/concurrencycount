@@ -32,9 +32,10 @@ class HistoricalCalculationControl {
 	}
 
 	/** Admit one GUI calculation for an authenticated PHP-session ownership scope. */
-	public function admitGui(string $id, string $owner, ?int $now = null, ?float $runtimeNow = null): bool {
+	public function admitGui(string $id, string $owner, int $runtimeAllowanceSeconds, ?int $now = null, ?float $runtimeNow = null): bool {
 		$id = $this->validateId($id);
 		$owner = $this->validateOwner($owner);
+		if ($runtimeAllowanceSeconds < 300 || $runtimeAllowanceSeconds > 86400 || $runtimeAllowanceSeconds % 60 !== 0) throw new \InvalidArgumentException('Runtime allowance must be between 5 and 1440 whole minutes.');
 		$now = $now === null ? time() : $now;
 		$runtimeNow = $runtimeNow === null ? hrtime(true) / 1000000000 : $runtimeNow;
 		foreach ($this->repository->findKeys(self::KEY_PREFIX) as $key) {
@@ -59,7 +60,7 @@ class HistoricalCalculationControl {
 		if (is_array($existing) && in_array($existing['status'] ?? '', ['cancelled', 'abandoned'], true)) return false;
 		$this->repository->set(self::KEY_PREFIX . $id, [
 			'status' => 'active', 'kind' => 'gui', 'owner' => $owner, 'registered' => true,
-			'runtime_started_at' => $runtimeNow, 'runtime_allowance_seconds' => 3600,
+			'runtime_started_at' => $runtimeNow, 'runtime_allowance_seconds' => $runtimeAllowanceSeconds,
 			'assessment_started_at' => $runtimeNow, 'assessment_generation' => 0, 'decision' => 'assessing',
 			'lease_expires_at' => $now + self::GUI_LEASE_SECONDS,
 			'expires_at' => $now + self::RECORD_TTL,
