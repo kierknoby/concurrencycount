@@ -12,21 +12,21 @@
 		return name || 'Historical-Graph';
 	}
 	function filename(report, series, format) { return sanitizeFilename(report) + '-' + sanitizeFilename(series === 'overall' ? 'Overall' : series) + '.' + (format === 'jpeg' ? 'jpg' : format); }
+	function seriesComponent(selected) { return selected.length === 1 ? selected[0] : selected.length + '-series'; }
 	function svgDocument(generatedDocument) { return String(generatedDocument || ''); }
 	function pdfEscape(value) { return String(value || '').replace(/[\u2013\u2014]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[^\x20-\x7E]/g, '?').replace(/([\\()])/g, '\\$1'); }
+	function pdfColour(hex) { var value = String(hex || '#2675a8').replace('#', ''); return [parseInt(value.slice(0, 2), 16) / 255, parseInt(value.slice(2, 4), 16) / 255, parseInt(value.slice(4, 6), 16) / 255].map(function (part) { return part.toFixed(3); }).join(' '); }
 	function pdfDocument(generatedDocument, chart, metadata) {
-		var scale = 0.625, pageWidth = 1040, pageHeight = 228, offsetX = 20, offsetTop = 20;
+		var scale = 0.625, pageWidth = 1040, pageHeight = 40 + (chart.height * scale), offsetX = 20, offsetTop = 20;
 		function px(x) { return offsetX + (Number(x) * scale); }
 		function py(y) { return pageHeight - offsetTop - (Number(y) * scale); }
 		var commands = ['1 1 1 rg 0 0 ' + pageWidth + ' ' + pageHeight + ' re f', '0.15 0.20 0.24 rg', 'BT /F1 11 Tf ' + px(chart.plot.left) + ' ' + py(22) + ' Td (' + pdfEscape(metadata.title) + ') Tj ET', '0.32 0.38 0.42 rg', 'BT /F1 8 Tf ' + px(chart.plot.left) + ' ' + py(40) + ' Td (' + pdfEscape(metadata.subtitle) + ') Tj ET'];
 		commands.push('0.85 0.87 0.89 RG 1 w ' + px(chart.plot.left) + ' ' + py(chart.plot.top) + ' m ' + px(chart.plot.left) + ' ' + py(chart.plot.bottom) + ' l ' + px(chart.plot.right) + ' ' + py(chart.plot.bottom) + ' l S');
-		if (chart.thresholdY !== null) {
-			commands.push('0.72 0.20 0.20 RG 1 w [' + '5 4] 0 d ' + px(chart.plot.left) + ' ' + py(chart.thresholdY) + ' m ' + px(chart.plot.right) + ' ' + py(chart.thresholdY) + ' l S [] 0 d');
-			commands.push('0.56 0.15 0.15 rg BT /F1 9 Tf ' + px(chart.plot.left + 5) + ' ' + py(Math.max(10, chart.thresholdY - 4)) + ' Td (Threshold ' + chart.threshold + ') Tj ET');
-		}
-		var seriesPaths = [], match, pathPattern = /<path class="series" d="([^"]+)"/g;
-		while ((match = pathPattern.exec(generatedDocument)) !== null) seriesPaths.push(match[1]);
-		seriesPaths.forEach(function (path) {
+		chart.series.forEach(function (series) { if (series.thresholdY !== null) commands.push(pdfColour(series.color) + ' RG 1 w [5 4] 0 d ' + px(chart.plot.left) + ' ' + py(series.thresholdY) + ' m ' + px(chart.plot.right) + ' ' + py(series.thresholdY) + ' l S [] 0 d'); });
+		var seriesPaths = [], match, pathPattern = /<path class="series" d="([^"]+)" stroke="(#[0-9A-Fa-f]{6})"/g;
+		while ((match = pathPattern.exec(generatedDocument)) !== null) seriesPaths.push({path: match[1], color: match[2]});
+		seriesPaths.forEach(function (item) {
+			var path = item.path;
 			var tokens = path.trim().split(/\s+/), index = 0, x = 0, y = 0, out = [];
 			while (index < tokens.length) {
 				var command = tokens[index++];
@@ -34,11 +34,12 @@
 				else if (command === 'H') { x = Number(tokens[index++]); out.push(px(x) + ' ' + py(y) + ' l'); }
 				else if (command === 'V') { y = Number(tokens[index++]); out.push(px(x) + ' ' + py(y) + ' l'); }
 			}
-			commands.push('0.15 0.46 0.66 RG 2 w ' + out.join(' ') + ' S');
+			commands.push(pdfColour(item.color) + ' RG 2 w ' + out.join(' ') + ' S');
 		});
 		commands.push('0.32 0.38 0.42 rg BT /F1 10 Tf ' + (offsetX + 8) + ' ' + py(chart.plot.top + 5) + ' Td (' + chart.maxValue + ') Tj ET');
 		commands.push('BT /F1 10 Tf ' + px(28) + ' ' + py(chart.plot.bottom + 4) + ' Td (0) Tj ET');
 		chart.ticks.forEach(function (tick) { commands.push('BT /F1 7 Tf ' + px(tick.x - 20) + ' ' + py(278) + ' Td (' + pdfEscape(tick.label) + ') Tj ET'); });
+		chart.series.forEach(function (series, index) { var x = chart.plot.left + ((index % 4) * 375), y = 310 + (Math.floor(index / 4) * 22); commands.push(pdfColour(series.color) + ' RG 3 w ' + px(x) + ' ' + py(y - 4) + ' m ' + px(x + 24) + ' ' + py(y - 4) + ' l S'); commands.push('0.15 0.20 0.24 rg BT /F1 8 Tf ' + px(x + 32) + ' ' + py(y) + ' Td (' + pdfEscape(series.label + (series.threshold ? ' (threshold ' + series.threshold + ')' : '')) + ') Tj ET'); });
 		var stream = commands.join('\n');
 		var objects = [
 			'<< /Type /Catalog /Pages 2 0 R >>',
@@ -63,7 +64,8 @@
 		var blob = new root.Blob([svgText], {type: 'image/svg+xml;charset=utf-8'}), url = root.URL.createObjectURL(blob), image = new root.Image();
 		image.onload = function () {
 			var canvas = root.document.createElement('canvas'), context = canvas.getContext('2d');
-			canvas.width = EXPORT_WIDTH * 2; canvas.height = GRAPH_HEIGHT * 2;
+			var widthMatch = svgText.match(/<svg[^>]*\swidth="([0-9.]+)"/), heightMatch = svgText.match(/<svg[^>]*\sheight="([0-9.]+)"/);
+			canvas.width = (widthMatch ? Number(widthMatch[1]) : EXPORT_WIDTH) * 2; canvas.height = (heightMatch ? Number(heightMatch[1]) : GRAPH_HEIGHT) * 2;
 			context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
 			context.drawImage(image, 0, 0, canvas.width, canvas.height); root.URL.revokeObjectURL(url);
 			canvas.toBlob(function (output) { if (output) save(output, name); }, format === 'jpeg' ? 'image/jpeg' : 'image/png', format === 'jpeg' ? 0.94 : undefined);
@@ -81,5 +83,5 @@
 		}
 		return true;
 	}
-	return {sanitizeFilename: sanitizeFilename, filename: filename, svgDocument: svgDocument, pdfDocument: pdfDocument, download: download};
+	return {sanitizeFilename: sanitizeFilename, filename: filename, seriesComponent: seriesComponent, svgDocument: svgDocument, pdfDocument: pdfDocument, download: download};
 }));

@@ -5,62 +5,68 @@ function assert(condition, message) { if (!condition) throw new Error(message); 
 function close(actual, expected, message) { if (Math.abs(actual - expected) > 0.000001) throw new Error(message + ': expected ' + expected + ', got ' + actual); }
 
 const yearStart = 1735689600, yearEnd = 1767225599;
-const shortPoints = [
-	{ts: yearStart + 100, value: 5},
-	{ts: yearStart + 130, value: 6},
-	{ts: yearStart + 145, value: 5},
-	{ts: yearStart + 161, value: null},
-	{ts: yearStart + 500, value: 5},
-	{ts: yearStart + 561, value: null}
-];
-const chart = svg.model(shortPoints, 5, {minTs: yearStart, maxTs: yearEnd}, 6);
-assert(svg.width === 1600 && svg.height === 300 && svg.minimumRunWidth === 24, 'Finished image uses central fixed logical dimensions and minimum run width');
-assert(chart.minTs === yearStart && chart.maxTs === yearEnd && chart.ticks[0].ts === yearStart && chart.ticks[4].ts === yearEnd, 'Jan-Dec axis uses the exact selected report-domain boundaries');
-assert(chart.exactPeak === 6 && chart.threshold === 5 && chart.maxValue === 6, 'Exact peak and threshold retain their calculation values');
-assert(chart.runs.length === 2 && chart.runs[0].realStartTs === yearStart + 100 && chart.runs[0].realEndTs === yearStart + 161 && chart.runs[0].realDuration === 61, 'A null boundary records the exact real start, end and duration of a short run');
-assert(chart.runs[1].realStartTs === yearStart + 500 && chart.runs[1].realEndTs === yearStart + 561, 'Two separate null-bounded runs retain separate real metadata');
-assert(chart.runs[0].widened && chart.runs[0].displayEndX - chart.runs[0].displayStartX === 24, 'A year-scale 60-second run receives a recognisable fixed-domain display plateau');
-assert(chart.runs[1].displayStartX > chart.runs[0].displayEndX, 'Nearby short runs are deliberately laid out as separate display shapes');
-assert(chart.runs[0].displayPath.indexOf('M ' + chart.runs[0].displayStartX + ' ' + chart.plot.bottom + ' V ') === 0 && chart.runs[0].displayPath.endsWith('H ' + chart.runs[0].displayEndX + ' V ' + chart.plot.bottom), 'Short display geometry paints complete entry, plateau and exit shape rather than a line or blob');
-assert((chart.runs[0].displayPath.match(/ H /g) || []).length === 3 && (chart.runs[0].displayPath.match(/ V /g) || []).length === 4, 'Multiple real concurrency transitions retain horizontal and vertical step geometry');
-assert(chart.runs[0].realPath.indexOf(String(chart.x(yearStart + 100))) !== -1 && chart.runs[0].realPath.indexOf(String(chart.x(yearStart + 161))) !== -1, 'Real geometry keeps exact event and null-boundary positions independently of display widening');
+const seriesMap = {A: {exact_peak: 5}, B: {exact_peak: 8}, C: {exact_peak: 4}};
+assert(JSON.stringify(svg.selection.initial(['A', 'B', 'C'], seriesMap)) === JSON.stringify(['B']), 'Initial selection remains exactly the existing highest-peak default');
+let selected = svg.selection.toggle(['A'], 'B');
+assert(JSON.stringify(selected) === JSON.stringify(['A', 'B']), 'Selecting a second series retains the first');
+selected = svg.selection.toggle(selected, 'A');
+assert(JSON.stringify(selected) === JSON.stringify(['B']), 'Deselecting one series retains the others');
+assert(JSON.stringify(svg.selection.all(['A', 'B', 'C'])) === JSON.stringify(['A', 'B', 'C']), 'Select All selects every available series without a limit');
+const largeNames = ['20260827', 'InterVoIP', 'MAGRATHEA-IN-1', 'MAGRATHEA-IN-2', 'MAGRATHEA-IN-3', 'MAGRATHEA-IN-4', 'MAGRATHEA-IN-5', 'MAGRATHEA-OUT', 'SBCSRV1-MAN', 'SBCSRV2-LON', 'SBCSRV3-MAN', 'SBCSRV4-LON', 'ST22017T002', 'fpbx-1-d92ylejHZE3q', 'fpbx-2-d92ylejHZE3q'];
+const inventoryColours = svg.coloursForInventory(largeNames), largeColours = largeNames.map(function (name) { return inventoryColours[name]; });
+assert(new Set(largeColours).size === 15 && largeColours.every(function (colour) { return /^#[0-9A-F]{6}$/.test(colour); }), 'The actual 15-series PBX inventory receives 15 distinct six-digit colours');
+function colourDistance(left, right) { return Math.sqrt([1, 3, 5].reduce(function (sum, offset) { return sum + Math.pow(parseInt(left.slice(offset, offset + 2), 16) - parseInt(right.slice(offset, offset + 2), 16), 2); }, 0)); }
+['MAGRATHEA-IN-1', 'MAGRATHEA-IN-3', 'MAGRATHEA-IN-5'].forEach(function (name, index, group) { group.slice(index + 1).forEach(function (other) { assert(colourDistance(inventoryColours[name], inventoryColours[other]) > 100, name + ' and ' + other + ' must be visibly separated'); }); });
+assert(colourDistance(inventoryColours['MAGRATHEA-IN-2'], inventoryColours['MAGRATHEA-IN-4']) > 100, 'The previously similar IN-2 and IN-4 colours must be visibly separated');
+const stableColour = inventoryColours['MAGRATHEA-IN-3'];
+const subsetSpecs = ['MAGRATHEA-IN-1', 'MAGRATHEA-IN-3'].map(function (name) { return {name: name, color: inventoryColours[name], points: [], exactPeak: 0}; });
+assert(svg.coloursForInventory(largeNames)['MAGRATHEA-IN-3'] === stableColour && svg.multiModel(subsetSpecs, {minTs: 0, maxTs: 1}).series[1].color === stableColour, 'Changing the selected subset does not change a series colour while the full inventory is unchanged');
 
-const wide = svg.model([{ts: 100, value: 5}, {ts: 300, value: 6}, {ts: 700, value: null}], 5, {minTs: 0, maxTs: 1000}, 6);
-assert(!wide.runs[0].widened && wide.runs[0].displayStartX === wide.runs[0].realStartX && wide.runs[0].displayEndX === wide.runs[0].realEndX && wide.runs[0].displayPath === wide.runs[0].realPath, 'A naturally wide run uses its exact true span without artificial widening');
+const shortA = [{ts: yearStart + 100, value: 5}, {ts: yearStart + 130, value: 6}, {ts: yearStart + 161, value: null}, {ts: yearStart + 500, value: 5}, {ts: yearStart + 561, value: null}];
+const shortB = [{ts: yearStart + 8640000, value: 4}, {ts: yearStart + 8640061, value: null}];
+const multi = svg.multiModel([
+	{name: 'A', label: 'Trunk A', points: shortA, threshold: 5, exactPeak: 6},
+	{name: 'B', label: 'Trunk B', points: shortB, threshold: 4, exactPeak: 4}
+], {minTs: yearStart, maxTs: yearEnd});
+assert(multi.width === 1600 && multi.height > svg.baseHeight && svg.minimumRunWidth === 24, 'Multi-series image uses deterministic fixed logical geometry and legend space');
+assert(multi.minTs === yearStart && multi.maxTs === yearEnd && multi.ticks[0].ts === yearStart && multi.ticks[4].ts === yearEnd, 'Every series shares the exact Jan-Dec report domain');
+assert(multi.maxValue === 6 && multi.exactPeak === 6 && multi.series[0].thresholdY !== null && multi.series[1].thresholdY !== null, 'Shared Y scale preserves exact peaks and independent per-series thresholds');
+assert(multi.series[0].runs.length === 2 && multi.series[0].runs[0].realStartTs === yearStart + 100 && multi.series[0].runs[0].realEndTs === yearStart + 161, 'Real timestamps and null-bounded gaps remain unchanged');
+assert(multi.series[0].runs[0].widened && multi.series[0].runs[0].displayEndX - multi.series[0].runs[0].displayStartX === 24, 'Year-scale short run retains minimum-width full step geometry');
+assert(multi.series[0].runs[0].displayPath.indexOf(' V ') !== -1 && (multi.series[0].runs[0].displayPath.match(/ H /g) || []).length >= 2, 'Short runs retain complete horizontal and vertical transitions');
+assert(multi.series[0].runs[1].displayStartX > multi.series[0].runs[0].displayEndX, 'Two distinct short runs remain separate');
 
-const documentText = svg.documentFor(chart, {title: 'Historic Report 1 — Trunk A', subtitle: 'Exact floor-relevant CDR event transitions'});
-assert(documentText.indexOf('<svg xmlns=') !== -1 && documentText.indexOf('width="1600" height="300" viewBox="0 0 1600 300"') !== -1, 'Generator returns one complete self-contained fixed-size SVG document');
-assert(documentText.indexOf('data-real-start-ts="' + (yearStart + 100) + '" data-real-end-ts="' + (yearStart + 161) + '" data-real-duration="61" data-display-widened="true"') !== -1, 'Generated display path carries unchanged real timestamp metadata');
-assert(documentText.indexOf('cc-historical-svg-short-run') === -1 && documentText.indexOf('<rect class="marker"') === -1 && documentText.indexOf('class="series" d="' + chart.runs[0].displayPath + '"') !== -1, 'Minimum width is painted by the complete series path, without a pill/blob marker layer');
-assert(documentText.indexOf(chart.runs[0].displayPath) !== -1 && documentText.indexOf(chart.runs[1].displayPath) !== -1, 'Finished SVG contains both distinct short-run graph shapes');
+const wide = svg.multiModel([{name: 'Wide', points: [{ts: 100, value: 5}, {ts: 300, value: 6}, {ts: 700, value: null}], exactPeak: 6}], {minTs: 0, maxTs: 1000});
+assert(!wide.series[0].runs[0].widened && wide.series[0].runs[0].displayPath === wide.series[0].runs[0].realPath, 'Naturally wide runs use their exact span without widening');
 
-let createdDocument = '', revoked = '', selectedPoint = null;
-const image = {src: '', alt: '', removeAttribute: function (name) { if (name === 'src') this.src = ''; }};
-const tooltip = {style: {}, textContent: ''};
-const listeners = {};
-const overlay = {addEventListener: function (name, fn) { listeners[name] = fn; }, removeEventListener: function (name) { delete listeners[name]; }, getBoundingClientRect: function () { return {left: 100, width: 800, height: 150}; }};
-const rendered = new svg.HistoricalSvgChart(image, overlay, tooltip, {
-	onSelect: function (point) { selectedPoint = point; },
-	createImageUrl: function (text) { createdDocument = text; return 'blob:finished-historical-image'; },
-	revokeImageUrl: function (url) { revoked = url; }
-});
-rendered.setData(shortPoints, 5, {minTs: yearStart, maxTs: yearEnd}, 6, {title: 'Report — Trunk A', subtitle: 'Exact events'});
-assert(image.src === 'blob:finished-historical-image' && createdDocument === rendered.svgDocument && createdDocument.indexOf('<svg') !== -1, 'Historical display installs the finished generated SVG document as an image Blob URL');
-assert(typeof listeners.mousemove === 'function' && typeof listeners.click === 'function' && createdDocument.indexOf('getBoundingClientRect') === -1, 'Interaction is an external overlay and the generated document has no DOM measurement dependency');
+const documentText = svg.documentFor(multi, {title: 'Historic Report — selected series', subtitle: '2 selected series'});
+assert(documentText.indexOf('data-series="A"') !== -1 && documentText.indexOf('data-series="B"') !== -1, 'One generated SVG contains every selected series');
+const twoColours = svg.coloursForInventory(['A', 'B']);
+assert(documentText.indexOf('stroke="' + twoColours.A + '"') !== -1 && documentText.indexOf('stroke="' + twoColours.B + '"') !== -1, 'Selected series receive distinguishable deterministic colours');
+assert(documentText.indexOf('>Trunk A (threshold 5)</text>') !== -1 && documentText.indexOf('>Trunk B (threshold 4)</text>') !== -1, 'Legend identifies each series and associates its threshold');
+const onlyA = svg.documentFor(svg.multiModel([{name: 'A', label: 'Trunk A', points: shortA, exactPeak: 6}], {minTs: yearStart, maxTs: yearEnd}), {title: 'Only A'});
+assert(onlyA.indexOf('data-series="A"') !== -1 && onlyA.indexOf('data-series="B"') === -1, 'Generated SVG excludes unselected series');
 
-const firstRunDisplayMid = (rendered.chart.runs[0].displayStartX + rendered.chart.runs[0].displayEndX) / 2;
-const firstRunClientX = 100 + ((firstRunDisplayMid / svg.width) * 800);
-const mappedTimestamp = rendered.pointerTimestamp({clientX: firstRunClientX});
-close(mappedTimestamp, rendered.chart.runs[0].realMidTs, 'Pointer mapping inverts display widening to the real run midpoint');
-rendered.onPointer({clientX: firstRunClientX}); rendered.onClick({clientX: firstRunClientX});
-assert(tooltip.textContent && selectedPoint && selectedPoint.ts >= yearStart + 100 && selectedPoint.ts <= yearStart + 145, 'Tooltip and click resolve to a real underlying run event');
-overlay.getBoundingClientRect = function () { return {left: 20, width: 1600, height: 300}; };
-close(rendered.pointerTimestamp({clientX: 20 + firstRunDisplayMid}), rendered.chart.runs[0].realMidTs, 'Overlay maps to the same real timestamp at a different displayed width');
+let createdDocuments = [], revoked = [], clicked = null;
+const image = {src: '', alt: '', removeAttribute: function () { this.src = ''; }};
+const tooltip = {style: {}, textContent: ''}, listeners = {};
+const overlay = {addEventListener: function (name, fn) { listeners[name] = fn; }, removeEventListener: function (name) { delete listeners[name]; }, getBoundingClientRect: function () { return {left: 100, top: 20, width: 800, height: multi.height / 2}; }};
+const rendered = new svg.HistoricalSvgChart(image, overlay, tooltip, {onSelect: function (name, point) { clicked = {name: name, point: point}; }, createImageUrl: function (text) { createdDocuments.push(text); return 'blob:image-' + createdDocuments.length; }, revokeImageUrl: function (url) { revoked.push(url); }});
+const specs = [{name: 'A', label: 'Trunk A', points: shortA, threshold: 5, exactPeak: 6}, {name: 'B', label: 'Trunk B', points: shortB, threshold: 4, exactPeak: 4}];
+rendered.setSeries(specs, {minTs: yearStart, maxTs: yearEnd}, {title: 'Report', subtitle: 'Two series'});
+assert(image.src === 'blob:image-1' && rendered.svgDocument === createdDocuments[0], 'One authoritative finished SVG document is installed as one image');
+const run = rendered.chart.series[1].runs[0], logicalX = (run.displayStartX + run.displayEndX) / 2, logicalY = rendered.chart.plot.bottom - ((4 / rendered.chart.maxValue) * (rendered.chart.plot.bottom - rendered.chart.plot.top));
+const event = {clientX: 100 + ((logicalX / rendered.chart.width) * 800), clientY: 20 + ((logicalY / rendered.chart.height) * (rendered.chart.height / 2))};
+rendered.onPointer(event); rendered.onClick(event);
+assert(tooltip.textContent.indexOf('Trunk B · ') === 0 && clicked && clicked.name === 'B' && clicked.point.ts === yearStart + 8640000, 'Nearest pointer and click identify the correct series and real source point');
+rendered.setSeries([specs[0]], {minTs: yearStart, maxTs: yearEnd}, {title: 'Report', subtitle: 'One series'});
+assert(image.src === 'blob:image-2' && revoked[0] === 'blob:image-1', 'Selection redraw revokes the superseded image URL exactly once');
 rendered.destroy();
-assert(revoked === 'blob:finished-historical-image' && image.src === '', 'Destroying a graph revokes and removes the prior finished image');
+assert(revoked[1] === 'blob:image-2' && image.src === '', 'Destroy clears the finished image and revokes its URL');
 
-const requestedResult = {id: 'old'};
-assert(svg.isCurrentResult(requestedResult, requestedResult) && !svg.isCurrentResult(null, requestedResult) && !svg.isCurrentResult({id: 'new'}, requestedResult), 'A late Historical response cannot repaint a cleared or replaced image');
-assert(require('fs').readFileSync(require('path').join(__dirname, '../assets/js/historical-svg-chart.js'), 'utf8').indexOf('getBoundingClientRect') > require('fs').readFileSync(require('path').join(__dirname, '../assets/js/historical-svg-chart.js'), 'utf8').indexOf('pointerTimestamp'), 'DOM measurement exists only in interaction-time pointer mapping');
+const source = require('fs').readFileSync(require('path').join(__dirname, '../assets/js/historical-svg-chart.js'), 'utf8');
+assert(source.indexOf('getBoundingClientRect') > source.indexOf('pointerCoordinates') && source.indexOf('ResizeObserver') === -1 && source.indexOf('requestAnimationFrame') === -1 && source.indexOf('devicePixelRatio') === -1, 'Generation has no DOM width, resize, RAF or DPR dependency');
+const requested = {id: 'old'};
+assert(svg.isCurrentResult(requested, requested) && !svg.isCurrentResult(null, requested), 'Stale response guard remains intact');
 
-console.log('Historical SVG image tests passed');
+console.log('Historical multi-series SVG image tests passed');

@@ -73,7 +73,7 @@ window._ccLiveLoaded = true;
 	var historicalResult = null;
 	var historicalSeries = null;
 	var historicalChart = null;
-	var historicalSelectedSeries = null;
+	var historicalSelectedSeries = [];
 	var continueToLiveWallAfterSave = false;
 
 	function ajax(params) {
@@ -856,7 +856,7 @@ window._ccLiveLoaded = true;
 
 	function setHistoricalExportAvailable(available) { $('#cc-historical-export').prop('disabled', !available).attr('aria-disabled', available ? 'false' : 'true'); }
 	function clearHistoricalGraphState() {
-		historicalSeries = null; historicalSelectedSeries = null;
+		historicalSeries = null; historicalSelectedSeries = [];
 		if (historicalChart) { historicalChart.destroy(); historicalChart = null; }
 		$('#cc-historical-series, #cc-historical-resolution').empty();
 		setHistoricalExportAvailable(false);
@@ -870,51 +870,72 @@ window._ccLiveLoaded = true;
 	function finishHistoricalGraphRender() {
 		$('#cc-historical-graph').removeClass('is-loading');
 		$('#cc-historical-graph-loading, #cc-historical-graph-error').hide();
-		setHistoricalExportAvailable(true);
+		setHistoricalExportAvailable(historicalSelectedSeries.length > 0);
 	}
 
 	function renderHistoricalSeries() {
 		var names = Object.keys(historicalSeries.series || {});
 		if (!names.length) return false;
-		var selected = names[0];
-		for (var index = 1; index < names.length; index++) if (historicalSeries.series[names[index]].exact_peak > historicalSeries.series[selected].exact_peak) selected = names[index];
-		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
-		$('#cc-historical-series').html(buttons.join(''));
-		$('#cc-historical-series .cc-series-choice').on('click', function () { showHistoricalSeries($(this).data('series')); });
-		showHistoricalSeries(selected);
+		historicalSelectedSeries = window.HistoricalSvgChart.selection.initial(names, historicalSeries.series);
+		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
+		$('#cc-historical-series').html('<button type="button" class="btn btn-default btn-sm cc-series-select-all" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-default btn-sm cc-series-unselect-all" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
+		$('#cc-historical-series .cc-series-choice').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.toggle(historicalSelectedSeries, String($(this).attr('data-series'))); redrawHistoricalSelection(); });
+		$('#cc-historical-series .cc-series-select-all').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.all(names); redrawHistoricalSelection(); });
+		$('#cc-historical-series .cc-series-unselect-all').on('click', function () { historicalSelectedSeries = []; redrawHistoricalSelection(); });
+		redrawHistoricalSelection();
 		return true;
 	}
 
-	function showHistoricalSeries(name) {
-		var series = historicalSeries.series[name];
-		if (!series) return;
-		historicalSelectedSeries = name;
-		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
+	function historicalResolutionText(series) {
 		var resolutionText = 'Display uses bucket maxima; exact peak remains ' + series.exact_peak;
 		if (series.display_resolution === 'exact_events') resolutionText = 'Exact CDR event transitions';
 		if (series.display_resolution === 'floor_events') resolutionText = 'Exact floor-relevant CDR event transitions';
 		if (series.display_resolution === 'floor_events_sampled') resolutionText = 'Display samples real floor-qualified event boundaries; exact peak remains ' + series.exact_peak;
-		$('#cc-historical-resolution').text(resolutionText);
-		var thresholdConfig = historicalSeries.thresholds[name] || {};
+		return resolutionText;
+	}
+
+	function redrawHistoricalSelection() {
+		var names = Object.keys(historicalSeries.series || {});
+		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
+		$('#cc-historical-series .cc-series-choice').each(function () {
+			var selected = historicalSelectedSeries.indexOf(String($(this).attr('data-series'))) >= 0;
+			$(this).toggleClass('btn-primary', selected).toggleClass('btn-default', !selected).attr('aria-pressed', selected ? 'true' : 'false');
+		});
+		if (!historicalSelectedSeries.length) {
+			if (historicalChart) { historicalChart.destroy(); historicalChart = null; }
+			$('#cc-historical-chart').hide(); $('#cc-historical-no-series').show(); $('#cc-historical-resolution').text(''); setHistoricalExportAvailable(false);
+			return;
+		}
+		var selectedSpecs = [];
+		names.forEach(function (name) {
+			if (historicalSelectedSeries.indexOf(name) < 0) return;
+			var series = historicalSeries.series[name], thresholdConfig = historicalSeries.thresholds[name] || {};
+			selectedSpecs.push({name: name, label: name === 'overall' ? 'Overall' : name, color: inventoryColours[name], points: series.points, exactPeak: series.exact_peak, threshold: thresholdConfig.enabled ? thresholdConfig.threshold : 0, resolution: series.display_resolution});
+		});
+		var resolutionText = selectedSpecs.length === 1 ? historicalResolutionText(historicalSeries.series[selectedSpecs[0].name]) : selectedSpecs.length + ' selected series';
+		$('#cc-historical-resolution').text(resolutionText); $('#cc-historical-no-series').hide(); $('#cc-historical-chart').show();
 		var image = document.getElementById('cc-historical-chart-image');
 		var overlay = document.getElementById('cc-historical-chart-overlay');
 		var tooltip = document.getElementById('cc-historical-chart-tooltip');
 		if (!historicalChart || historicalChart.image !== image) {
 			if (historicalChart) historicalChart.destroy();
-			historicalChart = new window.HistoricalSvgChart(image, overlay, tooltip, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
-		} else historicalChart.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
+			historicalChart = new window.HistoricalSvgChart(image, overlay, tooltip, {onSelect: function (name, point) { focusHistoricalPoint(name, point); }});
+		} else historicalChart.options.onSelect = function (name, point) { focusHistoricalPoint(name, point); };
 		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
 		var graphSubtitle = resolutionText;
 		if (historicalResult.minimum_concurrency) graphSubtitle += ' · Minimum concurrency ' + historicalResult.minimum_concurrency;
-		historicalChart.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, series.exact_peak, {title: reportName + ' — ' + (name === 'overall' ? 'Overall' : name), subtitle: graphSubtitle});
+		var titleSeries = selectedSpecs.length === 1 ? selectedSpecs[0].label : selectedSpecs.length + ' selected series';
+		historicalChart.setSeries(selectedSpecs, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, {title: reportName + ' — ' + titleSeries, subtitle: graphSubtitle});
+		setHistoricalExportAvailable(true);
 	}
 
 	function exportHistoricalGraph(format) {
-		if (!historicalChart || !historicalSelectedSeries) return;
+		if (!historicalChart || !historicalSelectedSeries.length) return;
 		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
+		var exportSeries = window.HistoricalGraphExport.seriesComponent(historicalSelectedSeries);
 		window.HistoricalGraphExport.download(String(format), historicalChart.svgDocument, historicalChart.chart, {
 			report: reportName,
-			series: historicalSelectedSeries,
+			series: exportSeries,
 			title: historicalChart.metadata.title,
 			subtitle: historicalChart.metadata.subtitle
 		});
