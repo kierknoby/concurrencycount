@@ -46,69 +46,6 @@
 		}
 	};
 
-	root.CCChartRenderScheduler = function (maximumAttempts) {
-		var pending = false;
-		var latest = null;
-		var nextId = 0;
-		maximumAttempts = Math.max(1, parseInt(maximumAttempts, 10) || 30);
-		function queue() {
-			pending = true;
-			if (typeof root.requestAnimationFrame === 'function') root.requestAnimationFrame(flush);
-			else root.setTimeout(flush, 16);
-		}
-		function flush() {
-			pending = false;
-			var job = latest;
-			if (!job) return;
-			var retry = job.render() === true;
-			if (latest !== job) return;
-			job.attempts++;
-			if (retry && job.attempts < maximumAttempts) queue();
-			else latest = null;
-		}
-		return {
-			schedule: function (render) {
-				latest = {id: ++nextId, render: render, attempts: 0};
-				if (pending) return;
-				queue();
-			}
-		};
-	};
-	root.CCHistoricalGraphLifecycle = function (isCurrent) {
-		var stableDimensions = null;
-		var renderedDimensions = null;
-		function dimensionKey(measurement) {
-			return [measurement.containerWidth, measurement.containerHeight, measurement.cssWidth, measurement.cssHeight, measurement.ratio].join(':');
-		}
-		return {
-			step: function (measurement, render, verify) {
-				if (!isCurrent()) return {retry: false, reveal: false};
-				if (!measurement || measurement.containerWidth <= 0 || measurement.containerHeight <= 0 || measurement.cssWidth <= 0 || measurement.cssHeight <= 0) {
-					stableDimensions = null; renderedDimensions = null;
-					return {retry: true, reveal: false};
-				}
-				var dimensions = dimensionKey(measurement);
-				if (dimensions !== stableDimensions) {
-					stableDimensions = dimensions; renderedDimensions = null;
-					return {retry: true, reveal: false};
-				}
-				if (renderedDimensions === null) {
-					var rendered = render();
-					if (!rendered || !rendered.owned || rendered.backingWidth !== Math.round(measurement.cssWidth * measurement.ratio) || rendered.backingHeight !== Math.round(measurement.cssHeight * measurement.ratio)) {
-						stableDimensions = null;
-						return {retry: true, reveal: false};
-					}
-					renderedDimensions = dimensions;
-					return {retry: true, reveal: false};
-				}
-				if (dimensions !== renderedDimensions || !verify()) {
-					stableDimensions = dimensions; renderedDimensions = null;
-					return {retry: true, reveal: false};
-				}
-				return {retry: false, reveal: true};
-			}
-		};
-	};
 }(window));
 
 if (!window._ccLiveLoaded) {
@@ -132,12 +69,11 @@ window._ccLiveLoaded = true;
 	var draggedTrunk = null;
 	var featuredDraft = [];
 	var history = {overall: [], trunks: {}};
-	var charts = {overall: null, trunks: {}, historical: null};
+	var charts = {overall: null, trunks: {}};
 	var historicalResult = null;
 	var historicalSeries = null;
-	var historicalChartRenderScheduler = window.CCChartRenderScheduler();
+	var historicalChart = null;
 	var historicalSelectedSeries = null;
-	var historicalLayoutObserver = null;
 	var continueToLiveWallAfterSave = false;
 
 	function ajax(params) {
@@ -174,6 +110,7 @@ window._ccLiveLoaded = true;
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
+		$('#cc-historical-graph').off('click.ccHistoricalExport', '.cc-historical-export-format').on('click.ccHistoricalExport', '.cc-historical-export-format', function (event) { event.preventDefault(); exportHistoricalGraph($(this).data('format')); });
 	}
 
 	/**
@@ -892,52 +829,66 @@ window._ccLiveLoaded = true;
 	function loadHistoricalGraph(result, cachedSeries) {
 		historicalResult = result;
 		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message) {
-			historicalSeries = null;
-			historicalSelectedSeries = null;
+			clearHistoricalGraphState();
 			$('#cc-historical-graph').hide();
 			return;
 		}
 		if (cachedSeries) {
 			historicalSeries = cachedSeries;
-			renderHistoricalSeries();
+			if (renderHistoricalSeries()) finishHistoricalGraphRender();
 			return;
 		}
+		clearHistoricalGraphState();
+		$('#cc-historical-graph').show().addClass('is-loading');
+		$('#cc-historical-graph-loading').show();
+		$('#cc-historical-graph-error').hide().text('');
 		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : '', minimum_concurrency: result.minimum_concurrency || ''}).done(function (response) {
-			if (!response.status || historicalResult !== result) return;
+			if (!window.HistoricalSvgChart.isCurrentResult(historicalResult, result)) return;
+			if (!response.status) { failHistoricalGraph(response.message || 'Unable to load this Historical graph.'); return; }
 			historicalSeries = response.graph;
-			renderHistoricalSeries();
+			try {
+				if (!renderHistoricalSeries()) { failHistoricalGraph('This Historical graph contains no displayable series.'); return; }
+				finishHistoricalGraphRender();
+			} catch (error) { failHistoricalGraph('Unable to render this Historical graph.'); return; }
 			$(document).trigger('cc:historical-graph-loaded', [response.graph]);
-		});
+		}).fail(function () { if (window.HistoricalSvgChart.isCurrentResult(historicalResult, result)) failHistoricalGraph('Unable to load this Historical graph.'); });
+	}
+
+	function setHistoricalExportAvailable(available) { $('#cc-historical-export').prop('disabled', !available).attr('aria-disabled', available ? 'false' : 'true'); }
+	function clearHistoricalGraphState() {
+		historicalSeries = null; historicalSelectedSeries = null;
+		if (historicalChart) { historicalChart.destroy(); historicalChart = null; }
+		$('#cc-historical-series, #cc-historical-resolution').empty();
+		setHistoricalExportAvailable(false);
+	}
+	function failHistoricalGraph(message) {
+		clearHistoricalGraphState();
+		$('#cc-historical-graph').show().removeClass('is-loading');
+		$('#cc-historical-graph-loading').hide();
+		$('#cc-historical-graph-error').text(message).show();
+	}
+	function finishHistoricalGraphRender() {
+		$('#cc-historical-graph').removeClass('is-loading');
+		$('#cc-historical-graph-loading, #cc-historical-graph-error').hide();
+		setHistoricalExportAvailable(true);
 	}
 
 	function renderHistoricalSeries() {
 		var names = Object.keys(historicalSeries.series || {});
-		if (!names.length) return;
+		if (!names.length) return false;
 		var selected = names[0];
 		for (var index = 1; index < names.length; index++) if (historicalSeries.series[names[index]].exact_peak > historicalSeries.series[selected].exact_peak) selected = names[index];
 		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
 		$('#cc-historical-series').html(buttons.join(''));
 		$('#cc-historical-series .cc-series-choice').on('click', function () { showHistoricalSeries($(this).data('series')); });
-		var graph = $('#cc-historical-graph').show().addClass('is-loading');
-		$('#cc-historical-graph-loading').show();
-		if (!historicalLayoutObserver && typeof window.ResizeObserver === 'function') {
-			historicalLayoutObserver = new window.ResizeObserver(function () {
-				var container = document.getElementById('cc-historical-graph');
-				if (historicalSelectedSeries && container && container.offsetWidth > 0 && container.offsetHeight > 0 && graph.hasClass('is-loading')) showHistoricalSeries(historicalSelectedSeries);
-			});
-			historicalLayoutObserver.observe(graph.get(0));
-		}
 		showHistoricalSeries(selected);
+		return true;
 	}
 
 	function showHistoricalSeries(name) {
 		var series = historicalSeries.series[name];
 		if (!series) return;
 		historicalSelectedSeries = name;
-		var requestedGraph = historicalSeries;
-		var lifecycle = window.CCHistoricalGraphLifecycle(function () { return historicalSeries === requestedGraph && requestedGraph.series[name] === series; });
-		$('#cc-historical-graph').addClass('is-loading');
-		$('#cc-historical-graph-loading').show();
 		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
 		var resolutionText = 'Display uses bucket maxima; exact peak remains ' + series.exact_peak;
 		if (series.display_resolution === 'exact_events') resolutionText = 'Exact CDR event transitions';
@@ -945,22 +896,23 @@ window._ccLiveLoaded = true;
 		if (series.display_resolution === 'floor_events_sampled') resolutionText = 'Display samples real floor-qualified event boundaries; exact peak remains ' + series.exact_peak;
 		$('#cc-historical-resolution').text(resolutionText);
 		var thresholdConfig = historicalSeries.thresholds[name] || {};
-		historicalChartRenderScheduler.schedule(function () {
-			var container = document.getElementById('cc-historical-graph');
-			var canvas = document.getElementById('cc-historical-chart');
-			var measurement = container && canvas ? {containerWidth: container.offsetWidth, containerHeight: container.offsetHeight, cssWidth: canvas.clientWidth, cssHeight: canvas.clientHeight, ratio: window.devicePixelRatio || 1} : null;
-			var outcome = lifecycle.step(measurement, function () {
-				if (!charts.historical || charts.historical.canvas !== canvas || canvas.__ccConcurrencyChart !== charts.historical) {
-					if (charts.historical) charts.historical.destroy();
-					charts.historical = new window.ConcurrencyChart(canvas, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
-				} else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
-				charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: requestedGraph.start_ts, maxTs: requestedGraph.end_ts});
-				return {owned: canvas.__ccConcurrencyChart === charts.historical, backingWidth: canvas.width, backingHeight: canvas.height};
-			}, function () {
-				return historicalSeries === requestedGraph && requestedGraph.series[name] === series && canvas.__ccConcurrencyChart === charts.historical && charts.historical.domain && charts.historical.domain.minTs === Number(requestedGraph.start_ts) && charts.historical.domain.maxTs === Number(requestedGraph.end_ts);
-			});
-			if (outcome.reveal) { $('#cc-historical-graph').removeClass('is-loading'); $('#cc-historical-graph-loading').hide(); }
-			return outcome.retry;
+		var svg = document.getElementById('cc-historical-chart');
+		if (!historicalChart || historicalChart.svg !== svg) {
+			if (historicalChart) historicalChart.destroy();
+			historicalChart = new window.HistoricalSvgChart(svg, {onSelect: function (point) { focusHistoricalPoint(name, point); }});
+		} else historicalChart.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
+		historicalChart.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, series.exact_peak);
+	}
+
+	function exportHistoricalGraph(format) {
+		if (!historicalChart || !historicalSelectedSeries) return;
+		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
+		var resolution = $('#cc-historical-resolution').text();
+		window.HistoricalGraphExport.download(String(format), historicalChart.svg, historicalChart.chart, {
+			report: reportName,
+			series: historicalSelectedSeries,
+			title: reportName + ' — ' + (historicalSelectedSeries === 'overall' ? 'Overall' : historicalSelectedSeries),
+			subtitle: resolution
 		});
 	}
 

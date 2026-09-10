@@ -361,6 +361,7 @@ window._ccLoaded = true;
 
 		var modeLabel = modeLabels[r.mode] || (r.mode.charAt(0).toUpperCase() + r.mode.slice(1));
 		$('#cc-results-title').text(modeLabel + ' results');
+		$('#cc-historical-graph').data('report-name', activeReportId && historicalReports[activeReportId] ? historicalReports[activeReportId].name : 'Historical Report');
 
 		$('#cc-results-meta').html(
 			'<dt>From</dt><dd>' + escapeHtml(r.start) + '</dd>' +

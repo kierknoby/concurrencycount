@@ -33,6 +33,8 @@ $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-svg-chart.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-graph-export.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
@@ -149,7 +151,7 @@ $_ccAssetVer = max(
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><div id="cc-historical-graph-loading" class="cc-historical-graph-loading"><span class="cc-spinner"></span> <?php echo _('Loading graph...'); ?></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><div><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><div class="dropdown"><button type="button" id="cc-historical-export" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" disabled><i class="fa fa-download" aria-hidden="true"></i> <?php echo _('Export'); ?> <span class="caret"></span></button><ul class="dropdown-menu dropdown-menu-right" aria-labelledby="cc-historical-export"><li><a href="#" class="cc-historical-export-format" data-format="svg">SVG</a></li><li><a href="#" class="cc-historical-export-format" data-format="pdf">PDF</a></li><li><a href="#" class="cc-historical-export-format" data-format="png">PNG</a></li><li><a href="#" class="cc-historical-export-format" data-format="jpeg">JPEG</a></li></ul></div></div><div id="cc-historical-graph-loading" class="cc-historical-graph-loading"><span class="cc-spinner"></span> <?php echo _('Loading graph...'); ?></div><div id="cc-historical-graph-error" class="alert alert-warning" style="display:none;"></div><svg id="cc-historical-chart" width="100%" height="220" role="img" tabindex="0"></svg><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"></div></div></div>
 								<div class="row"><div class="col-sm-12">
@@ -474,5 +476,7 @@ $_ccAssetVer = max(
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-svg-chart.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-graph-export.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

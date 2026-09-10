@@ -652,14 +652,15 @@ body:has(.concurrencycount) #page_body {
 	font-weight: 600;
 }
 
-.concurrencycount .cc-live-chart,
-.concurrencycount #cc-historical-chart {
+.concurrencycount .cc-live-chart {
 	display: block;
 	width: 100%;
 	height: 150px;
 }
 
 .concurrencycount #cc-historical-chart {
+	display: block;
+	width: 100%;
 	height: 220px;
 }
 
@@ -714,16 +715,25 @@ body:has(.concurrencycount) #page_body {
 	background: #fff;
 }
 
-.concurrencycount .cc-historical-graph canvas {
+.concurrencycount #cc-historical-chart {
 	display: block;
 	width: 100%;
 	max-width: 100%;
 	height: 220px;
 }
 
-.concurrencycount .cc-historical-graph.is-loading canvas {
+.concurrencycount .cc-historical-graph.is-loading #cc-historical-chart {
 	visibility: hidden;
 }
+
+.concurrencycount .cc-historical-svg-background { fill: #fff; }
+.concurrencycount .cc-historical-svg-axis { fill: none; stroke: #d8dde3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.concurrencycount .cc-historical-svg-series { fill: none; stroke: #2675a8; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.concurrencycount .cc-historical-svg-threshold { fill: none; stroke: #b83232; stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.concurrencycount .cc-historical-svg-label { fill: #52606b; font: 11px sans-serif; }
+.concurrencycount .cc-historical-svg-threshold-label { fill: #8f2525; font: 11px sans-serif; }
+.concurrencycount .cc-historical-svg-tooltip rect { fill: #26343d; }
+.concurrencycount .cc-historical-svg-tooltip text { fill: #fff; font: 11px sans-serif; }
 
 .concurrencycount .cc-historical-graph-loading {
 	position: absolute;
