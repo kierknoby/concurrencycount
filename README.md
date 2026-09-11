@@ -1,6 +1,6 @@
 # Concurrency Count 2.1.1 for FreePBX/PBXact 16 and 17
 
-**NOT CURRENTLY SUITABLE FOR PRODUCTION.**
+**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-0_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-0_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 10 SEPTEMBER 2026.**
 
 ## Overview
 
