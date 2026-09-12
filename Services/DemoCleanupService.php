@@ -9,7 +9,11 @@ class DemoCleanupService {
 	private $db;
 	private $isTimeout;
 	private $checkpoint;
-	public function __construct($db, callable $isTimeout, ?callable $checkpoint = null) { $this->db = $db; $this->isTimeout = $isTimeout; $this->checkpoint = $checkpoint; }
+	private $initialBatchLimit;
+	public function __construct($db, callable $isTimeout, ?callable $checkpoint = null, int $initialBatchLimit = 1000) {
+		if ($initialBatchLimit < 1 || $initialBatchLimit > 1000) throw new \InvalidArgumentException('Invalid Demo cleanup batch limit.');
+		$this->db = $db; $this->isTimeout = $isTimeout; $this->checkpoint = $checkpoint; $this->initialBatchLimit = $initialBatchLimit;
+	}
 	public static function isReservedAccountcode($accountcode): bool { return is_string($accountcode) && preg_match(self::ACCOUNT_PATTERN, $accountcode) === 1; }
 	public static function ordinarySqlPredicate(): string { return " AND BINARY accountcode NOT REGEXP '^CCDEMO[0-9a-f]{8}$'"; }
 	public static function excludeReservedRows(array $rows): array {
@@ -17,7 +21,7 @@ class DemoCleanupService {
 	}
 	public function cleanup(string $accountcode): array {
 		if (!preg_match(self::ACCOUNT_PATTERN, $accountcode)) throw new \InvalidArgumentException('Invalid Demo run identifier.');
-		$removed = 0; $limit = 1000;
+		$removed = 0; $limit = $this->initialBatchLimit;
 		while (true) {
 			if ($this->checkpoint !== null) call_user_func($this->checkpoint);
 			try {

@@ -10,11 +10,13 @@ class DemoCleanupCoordinator {
 	private $db;
 	private $isTimeout;
 	private $checkpoint;
+	private $initialBatchLimit;
 
-	public function __construct($db, callable $isTimeout, ?callable $checkpoint = null) {
+	public function __construct($db, callable $isTimeout, ?callable $checkpoint = null, int $initialBatchLimit = 1000) {
 		$this->db = $db;
 		$this->isTimeout = $isTimeout;
 		$this->checkpoint = $checkpoint;
+		$this->initialBatchLimit = $initialBatchLimit;
 	}
 
 	public function verify(): void {
@@ -32,6 +34,6 @@ class DemoCleanupCoordinator {
 	}
 
 	private function service(): DemoCleanupService {
-		return new DemoCleanupService($this->db, $this->isTimeout, $this->checkpoint);
+		return new DemoCleanupService($this->db, $this->isTimeout, $this->checkpoint, $this->initialBatchLimit);
 	}
 }

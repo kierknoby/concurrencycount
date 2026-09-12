@@ -20,6 +20,7 @@ class HistoricalDatabaseCapabilities {
 				'select_statement_timeout_supported' => $supported,
 				'select_statement_timeout_type' => $supported ? 'max_statement_time' : 'none',
 				'cleanup_statement_timeout_supported' => $supported,
+				'bounded_cleanup_fallback_supported' => !$supported,
 				'adaptive_legacy_acquisition' => !$supported,
 				'acquisition_window_seconds' => $supported ? HistoricalCdrAcquisition::INITIAL_CHUNK_SECONDS : self::LEGACY_INITIAL_ACQUISITION_WINDOW_SECONDS,
 			];
@@ -35,6 +36,7 @@ class HistoricalDatabaseCapabilities {
 				'select_statement_timeout_supported' => $supported,
 				'select_statement_timeout_type' => $supported ? 'max_execution_time' : 'none',
 				'cleanup_statement_timeout_supported' => false,
+				'bounded_cleanup_fallback_supported' => false,
 				'adaptive_legacy_acquisition' => false,
 				'acquisition_window_seconds' => HistoricalCdrAcquisition::INITIAL_CHUNK_SECONDS,
 			];
@@ -51,6 +53,7 @@ class HistoricalDatabaseCapabilities {
 			'select_statement_timeout_supported' => false,
 			'select_statement_timeout_type' => 'none',
 			'cleanup_statement_timeout_supported' => false,
+			'bounded_cleanup_fallback_supported' => false,
 			'adaptive_legacy_acquisition' => false,
 			'acquisition_window_seconds' => HistoricalCdrAcquisition::INITIAL_CHUNK_SECONDS,
 			'server_version' => $serverVersion,

@@ -19,7 +19,7 @@ class TerminalCleanupDb {
 class TerminalCleanupQuery {
 	private $sql;
 	public function __construct($sql) { $this->sql = $sql; }
-	public function fetchColumn() { return '8.0.36'; }
+	public function fetchColumn() { return '10.6.18-MariaDB'; }
 	public function fetchAll($mode = null) { return [['INDEX_NAME' => 'accountcode', 'SEQ_IN_INDEX' => 1, 'COLUMN_NAME' => 'accountcode', 'SUB_PART' => null]]; }
 }
 class TerminalCleanupDelete {

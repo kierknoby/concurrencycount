@@ -1565,11 +1565,28 @@ class Concurrencycount implements \BMO {
 		$this->queryDeadlineConfigured = true;
 		return $capabilities;
 	}
-	private function requireDemoStatementTimeoutSupport(array $capabilities): void {
-		if (!$capabilities['cleanup_statement_timeout_supported']) {
-			$vendor = $capabilities['vendor'] === 'mariadb' ? 'MariaDB' : ($capabilities['vendor'] === 'mysql' ? 'MySQL' : 'database');
-			throw new \RuntimeException(sprintf(_('Demo mode requires a database execution timeout that covers cleanup DELETE statements and is unavailable on this %s version. Historical reporting remains available.'), $vendor));
+	private function requireDemoCleanupSupport(array $capabilities): int {
+		if ($capabilities['cleanup_statement_timeout_supported']) return 1000;
+		if (!empty($capabilities['bounded_cleanup_fallback_supported'])) return 100;
+		$vendor = $capabilities['vendor'] === 'mariadb' ? 'MariaDB' : ($capabilities['vendor'] === 'mysql' ? 'MySQL' : 'database');
+		throw new \RuntimeException(sprintf(_('Demo mode requires a safe bounded cleanup strategy that is unavailable on this %s version. Historical reporting remains available.'), $vendor));
+	}
+	private function configureDemoCleanupStrategy(array $capabilities): int {
+		$batchLimit = $this->requireDemoCleanupSupport($capabilities);
+		if ($batchLimit !== 100) return $batchLimit;
+		try {
+			$engine = $this->cdrdb->query("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cdr'")->fetchColumn();
+		} catch (\Throwable $exception) {
+			throw new \RuntimeException(_('Demo cannot start safely: the CDR storage engine cannot be verified for legacy MariaDB cleanup.'), 0, $exception);
 		}
+		if (!is_string($engine) || trim($engine) === '') {
+			throw new \RuntimeException(_('Demo cannot start safely: the CDR storage engine cannot be verified for legacy MariaDB cleanup.'));
+		}
+		if (strcasecmp(trim($engine), 'InnoDB') !== 0) {
+			throw new \RuntimeException(_('Demo cannot start safely: legacy MariaDB cleanup requires the CDR table to use InnoDB.'));
+		}
+		$this->cdrdb->exec('SET SESSION lock_wait_timeout=2');
+		return $batchLimit;
 	}
 	private function verifyLegacyHistoricalAccessPath(): string {
 		try {
@@ -2084,7 +2101,7 @@ class Concurrencycount implements \BMO {
 			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');
 			$rows = $this->normaliseDemoRows($_REQUEST['demo_rows'] ?? 0, $size);
 			$capabilities = $this->configureHistoricalQueryDeadline();
-			$this->requireDemoStatementTimeoutSupport($capabilities);
+			$this->configureDemoCleanupStrategy($capabilities);
 			$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
 			$diskGuard->verifyCleanupAccessPath();
 			$recovered = $this->recoverStaleDemoRuns();
@@ -2097,7 +2114,7 @@ class Concurrencycount implements \BMO {
 
 	private function calculateDemo(string $start, string $end, float $started_at, array $options): array {
 		$capabilities = $this->configureHistoricalQueryDeadline();
-		$this->requireDemoStatementTimeoutSupport($capabilities);
+		$this->configureDemoCleanupStrategy($capabilities);
 		$diskGuard = new \FreePBX\modules\Concurrencycount\Services\DemoDiskGuard($this->cdrdb);
 		$diskGuard->verifyCleanupAccessPath();
 		$this->recoverStaleDemoRuns();
@@ -2576,6 +2593,8 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function demoCleanupCoordinator(?string $activeAccountcode = null): \FreePBX\modules\Concurrencycount\Services\DemoCleanupCoordinator {
+		$capabilities = $this->configureHistoricalQueryDeadline();
+		$batchLimit = $this->configureDemoCleanupStrategy($capabilities);
 		$started = \FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now();
 		$heartbeat = null;
 		if ($activeAccountcode !== null && $this->workerDemoRegistryKey !== '') {
@@ -2591,7 +2610,8 @@ class Concurrencycount implements \BMO {
 				if (\FreePBX\modules\Concurrencycount\Services\HistoricalRuntimeEstimator::now() - $started >= self::DEMO_CLEANUP_MAX_RUNTIME) {
 					throw new \RuntimeException(_('Demo cleanup reached its five-minute housekeeping allowance.'));
 				}
-			}
+			},
+			$batchLimit
 		);
 	}
 

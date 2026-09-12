@@ -5,8 +5,8 @@ require_once __DIR__ . '/../Concurrencycount.class.php';
 function no_controller_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
 class NoControllerConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} }
 class NoControllerGuard { public $checks = 0; public function checkpoint() { $this->checks++; } }
-class NoControllerDeadlineDb { public $version; public $exec = []; public $queries = []; public $indexes; public function __construct($version, $indexes = null) { $this->version = $version; $this->indexes = $indexes === null ? [['INDEX_NAME' => 'calldate', 'SEQ_IN_INDEX' => 1, 'COLUMN_NAME' => 'calldate', 'SUB_PART' => null]] : $indexes; } public function query($sql) { $this->queries[] = $sql; return new NoControllerDeadlineStatement($this->version, $this->indexes); } public function exec($sql) { $this->exec[] = $sql; } }
-class NoControllerDeadlineStatement { private $version; private $indexes; public function __construct($version, $indexes) { $this->version = $version; $this->indexes = $indexes; } public function fetchColumn() { return $this->version; } public function fetchAll($mode = null) { return $this->indexes; } }
+class NoControllerDeadlineDb { public $version; public $exec = []; public $queries = []; public $indexes; public $engine = 'InnoDB'; public function __construct($version, $indexes = null) { $this->version = $version; $this->indexes = $indexes === null ? [['INDEX_NAME' => 'calldate', 'SEQ_IN_INDEX' => 1, 'COLUMN_NAME' => 'calldate', 'SUB_PART' => null]] : $indexes; } public function query($sql) { $this->queries[] = $sql; return new NoControllerDeadlineStatement($this->version, $this->indexes, $this->engine, $sql); } public function exec($sql) { $this->exec[] = $sql; } }
+class NoControllerDeadlineStatement { private $version; private $indexes; private $engine; private $sql; public function __construct($version, $indexes, $engine, $sql) { $this->version = $version; $this->indexes = $indexes; $this->engine = $engine; $this->sql = $sql; } public function fetchColumn() { return strpos($this->sql, 'SELECT ENGINE') === 0 ? $this->engine : $this->version; } public function fetchAll($mode = null) { return $this->indexes; } }
 $cc = new NoControllerConcurrencycount(); $guard = new NoControllerGuard();
 $set = function ($name, $value) use ($cc) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($cc, $value); };
 $set('workerGuard', $guard); $set('workerCancellation', function () { return false; }); $set('assessment', null); $set('workerControl', null);
@@ -34,28 +34,34 @@ $legacyMaria = new NoControllerConcurrencycount(); $legacyMariaDb = new NoContro
 $legacyMariaSet = function ($name, $value) use ($legacyMaria) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($legacyMaria, $value); };
 $legacyMariaSet('cdrdb', $legacyMariaDb); $legacyCapabilities = $deadline->invoke($legacyMaria);
 no_controller_assert(!in_array('SET SESSION max_statement_time=2', $legacyMariaDb->exec, true), 'MariaDB 5.5 must not receive unsupported max_statement_time');
-no_controller_assert(in_array('SET SESSION innodb_lock_wait_timeout=2', $legacyMariaDb->exec, true), 'MariaDB 5.5 must retain the InnoDB lock-wait deadline');
+no_controller_assert(in_array('SET SESSION innodb_lock_wait_timeout=2', $legacyMariaDb->exec, true) && !in_array('SET SESSION lock_wait_timeout=2', $legacyMariaDb->exec, true), 'Ordinary Historical on MariaDB 5.5 must retain its prior lock policy');
 no_controller_assert($legacyCapabilities['adaptive_legacy_acquisition'] && $legacyCapabilities['acquisition_window_seconds'] === 900, 'MariaDB 5.5 ordinary Historical must receive the adaptive fifteen-minute starting policy');
 $mysql = new NoControllerConcurrencycount(); $mysqlDb = new NoControllerDeadlineDb('8.0.36');
 $mysqlSet = function ($name, $value) use ($mysql) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($mysql, $value); };
 $mysqlSet('cdrdb', $mysqlDb); $deadline->invoke($mysql);
 no_controller_assert(in_array('SET SESSION max_execution_time=2000', $mysqlDb->exec, true) && in_array('SET SESSION innodb_lock_wait_timeout=2', $mysqlDb->exec, true), 'MySQL acquisition receives SELECT and lock-wait deadlines');
-$demoRequirement = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'requireDemoStatementTimeoutSupport'); $demoRequirement->setAccessible(true);
-$legacyDemoClosed = false;
-try { $demoRequirement->invoke($legacyMaria, $legacyCapabilities); } catch (ReflectionException $e) { throw $e; } catch (RuntimeException $e) { $legacyDemoClosed = strpos($e->getMessage(), 'Historical reporting remains available') !== false; }
-no_controller_assert($legacyDemoClosed && strpos($e->getMessage(), 'MariaDB') !== false, 'Demo must fail closed on MariaDB 5.5 while identifying ordinary Historical as available');
-$demoRequirement->invoke($maria, $deadline->invoke($maria));
+$demoRequirement = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'requireDemoCleanupSupport'); $demoRequirement->setAccessible(true);
+no_controller_assert($demoRequirement->invoke($legacyMaria, $legacyCapabilities) === 100, 'MariaDB 5.5 Demo preflight must select the conservative bounded cleanup fallback');
+no_controller_assert($demoRequirement->invoke($maria, $deadline->invoke($maria)) === 1000, 'Modern MariaDB Demo must retain native statement-timeout cleanup batches');
 $mysqlDemoClosed = false;
-try { $demoRequirement->invoke($mysql, $deadline->invoke($mysql)); } catch (ReflectionException $e) { throw $e; } catch (RuntimeException $e) { $mysqlDemoClosed = strpos($e->getMessage(), 'cleanup DELETE') !== false && strpos($e->getMessage(), 'MySQL') !== false; }
+try { $demoRequirement->invoke($mysql, $deadline->invoke($mysql)); } catch (ReflectionException $e) { throw $e; } catch (RuntimeException $e) { $mysqlDemoClosed = strpos($e->getMessage(), 'safe bounded cleanup strategy') !== false && strpos($e->getMessage(), 'MySQL') !== false; }
 no_controller_assert($mysqlDemoClosed, 'MySQL Demo must fail closed because max_execution_time does not protect cleanup DELETE statements');
-$legacyPreflight = new NoControllerConcurrencycount(); $legacyPreflightDb = new NoControllerDeadlineDb('5.5.65-MariaDB');
-$legacyPreflightSet = function ($name, $value) use ($legacyPreflight) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($legacyPreflight, $value); };
-$legacyPreflightSet('cdrdb', $legacyPreflightDb); $_REQUEST['demo_size'] = 'light'; $_REQUEST['demo_rows'] = 1;
-$preflight = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'handleDemoPreflight'); $preflight->setAccessible(true); $preflightResult = $preflight->invoke($legacyPreflight);
-no_controller_assert($preflightResult['status'] === false && count($legacyPreflightDb->queries) === 1 && $legacyPreflightDb->queries[0] === 'SELECT VERSION()', 'Legacy Demo preflight must fail before cleanup-index, recovery, disk, or CDR work');
+$strategy = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'configureDemoCleanupStrategy'); $strategy->setAccessible(true);
+$legacyMariaDb->engine = 'InnoDB';
+no_controller_assert($strategy->invoke($legacyMaria, $legacyCapabilities) === 100 && in_array('SET SESSION lock_wait_timeout=2', $legacyMariaDb->exec, true), 'Verified InnoDB MariaDB 5.5 Demo must enable the 100-row fallback and its metadata lock deadline');
+$unsafeLegacy = new NoControllerConcurrencycount(); $unsafeLegacyDb = new NoControllerDeadlineDb('5.5.65-MariaDB'); $unsafeLegacyDb->engine = 'MyISAM';
+$unsafeLegacySet = function ($name, $value) use ($unsafeLegacy) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($unsafeLegacy, $value); }; $unsafeLegacySet('cdrdb', $unsafeLegacyDb);
+$unsafeCapabilities = $deadline->invoke($unsafeLegacy); $unsafeEngineRejected = false;
+try { $strategy->invoke($unsafeLegacy, $unsafeCapabilities); } catch (ReflectionException $e) { throw $e; } catch (RuntimeException $e) { $unsafeEngineRejected = strpos($e->getMessage(), 'InnoDB') !== false; }
+no_controller_assert($unsafeEngineRejected && !in_array('SET SESSION lock_wait_timeout=2', $unsafeLegacyDb->exec, true), 'Legacy Demo must fail closed before enabling fallback cleanup for a non-InnoDB CDR table');
+$unknownLegacy = new NoControllerConcurrencycount(); $unknownLegacyDb = new NoControllerDeadlineDb('5.5.65-MariaDB'); $unknownLegacyDb->engine = false;
+$unknownLegacySet = function ($name, $value) use ($unknownLegacy) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($unknownLegacy, $value); }; $unknownLegacySet('cdrdb', $unknownLegacyDb);
+$unknownCapabilities = $deadline->invoke($unknownLegacy); $unknownEngineRejected = false;
+try { $strategy->invoke($unknownLegacy, $unknownCapabilities); } catch (ReflectionException $e) { throw $e; } catch (RuntimeException $e) { $unknownEngineRejected = strpos($e->getMessage(), 'storage engine cannot be verified') !== false; }
+no_controller_assert($unknownEngineRejected, 'Legacy Demo must fail closed when the CDR storage engine cannot be established');
 $mysqlPreflight = new NoControllerConcurrencycount(); $mysqlPreflightDb = new NoControllerDeadlineDb('8.0.36');
 $mysqlPreflightSet = function ($name, $value) use ($mysqlPreflight) { $p = new ReflectionProperty(\FreePBX\modules\Concurrencycount::class, $name); $p->setAccessible(true); $p->setValue($mysqlPreflight, $value); };
-$mysqlPreflightSet('cdrdb', $mysqlPreflightDb); $mysqlPreflightResult = $preflight->invoke($mysqlPreflight);
+$mysqlPreflightSet('cdrdb', $mysqlPreflightDb); $_REQUEST['demo_size'] = 'light'; $_REQUEST['demo_rows'] = 1; $preflight = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'handleDemoPreflight'); $preflight->setAccessible(true); $mysqlPreflightResult = $preflight->invoke($mysqlPreflight);
 no_controller_assert($mysqlPreflightResult['status'] === false && count($mysqlPreflightDb->queries) === 1, 'MySQL Demo rejection must precede cleanup-index, recovery, disk, or CDR work');
 $accessPath = new ReflectionMethod(\FreePBX\modules\Concurrencycount::class, 'verifyLegacyHistoricalAccessPath'); $accessPath->setAccessible(true); $verifiedIndex = $accessPath->invoke($legacyMaria);
 no_controller_assert($verifiedIndex === 'calldate', 'Legacy Historical must return the verified leading calldate index name');

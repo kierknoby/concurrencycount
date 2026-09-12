@@ -48,6 +48,17 @@ cleanup_assert($result === ['rows_removed' => 301, 'cleanup_remaining' => 0], 'C
 cleanup_assert($db->limits === [1000, 500, 250, 125, 125, 125], 'Timed-out cleanup deterministically halves to a successful bounded batch');
 cleanup_assert($cleanupCheckpoints >= 8, 'Adaptive cleanup retains runtime, memory and cancellation checkpoints between bounded attempts');
 cleanup_assert(strpos($db->sql[0], 'accountcode = :accountcode_index AND BINARY accountcode = :accountcode_exact') !== false, 'Cleanup uses the leading accountcode index candidate while retaining case-exact tag protection');
+$fallbackDb = new CleanupDb(); $fallbackDb->rows = ['CCDEMO1234abcd' => 201, 'ordinary' => 17];
+$fallback = new DemoCleanupService($fallbackDb, function () { return false; }, null, 100);
+$fallbackResult = $fallback->cleanup('CCDEMO1234abcd');
+cleanup_assert($fallbackResult === ['rows_removed' => 201, 'cleanup_remaining' => 0] && $fallbackDb->limits === [100, 100, 100], 'Legacy cleanup uses conservative bounded batches until an exact tag is exhausted');
+$fallbackPredicatesExact = count(array_filter($fallbackDb->sql, function ($sql) { return strpos($sql, 'accountcode = :accountcode_index AND BINARY accountcode = :accountcode_exact') !== false; })) === count($fallbackDb->sql);
+cleanup_assert($fallbackDb->rows['ordinary'] === 17 && $fallbackPredicatesExact, 'Legacy cleanup cannot select an ordinary CDR row or broaden its exact-tag predicate');
+$deadlineDb = new CleanupDb(); $deadlineDb->rows['CCDEMO1234abcd'] = 500;
+$deadlineChecks = 0; $deadlineFailed = false;
+$deadlineService = new DemoCleanupService($deadlineDb, function () { return false; }, function () use (&$deadlineChecks) { if (++$deadlineChecks >= 4) throw new RuntimeException('Demo cleanup reached its five-minute housekeeping allowance.'); }, 100);
+try { $deadlineService->cleanup('CCDEMO1234abcd'); } catch (RuntimeException $e) { $deadlineFailed = strpos($e->getMessage(), 'housekeeping allowance') !== false; }
+cleanup_assert($deadlineFailed && $deadlineDb->rows['CCDEMO1234abcd'] > 0, 'Legacy cleanup stops and reports failure when its application deadline expires');
 $db->rows = ['CCDEMOaaaaaaaa' => 7, 'CCDEMObbbbbbbb' => 9]; $db->limits = [];
 $repo = new CleanupRepository([
 	'demo_run:CCDEMOaaaaaaaa' => ['accountcode' => 'CCDEMOaaaaaaaa', 'updated_at' => 100],
