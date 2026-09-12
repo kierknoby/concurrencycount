@@ -17,8 +17,14 @@
 		return {seed: seed, size: load, rows: rows, start: format(start), end: format(end)};
 	}
 	function equal(left, right) { return !!left && !!right && ['seed', 'size', 'rows', 'start', 'end'].every(function (key) { return String(left[key]) === String(right[key]); }); }
+	function loadState(load) {
+		load = Object.prototype.hasOwnProperty.call(LOADS, load) ? load : 'medium';
+		var state = {};
+		Object.keys(LOADS).forEach(function (name) { state[name] = {checked: name === load, active: name === load, ariaPressed: name === load ? 'true' : 'false'}; });
+		return state;
+	}
 	function runParameters(plan, report, engines, minimumConcurrency) {
 		return {demo_report: report, demo_size: plan.size, demo_rows: String(plan.rows), demo_seed: String(plan.seed), demo_engines: engines.join(','), minimum_concurrency: String(minimumConcurrency)};
 	}
-	return {build: build, equal: equal, runParameters: runParameters, loads: LOADS};
+	return {build: build, equal: equal, loadState: loadState, runParameters: runParameters, loads: LOADS};
 }));

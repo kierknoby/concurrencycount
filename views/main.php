@@ -282,8 +282,8 @@ $_ccAssetVer = max(
 				</div>
 				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
 				<div class="form-group"><label class="control-label"><?php echo _('Load'); ?></label>
-					<div class="btn-group" data-toggle="buttons" id="cc-demo-loads">
-					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><label class="btn btn-default<?php echo $value === 'medium' ? ' active' : ''; ?>"><input type="radio" name="cc-demo-load" value="<?php echo $value; ?>" <?php echo $value === 'medium' ? 'checked' : ''; ?>><?php echo $label; ?></label><?php endforeach; ?>
+					<div class="btn-group" id="cc-demo-loads">
+					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><label class="btn btn-default<?php echo $value === 'medium' ? ' active' : ''; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><input type="radio" name="cc-demo-load" value="<?php echo $value; ?>" <?php echo $value === 'medium' ? 'checked' : ''; ?>><?php echo $label; ?></label><?php endforeach; ?>
 					</div>
 				</div>
 				<div class="form-group"><button type="button" class="btn btn-default" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button> <button type="button" class="btn btn-default" id="cc-demo-save"><i class="fa fa-save"></i> <?php echo _('Save selection'); ?></button><span class="help-block" id="cc-demo-selection-status"></span></div>

@@ -21,7 +21,7 @@ class DemoDiskGuard {
 	public function preflight(int $rows): array {
 		if ($rows <= 0) throw new \InvalidArgumentException('Invalid Demo row count.');
 		$this->verifyCleanupAccessPath();
-		$info = $this->db->query('SELECT @@datadir AS datadir, @@hostname AS hostname, @@log_bin AS log_bin, @@log_bin_basename AS log_bin_basename')->fetch(\PDO::FETCH_ASSOC);
+		$info = $this->db->query('SELECT @@datadir AS datadir, @@hostname AS hostname, @@log_bin AS log_bin')->fetch(\PDO::FETCH_ASSOC);
 		$host = gethostname();
 		$dbHost = is_array($info) ? (string)($info['hostname'] ?? '') : '';
 		$shortHost = $host ? explode('.', $host)[0] : '';
@@ -37,7 +37,13 @@ class DemoDiskGuard {
 		$required = $dataRequired;
 		$logPlan = null;
 		if ($binaryLog) {
-			$basename = is_array($info) ? trim((string)($info['log_bin_basename'] ?? '')) : '';
+			$basename = '';
+			try {
+				$logVariable = $this->db->query("SHOW VARIABLES LIKE 'log_bin_basename'")->fetch(\PDO::FETCH_ASSOC);
+				if (is_array($logVariable)) $basename = trim((string)($logVariable['Value'] ?? $logVariable['value'] ?? ''));
+			} catch (\Throwable $exception) {
+				$basename = '';
+			}
 			if ($basename === '' || $basename === '0' || $basename[0] !== DIRECTORY_SEPARATOR) throw new \RuntimeException('Demo cannot start safely: binary logging is enabled but its filesystem cannot be identified.');
 			$logSpace = call_user_func($this->space, dirname($basename)); $this->validateSpace($logSpace, true);
 			$sameFilesystem = $space['device'] === $logSpace['device'];

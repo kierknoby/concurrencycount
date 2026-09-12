@@ -45,6 +45,7 @@ window._ccLoaded = true;
 	var currentResults = null;
 	var demoSeed = 0;
 	var demoPlan = null;
+	var demoSelectedLoad = 'medium';
 	var savedDemoPlan = null;
 	var guiRange = null;
 	var modeDescriptions = {
@@ -186,6 +187,7 @@ window._ccLoaded = true;
 		setStatus('', null);
 		$('#cc-demo-error').hide().text('');
 		$('#cc-demo-minimum-concurrency').val('2');
+		renderDemoLoadSelection('medium');
 		$('#cc-demo').modal('show');
 		ajax({command: 'getdemoscenario'}).done(function (response) {
 			if (response.status && response.scenario) { savedDemoPlan = response.scenario; applyDemoPlan(savedDemoPlan, true); }
@@ -194,10 +196,18 @@ window._ccLoaded = true;
 	}
 
 	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
-	function selectedDemoLoad() { return $('input[name="cc-demo-load"]:checked').val() || 'medium'; }
+	function selectedDemoLoad() { return demoSelectedLoad; }
+	function renderDemoLoadSelection(load) {
+		var state = window.CCDemoScenario.loadState(load);
+		demoSelectedLoad = Object.keys(state).filter(function (name) { return state[name].checked; })[0];
+		$('input[name="cc-demo-load"]').each(function () {
+			var item = state[$(this).val()];
+			$(this).prop('checked', item.checked).closest('label').toggleClass('active', item.active).attr('aria-pressed', item.ariaPressed);
+		});
+	}
 	function applyDemoPlan(plan, saved) {
 		demoPlan = $.extend({}, plan); demoSeed = Number(demoPlan.seed) >>> 0;
-		$('input[name="cc-demo-load"][value="' + demoPlan.size + '"]').prop('checked', true).closest('label').addClass('active').siblings().removeClass('active');
+		renderDemoLoadSelection(demoPlan.size);
 		renderDemoPlan();
 		$('#cc-demo-selection-status').text(saved ? 'Saved selection restored.' : 'Current scenario is not saved.');
 	}
@@ -2211,7 +2221,8 @@ window._ccLoaded = true;
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
 		$('#cc-demo-save').off('click').on('click', saveDemoScenario);
 		$('input[name="cc-demo-load"]').off('change').on('change', function () {
-			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build(demoPlan.seed, selectedDemoLoad()), false);
+			var load = $(this).val(); renderDemoLoadSelection(load);
+			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build(demoPlan.seed, load), false);
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-report-filter').off('change').on('change', function () {
