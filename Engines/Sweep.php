@@ -211,7 +211,8 @@ class Sweep implements EngineInterface {
 
 	private function countEvents(array $rows, bool $group): int {
 		$count = 0;
-		foreach ($rows as $row) {
+		foreach ($rows as $index => $row) {
+			if ($index > 0 && ($index % self::RUNTIME_CHECK_INTERVAL) === 0) $this->checkpoint(0, 1, 'sweep-work-model');
 			if (empty($row['calldate']) || !isset($row['duration']) || (int)$row['duration'] <= 0) continue;
 			if ($group && (!isset($row['extension_legs']) || (int)$row['extension_legs'] <= 0)) continue;
 			if (!$group && (!isset($row['identity']) || (string)$row['identity'] === '')) continue;

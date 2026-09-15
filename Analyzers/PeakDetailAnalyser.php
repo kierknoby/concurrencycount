@@ -3,9 +3,10 @@
 namespace FreePBX\modules\Concurrencycount\Analyzers;
 
 class PeakDetailAnalyser {
-	public function analyseTrunk(array $rows, string $trunk, int $expectedPeak = 0): array {
+	public function analyseTrunk(array $rows, string $trunk, int $expectedPeak = 0, ?callable $checkpoint = null): array {
 		$events = [];
 		foreach ($rows as $index => $row) {
+			if ($checkpoint !== null && ($index % 4096) === 0) call_user_func($checkpoint);
 			$calldate = isset($row['calldate']) ? (string)$row['calldate'] : '';
 			$duration = isset($row['duration']) ? (int)$row['duration'] : 0;
 			$identity = isset($row['identity']) ? (string)$row['identity'] : '';
@@ -32,6 +33,7 @@ class PeakDetailAnalyser {
 		$peak = 0;
 		$timeCount = count($times);
 		for ($position = 0; $position < $timeCount; $position++) {
+			if ($checkpoint !== null && ($position % 4096) === 0) call_user_func($checkpoint);
 			$timestamp = (int)$times[$position];
 			foreach (isset($events[$timestamp]['end']) ? $events[$timestamp]['end'] : [] as $index) {
 				unset($active[$index]);

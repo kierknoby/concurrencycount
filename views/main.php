@@ -33,6 +33,8 @@ $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-svg-chart.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/historical-graph-export.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
@@ -74,7 +76,7 @@ $_ccAssetVer = max(
 								<select id="cc-live-refresh" class="form-control input-sm" aria-label="<?php echo _('Live browser refresh interval'); ?>">
 									<?php foreach ([1, 5, 10, 15, 30, 60] as $seconds): ?><option value="<?php echo $seconds; ?>"<?php echo $seconds === 5 ? ' selected' : ''; ?>><?php echo $seconds; ?>s<?php echo $seconds === 1 ? ' ' . _('(aggressive)') : ''; ?></option><?php endforeach; ?>
 								</select>
-								<button type="button" id="cc-live-settings" class="btn cc-settings-button" aria-haspopup="dialog" title="<?php echo _('Open threshold and alert settings'); ?>"><i class="fa fa-cog"></i> <?php echo _('Thresholds & alerts'); ?></button>
+								<button type="button" id="cc-live-settings" class="btn cc-settings-button" aria-haspopup="dialog" title="<?php echo _('Open threshold, alert and protection settings'); ?>"><i class="fa fa-cog"></i> <?php echo _('Thresholds & protection'); ?></button>
 							</div>
 						</div>
 						<p class="text-muted"><?php echo _('Live values come directly from current AMI channel state. Browser refresh does not control background alert monitoring.'); ?></p>
@@ -112,27 +114,35 @@ $_ccAssetVer = max(
 							</div>
 						</div>
 						<div id="cc-report-active" style="display:none;">
-							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button></div>
+							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button> <button type="button" id="cc-edit-report" class="btn btn-default"><i class="fa fa-pencil"></i> <?php echo _('Edit Report'); ?></button></div>
 							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title">
 								<div class="cc-calculation-panel-heading">
 									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
 									<div id="cc-report-loading" class="text-muted"><span class="cc-spinner"></span> <strong id="cc-calculation-panel-title"><?php echo _('Calculating...'); ?></strong> <span id="cc-report-loading-text"></span></div>
+									<div class="cc-calculation-engine"><span><?php echo _('Engine'); ?>:</span> <strong id="cc-telemetry-engine">--</strong></div>
 								</div>
 								<div class="cc-telemetry-group cc-telemetry-resources" aria-labelledby="cc-telemetry-resources-title">
 									<h4 id="cc-telemetry-resources-title"><?php echo _('System resources'); ?></h4>
 									<dl class="cc-telemetry-grid">
 										<div><dt id="cc-telemetry-cpu-label" title="<?php echo _('Average tasks running or waiting for CPU or resources over five minutes; this is not a percentage.'); ?>"><?php echo _('System load (5 min)'); ?></dt><dd id="cc-telemetry-cpu">--</dd></div>
+										<div id="cc-telemetry-cpu-util-item" style="display:none;"><dt><?php echo _('CPU utilisation'); ?></dt><dd id="cc-telemetry-cpu-util">--</dd></div>
 										<div><dt id="cc-telemetry-memory-label"><?php echo _('Memory (applications)'); ?></dt><dd id="cc-telemetry-memory">--</dd></div>
 										<div id="cc-telemetry-swap-item" style="display:none;"><dt id="cc-telemetry-swap-label"><?php echo _('Swap'); ?></dt><dd id="cc-telemetry-swap">--</dd></div>
+										<div id="cc-telemetry-io-item" style="display:none;"><dt><?php echo _('I/O wait'); ?></dt><dd id="cc-telemetry-io">--</dd></div>
+										<div id="cc-telemetry-database-item" style="display:none;"><dt><?php echo _('Report database response'); ?></dt><dd id="cc-telemetry-database">--</dd></div>
+										<div id="cc-telemetry-process-memory-item" style="display:none;"><dt><?php echo _('Calculation PHP memory'); ?></dt><dd id="cc-telemetry-process-memory">--</dd></div>
 										<div><dt id="cc-telemetry-disk-label"><?php echo _('Disk (/)'); ?></dt><dd id="cc-telemetry-disk">--</dd></div>
 									</dl>
 								</div>
 								<div class="cc-telemetry-group cc-telemetry-calculation" aria-labelledby="cc-telemetry-calculation-title">
 									<h4 id="cc-telemetry-calculation-title"><?php echo _('Calculation'); ?></h4>
 									<dl class="cc-telemetry-grid">
-										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+										<div><dt><?php echo _('Engine completion'); ?></dt><dd id="cc-telemetry-progress">0%</dd></div>
+										<div><dt><?php echo _('Estimated time remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Calculating...'); ?></dd></div>
 										<div><dt><?php echo _('Maximum runtime remaining'); ?></dt><dd id="cc-telemetry-runtime">01:00:00</dd></div>
-										<div><dt><?php echo _('Estimated remaining'); ?></dt><dd id="cc-telemetry-eta"><?php echo _('Estimating...'); ?></dd></div>
+										<div><dt><?php echo _('Elapsed'); ?></dt><dd id="cc-telemetry-elapsed">00:00:00</dd></div>
+										<div><dt><?php echo _('ETA confidence'); ?></dt><dd id="cc-telemetry-confidence"><?php echo _('Calculating...'); ?></dd></div>
+										<div><dt><?php echo _('PBX impact'); ?></dt><dd id="cc-telemetry-impact"><?php echo _('Assessing...'); ?></dd></div>
 									</dl>
 								</div>
 							</section>
@@ -140,7 +150,7 @@ $_ccAssetVer = max(
 							<div id="cc-results" style="display:none; margin-top:20px;">
 								<h3 id="cc-results-title"></h3>
 								<div class="row"><div class="col-sm-12"><dl class="dl-horizontal" id="cc-results-meta"></dl></div></div>
-								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><canvas id="cc-historical-chart" height="220"></canvas><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
+								<div class="row"><div class="col-sm-12"><div id="cc-historical-graph" class="cc-historical-graph" style="display:none;"><div class="cc-section-heading"><div><h3><?php echo _('Historical active call legs'); ?></h3><span id="cc-historical-resolution" class="text-muted"></span></div><div class="dropdown"><button type="button" id="cc-historical-export" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" disabled><i class="fa fa-download" aria-hidden="true"></i> <?php echo _('Export'); ?> <span class="caret"></span></button><ul class="dropdown-menu dropdown-menu-right" aria-labelledby="cc-historical-export"><li><a href="#" class="cc-historical-export-format" data-format="svg">SVG</a></li><li><a href="#" class="cc-historical-export-format" data-format="pdf">PDF</a></li><li><a href="#" class="cc-historical-export-format" data-format="png">PNG</a></li><li><a href="#" class="cc-historical-export-format" data-format="jpeg">JPEG</a></li></ul></div></div><div id="cc-historical-graph-loading" class="cc-historical-graph-loading"><span class="cc-spinner"></span> <?php echo _('Loading graph...'); ?></div><div id="cc-historical-graph-error" class="alert alert-warning" style="display:none;"></div><div id="cc-historical-no-series" class="text-muted" style="display:none;"><?php echo _('Select one or more series to display.'); ?></div><div id="cc-historical-chart" class="cc-historical-image-surface"><img id="cc-historical-chart-image" alt=""><div id="cc-historical-chart-overlay" class="cc-historical-chart-overlay" role="application" tabindex="0"><div id="cc-historical-chart-tooltip" class="cc-historical-chart-tooltip" style="display:none;"></div></div></div><div id="cc-historical-series" class="cc-historical-series"></div></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-body"></div></div></div>
 								<div class="row"><div class="col-sm-12"><div id="cc-results-warning" class="alert alert-warning" role="alert" hidden aria-hidden="true"></div></div></div>
 								<div class="row"><div class="col-sm-12">
@@ -163,7 +173,7 @@ $_ccAssetVer = max(
 <section id="cc-live-wall" class="cc-live-wall cc-theme-dark" style="display:none;" aria-labelledby="cc-live-wall-title">
 	<header class="cc-wall-header">
 		<div><span class="cc-section-kicker"><?php echo _('READ-ONLY LIVE DASHBOARD'); ?></span><h1 id="cc-live-wall-title"><?php echo _('Live Wall'); ?></h1></div>
-		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress"></i> <?php echo _('Exit Live Wall'); ?></button></div>
+		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><div class="btn-group cc-wall-theme-toggle" role="group" aria-label="<?php echo _('Live Wall theme'); ?>"><button type="button" class="btn btn-default cc-wall-theme-option" data-theme="light" aria-pressed="false"><i class="fa fa-sun-o" aria-hidden="true"></i> <?php echo _('Light'); ?></button><button type="button" class="btn btn-primary cc-wall-theme-option" data-theme="dark" aria-pressed="true"><i class="fa fa-moon-o" aria-hidden="true"></i> <?php echo _('Dark'); ?></button></div><button type="button" id="cc-live-wall-fullscreen" class="btn btn-default btn-lg" style="display:none;"><i class="fa fa-expand" aria-hidden="true"></i> <?php echo _('Full Screen'); ?></button><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress" aria-hidden="true"></i> <?php echo _('Exit Live Wall'); ?></button></div>
 	</header>
 	<div id="cc-wall-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
 	<div id="cc-wall-content" style="display:none;">
@@ -205,7 +215,7 @@ $_ccAssetVer = max(
 		<div class="modal-content">
 			<div class="modal-header">
 				<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-				<h4 id="cc-live-settings-title" class="modal-title"><?php echo _('Live thresholds and alerts'); ?></h4>
+				<h4 id="cc-live-settings-title" class="modal-title"><?php echo _('Thresholds, alerts and protection'); ?></h4>
 			</div>
 			<div class="modal-body">
 				<div class="row">
@@ -213,6 +223,13 @@ $_ccAssetVer = max(
 					<div class="col-sm-4 form-group"><label for="cc-setting-email"><?php echo _('Alert email'); ?></label><input type="email" id="cc-setting-email" class="form-control"></div>
 					<div class="col-sm-4"><div class="checkbox"><label><input type="checkbox" id="cc-setting-alerts"> <?php echo _('Enable threshold alerts'); ?></label></div><div class="checkbox"><label><input type="checkbox" id="cc-setting-recovery"> <?php echo _('Send recovery notifications'); ?></label></div></div>
 				</div>
+				<fieldset>
+					<legend><?php echo _('Historical and Demo protection'); ?></legend>
+					<div class="form-group"><label for="cc-setting-pbx-protection"><?php echo _('PBX Protection CPU and memory ceiling'); ?></label>
+						<div class="input-group"><input type="number" id="cc-setting-pbx-protection" class="form-control" min="50" max="95" step="1" value="90"><span class="input-group-addon">%</span></div>
+						<p class="help-block"><?php echo _('A resource-headroom ceiling used with sustained CPU, memory, swap, I/O and report database evidence. It does not change Live thresholds.'); ?></p>
+					</div>
+				</fieldset>
 				<div class="cc-monitor-health">
 					<strong><?php echo _('Unattended alert monitor'); ?>:</strong>
 					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
@@ -236,7 +253,7 @@ $_ccAssetVer = max(
 			</div>
 			<div class="modal-body">
 				<h5><?php echo _('Featured trunks'); ?></h5>
-				<p><?php echo _('Choose up to 3 trunks to display on Live Wall. Featured trunks appear left to right in the order shown below.'); ?></p>
+				<p><?php echo _('Choose the required trunks to display on Live Wall. Up to three are required, based on the current configured trunk inventory. Featured trunks appear left to right in the order shown below.'); ?></p>
 				<p id="cc-wall-featured-count" class="text-muted" aria-live="polite"></p>
 				<div id="cc-wall-featured-list"></div>
 				<div id="cc-wall-featured-error" class="alert alert-danger" style="display:none;"></div>
@@ -263,16 +280,26 @@ $_ccAssetVer = max(
 					<strong><?php echo _('Demo writes to CDR.'); ?></strong>
 					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and normally use historical dates around 2001 so they are isolated from live reporting periods. Cleanup is verified after the run, but it is still best-effort if the server or database dies mid-run.'); ?>
 				</div>
-				<div class="form-group">
-					<label class="control-label"><?php echo _('Randomise'); ?></label>
-					<input type="text" id="cc-demo-seed" class="form-control" readonly style="margin-bottom:8px;">
-					<div id="cc-demo-entropy" class="cc-demo-entropy">
-						<span><?php echo _('Move inside this box to stir the seed. A new seed is created every time this window opens.'); ?></span>
+				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
+				<div class="form-group"><label class="control-label"><?php echo _('Load'); ?></label>
+					<div class="btn-group" id="cc-demo-loads">
+					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><button type="button" class="btn cc-demo-load <?php echo $value === 'medium' ? 'btn-primary active' : 'btn-default'; ?>" data-load="<?php echo $value; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><?php echo $label; ?></button><?php endforeach; ?>
 					</div>
-					<span class="help-block" id="cc-demo-entropy-status"><?php echo _('New random seed ready.'); ?></span>
 				</div>
+				<div class="form-group"><button type="button" class="btn btn-default" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button> <button type="button" class="btn btn-default" id="cc-demo-save"><i class="fa fa-save"></i> <?php echo _('Save selection'); ?></button><span class="help-block" id="cc-demo-selection-status"></span></div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
-				<p class="text-muted"><?php echo _('The randomiser selects the date range and load size automatically. Demo rows are isolated with a temporary run id, so real CDRs in the same period are ignored.'); ?></p>
+				<p class="text-muted"><?php echo _('Randomise creates a new reproducible scenario using strong browser randomness and the selected load.'); ?></p>
+				<div class="panel panel-default" id="cc-demo-preflight">
+					<div class="panel-heading"><strong><?php echo _('Disk preflight'); ?></strong></div>
+					<div class="panel-body"><dl class="dl-horizontal">
+						<dt><?php echo _('Synthetic CDR rows'); ?></dt><dd id="cc-demo-preflight-rows">--</dd>
+						<dt><?php echo _('Conservative storage need'); ?></dt><dd id="cc-demo-preflight-required">--</dd>
+						<dt><?php echo _('Database filesystem free'); ?></dt><dd id="cc-demo-preflight-free">--</dd>
+						<dt><?php echo _('Reserved safety margin'); ?></dt><dd id="cc-demo-preflight-reserve">--</dd>
+						<dt><?php echo _('Safely available'); ?></dt><dd id="cc-demo-preflight-available">--</dd>
+						<dt><?php echo _('Disk safety'); ?></dt><dd id="cc-demo-preflight-safety" class="text-info">Checking...</dd>
+					</dl></div>
+				</div>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Compare engines'); ?></label>
 					<?php foreach ($availableEngines as $id => $engine): ?>
@@ -283,6 +310,11 @@ $_ccAssetVer = max(
 							</label>
 						</div>
 					<?php endforeach; ?>
+				</div>
+				<div class="form-group">
+					<label for="cc-demo-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
+					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2.'); ?></span>
 				</div>
 			</div>
 			<div class="modal-footer">
@@ -364,6 +396,25 @@ $_ccAssetVer = max(
 					</select>
 					<span class="help-block fpbx-help-block"><?php echo _('The engine changes how concurrency is calculated, not what the selected report measures. Original is recommended; Sweep is experimental.'); ?></span>
 				</div>
+				<div class="form-group">
+					<label for="cc-maximum-runtime" class="control-label"><?php echo _('Maximum runtime'); ?></label>
+					<input type="number" id="cc-maximum-runtime" class="form-control" min="5" max="1440" step="1" inputmode="numeric" value="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES; ?>" data-default="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES; ?>" data-default-seconds="<?php echo (int)\FreePBX\modules\Concurrencycount\Services\HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES * 60; ?>">
+					<span class="help-block fpbx-help-block"><?php echo _('Maximum time this calculation may run before it is stopped or requires administrator action. Default 60 minutes. Maximum 1440 minutes.'); ?></span>
+				</div>
+				<div class="form-group">
+					<label for="cc-minimum-concurrency" class="control-label"><?php echo _('Minimum concurrency'); ?></label>
+					<input type="number" id="cc-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
+					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2. The completed summary and actual calculated peak are always retained.'); ?></span>
+				</div>
+				<div class="form-group" id="cc-report-filter-group">
+					<label for="cc-report-filter" class="control-label"><?php echo _('Endpoint filter'); ?></label>
+					<select id="cc-report-filter" class="form-control" disabled><option value=""><?php echo _('Loading configured endpoints...'); ?></option></select>
+					<span id="cc-report-filter-help" class="help-block fpbx-help-block"><?php echo _('Choose All or one configured trunk or extension. Group reports do not use an endpoint filter.'); ?></span>
+				</div>
+				<div class="form-group" id="cc-edit-exclusions-group" style="display:none;">
+					<label class="control-label"><?php echo _('Excluded Calls'); ?></label>
+					<p id="cc-edit-exclusions-summary" class="form-control-static"></p>
+				</div>
 				<div class="form-group cc-date-range">
 					<label class="control-label"><?php echo _('Date range'); ?></label>
 					<div class="btn-group cc-date-presets" role="group" aria-label="<?php echo _('Date range presets'); ?>">
@@ -410,22 +461,26 @@ $_ccAssetVer = max(
 </div>
 
 <!-- Runtime overrun warning modal -->
-<div class="modal fade" id="cc-overrun" tabindex="-1" role="dialog">
+<div class="modal fade" id="cc-overrun" tabindex="-1" role="dialog" aria-labelledby="cc-overrun-title" aria-modal="true">
 	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
-				<h4 class="modal-title"><?php echo _('Long-running count'); ?></h4>
+				<h4 class="modal-title" id="cc-overrun-title"><?php echo _('Historical calculation paused'); ?></h4>
 			</div>
 			<div class="modal-body">
 				<div class="alert alert-warning">
 					<strong><?php echo _('Warning:'); ?></strong>
 					<span id="cc-overrun-message"></span>
 				</div>
-				<p><?php echo _('Continue anyway?'); ?></p>
+				<label for="cc-runtime-allowance-minutes"><?php echo _('Runtime allowance (minutes)'); ?></label>
+				<input type="number" id="cc-runtime-allowance-minutes" class="form-control" min="60" max="1440" step="1" value="60">
+				<p class="help-block"><?php echo _('Recalculate runs a fresh five-minute assessment while preserving calculation work and the original runtime start. Reduce Date Range stops this run and returns to the report controls.'); ?></p>
 			</div>
 			<div class="modal-footer">
-				<button type="button" class="btn btn-default" id="cc-overrun-no"><?php echo _('No, abort'); ?></button>
-				<button type="button" class="btn btn-warning" id="cc-overrun-yes"><?php echo _('Yes, continue'); ?></button>
+				<button type="button" class="btn btn-danger" id="cc-overrun-no"><?php echo _('Stop'); ?></button>
+				<button type="button" class="btn btn-default" id="cc-overrun-reduce"><?php echo _('Reduce Date Range'); ?></button>
+				<button type="button" class="btn btn-default" id="cc-overrun-reassess"><?php echo _('Recalculate'); ?></button>
+				<button type="button" class="btn btn-warning" id="cc-overrun-yes"><?php echo _('Continue Anyway'); ?></button>
 			</div>
 		</div>
 	</div>
@@ -434,6 +489,9 @@ $_ccAssetVer = max(
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/demo-scenario.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-svg-chart.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/historical-graph-export.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

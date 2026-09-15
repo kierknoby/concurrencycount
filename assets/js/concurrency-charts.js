@@ -2,38 +2,57 @@
 	'use strict';
 
 	function ConcurrencyChart(canvas, options) {
+		if (canvas.__ccConcurrencyChart && canvas.__ccConcurrencyChart !== this) canvas.__ccConcurrencyChart.destroy();
 		this.canvas = canvas;
 		this.context = canvas.getContext('2d');
 		this.options = options || {};
-		this.theme = this.options.theme === 'dark' ? 'dark' : 'light';
+		this.theme = ['dark', 'wall-dark', 'wall-light'].indexOf(this.options.theme) >= 0 ? this.options.theme : 'light';
 		this.points = [];
+		this.domain = null;
 		this.threshold = 0;
 		this.tooltip = null;
 		this.resize = this.resize.bind(this);
 		this.onPointer = this.onPointer.bind(this);
 		this.onClick = this.onClick.bind(this);
+		canvas.__ccConcurrencyChart = this;
 		canvas.setAttribute('tabindex', '0');
 		canvas.setAttribute('role', 'img');
 		canvas.addEventListener('mousemove', this.onPointer);
 		canvas.addEventListener('mouseleave', this.onPointer);
 		canvas.addEventListener('click', this.onClick);
 		window.addEventListener('resize', this.resize);
+		this.resizeObserver = null;
+		if (typeof window.ResizeObserver === 'function') {
+			this.resizeObserver = new window.ResizeObserver(this.resize);
+			this.resizeObserver.observe(canvas);
+		}
 		this.resize();
 	}
 
-	ConcurrencyChart.prototype.setData = function (points, threshold) {
+	ConcurrencyChart.prototype.setData = function (points, threshold, domain) {
 		this.points = Array.isArray(points) ? points.slice() : [];
 		this.threshold = Math.max(0, parseInt(threshold, 10) || 0);
+		this.domain = domain && isFinite(Number(domain.minTs)) && isFinite(Number(domain.maxTs)) && Number(domain.maxTs) > Number(domain.minTs) ? {minTs: Number(domain.minTs), maxTs: Number(domain.maxTs)} : null;
 		this.canvas.setAttribute('aria-label', this.describe());
-		this.draw();
+		this.resize();
 	};
 
 	ConcurrencyChart.prototype.setTheme = function (theme) {
-		this.theme = theme === 'dark' ? 'dark' : 'light';
-		this.draw();
+		this.theme = ['dark', 'wall-dark', 'wall-light'].indexOf(theme) >= 0 ? theme : 'light';
+		this.resize();
 	};
 
 	ConcurrencyChart.prototype.palette = function () {
+		if (this.theme === 'wall-dark') return {
+			background: '#10251B', axis: '#52705E', grid: '#244332', label: '#C3D8C9',
+			line: '#66C98A', exceeded: '#FF8585', threshold: '#FF8585', thresholdText: '#FFB0B0',
+			tooltipBackground: '#F2F8F3', tooltipText: '#10251B'
+		};
+		if (this.theme === 'wall-light') return {
+			background: '#FFFFFF', axis: '#AAC1B0', grid: '#E2EEE5', label: '#355342',
+			line: '#237A45', exceeded: '#B83232', threshold: '#B83232', thresholdText: '#8F2525',
+			tooltipBackground: '#163C27', tooltipText: '#FFFFFF'
+		};
 		return this.theme === 'dark' ? {
 			background: '#172431', axis: '#516678', grid: '#263a4b', label: '#c7d1da',
 			line: '#62b0e8', exceeded: '#ff8585', threshold: '#ff8585', thresholdText: '#ffb0b0',
@@ -47,8 +66,12 @@
 
 	ConcurrencyChart.prototype.resize = function () {
 		var ratio = window.devicePixelRatio || 1;
-		var width = Math.max(240, this.canvas.clientWidth || 320);
-		var height = Math.max(100, this.canvas.clientHeight || 140);
+		var width = this.canvas.clientWidth;
+		var height = this.canvas.clientHeight;
+		// Hidden report panels have no usable layout box. Keep the supplied
+		// data and wait for the visible lifecycle resize instead of allowing
+		// fallback backing-store attributes to become intrinsic CSS dimensions.
+		if (!width || !height) return false;
 		if (this.canvas.width !== Math.round(width * ratio) || this.canvas.height !== Math.round(height * ratio)) {
 			this.canvas.width = Math.round(width * ratio);
 			this.canvas.height = Math.round(height * ratio);
@@ -57,9 +80,11 @@
 		this.width = width;
 		this.height = height;
 		this.draw();
+		return true;
 	};
 
 	ConcurrencyChart.prototype.draw = function () {
+		if (!this.width || !this.height) return;
 		var context = this.context;
 		var palette = this.palette();
 		var width = this.width || 320;
@@ -97,14 +122,27 @@
 		context.strokeStyle = palette.line;
 		context.lineWidth = 2;
 		context.beginPath();
+		var lineStarted = false;
+		var previousVisible = null;
 		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') {
+				if (lineStarted && previousVisible) {
+					var gapPosition = this.position(this.points[index], plot, bounds);
+					var previousPosition = this.position(previousVisible, plot, bounds);
+					context.lineTo(gapPosition.x, previousPosition.y);
+				}
+				lineStarted = false;
+				previousVisible = null;
+				continue;
+			}
 			var position = this.position(this.points[index], plot, bounds);
-			if (index === 0) context.moveTo(position.x, position.y);
+			if (!lineStarted) { context.moveTo(position.x, position.y); lineStarted = true; }
 			else {
-				var previous = this.position(this.points[index - 1], plot, bounds);
+				var previous = this.position(previousVisible, plot, bounds);
 				context.lineTo(position.x, previous.y);
 				context.lineTo(position.x, position.y);
 			}
+			previousVisible = this.points[index];
 		}
 		context.stroke();
 		if (this.threshold > 0) {
@@ -114,6 +152,7 @@
 			var started = false;
 			for (var pointIndex = 0; pointIndex < this.points.length; pointIndex++) {
 				var point = this.points[pointIndex];
+				if (point.value === null || typeof point.value === 'undefined') { started = false; continue; }
 				var pointPosition = this.position(point, plot, bounds);
 				if (point.value >= this.threshold) {
 					if (!started) context.moveTo(pointPosition.x, pointPosition.y);
@@ -130,10 +169,10 @@
 	};
 
 	ConcurrencyChart.prototype.bounds = function () {
-		var minTs = parseInt(this.points[0].ts, 10) || 0;
-		var maxTs = parseInt(this.points[this.points.length - 1].ts, 10) || minTs + 1;
+		var minTs = this.domain ? this.domain.minTs : (this.points.length ? (parseInt(this.points[0].ts, 10) || 0) : 0);
+		var maxTs = this.domain ? this.domain.maxTs : (this.points.length ? (parseInt(this.points[this.points.length - 1].ts, 10) || minTs + 1) : minTs + 1);
 		var maxValue = this.threshold;
-		for (var index = 0; index < this.points.length; index++) maxValue = Math.max(maxValue, parseInt(this.points[index].value, 10) || 0);
+		for (var index = 0; index < this.points.length; index++) if (this.points[index].value !== null && typeof this.points[index].value !== 'undefined') maxValue = Math.max(maxValue, parseInt(this.points[index].value, 10) || 0);
 		return {minTs: minTs, maxTs: Math.max(minTs + 1, maxTs), maxValue: Math.max(1, maxValue)};
 	};
 
@@ -166,15 +205,16 @@
 		this.context.font = '11px sans-serif';
 		this.context.fillText(String(bounds.maxValue), 5, plot.top + 4);
 		this.context.fillText('0', 20, plot.bottom + 4);
-		this.context.fillText(formatTime(bounds.minTs), plot.left, this.height - 7);
-		var endLabel = formatTime(bounds.maxTs);
+		var span = bounds.maxTs - bounds.minTs;
+		this.context.fillText(formatAxisTimestamp(bounds.minTs, span), plot.left, this.height - 7);
+		var endLabel = formatAxisTimestamp(bounds.maxTs, span);
 		this.context.fillText(endLabel, plot.right - this.context.measureText(endLabel).width, this.height - 7);
 	};
 
 	ConcurrencyChart.prototype.drawTooltip = function (point, plot, bounds) {
 		var palette = this.palette();
 		var position = this.position(point, plot, bounds);
-		var text = formatTime(point.ts) + '  ' + point.value;
+		var text = formatPointTimestamp(point.ts, bounds.maxTs - bounds.minTs) + '  ' + point.value;
 		var width = this.context.measureText(text).width + 12;
 		var x = Math.min(this.width - width - 4, Math.max(4, position.x - width / 2));
 		var y = Math.max(4, position.y - 28);
@@ -200,8 +240,10 @@
 		var bounds = this.bounds();
 		var plotWidth = Math.max(1, (this.width - 10) - 34);
 		var timestamp = bounds.minTs + (((x - 34) / plotWidth) * (bounds.maxTs - bounds.minTs));
-		var best = this.points[0];
-		for (var index = 1; index < this.points.length; index++) {
+		var best = null;
+		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') continue;
+			if (best === null) { best = this.points[index]; continue; }
 			if (Math.abs(this.points[index].ts - timestamp) < Math.abs(best.ts - timestamp)) best = this.points[index];
 		}
 		return best;
@@ -210,20 +252,42 @@
 	ConcurrencyChart.prototype.describe = function () {
 		if (!this.points.length) return 'Concurrency chart waiting for data';
 		var peak = 0;
-		for (var index = 0; index < this.points.length; index++) peak = Math.max(peak, this.points[index].value);
-		return 'Concurrency chart with ' + this.points.length + ' points, current ' + this.points[this.points.length - 1].value + ', peak ' + peak + (this.threshold ? ', threshold ' + this.threshold : '');
+		var visible = 0;
+		var current = null;
+		for (var index = 0; index < this.points.length; index++) {
+			if (this.points[index].value === null || typeof this.points[index].value === 'undefined') continue;
+			peak = Math.max(peak, this.points[index].value); current = this.points[index].value; visible++;
+		}
+		if (!visible) return 'Concurrency chart with no points at or above the selected minimum';
+		return 'Concurrency chart with ' + visible + ' visible points, current ' + current + ', peak ' + peak + (this.threshold ? ', threshold ' + this.threshold : '');
 	};
 
 	ConcurrencyChart.prototype.destroy = function () {
 		window.removeEventListener('resize', this.resize);
+		if (this.resizeObserver) this.resizeObserver.disconnect();
 		this.canvas.removeEventListener('mousemove', this.onPointer);
 		this.canvas.removeEventListener('mouseleave', this.onPointer);
 		this.canvas.removeEventListener('click', this.onClick);
+		if (this.canvas.__ccConcurrencyChart === this) this.canvas.__ccConcurrencyChart = null;
 	};
 
 	function formatTime(timestamp) {
 		return new Date(timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 	}
 
+	function formatAxisTimestamp(timestamp, span) {
+		var date = new Date(timestamp * 1000);
+		if (span <= 86400) return formatTime(timestamp);
+		if (span <= 7 * 86400) return date.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+		if (span <= 120 * 86400) return date.toLocaleDateString([], {month: 'short', day: 'numeric'});
+		return date.toLocaleDateString([], {month: 'short', year: 'numeric'});
+	}
+
+	function formatPointTimestamp(timestamp, span) {
+		if (span <= 86400) return formatTime(timestamp);
+		return new Date(timestamp * 1000).toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+	}
+
 	root.ConcurrencyChart = ConcurrencyChart;
+	root.ConcurrencyChart.formatAxisTimestamp = formatAxisTimestamp;
 }(typeof window !== 'undefined' ? window : this));

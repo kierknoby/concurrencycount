@@ -1,3 +1,61 @@
+(function (root) {
+	'use strict';
+	root.CCLiveWallFullscreen = {
+		shouldShow: function (active, wall, documentObject) {
+			return !!active && !!wall && typeof wall.requestFullscreen === 'function' && documentObject.fullscreenElement !== wall;
+		},
+		request: function (wall, settled) {
+			if (!wall || typeof wall.requestFullscreen !== 'function') { settled(); return false; }
+			var requestResult;
+			try { requestResult = wall.requestFullscreen(); }
+			catch (error) { settled(); return false; }
+			if (requestResult && typeof requestResult.catch === 'function') requestResult.catch(settled);
+			return true;
+		}
+	};
+	root.CCLiveWallSelection = {
+		state: function (saved, inventory) {
+			var configured = Array.isArray(inventory) ? inventory.slice() : [];
+			var required = Math.min(3, configured.length);
+			var valid = [];
+			(Array.isArray(saved) ? saved : []).forEach(function (trunk) {
+				if (configured.indexOf(trunk) >= 0 && valid.indexOf(trunk) < 0 && valid.length < 3) valid.push(trunk);
+			});
+			return {required: required, inventoryCount: configured.length, valid: valid, complete: valid.length === required};
+		}
+	};
+	root.CCLiveWallLaunch = {
+		start: function (selection, actions) {
+			if (!selection.complete) { actions.configure(); return; }
+			actions.enter();
+			actions.revalidate(function (currentSelection) {
+				if (!currentSelection.complete) actions.invalidate();
+			});
+		}
+	};
+	root.CCLiveWallConfigurationRecovery = {
+		run: function (draft, refresh, ready, failed) {
+			refresh(function (inventory) {
+				ready(root.CCLiveWallSelection.state(draft, inventory));
+			}, failed);
+		}
+	};
+	root.CCLiveWallSavePreflight = {
+		run: function (refresh, ready, failed) {
+			refresh(ready, failed);
+		}
+	};
+	root.CCLiveWallPresentation = {
+		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
+		layout: function (viewportHeight, fullscreen) {
+			var height = Math.max(0, Number(viewportHeight) || 0);
+			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
+			return {inset: inset, height: Math.max(0, height - (inset * 2))};
+		}
+	};
+
+}(window));
+
 if (!window._ccLiveLoaded) {
 window._ccLiveLoaded = true;
 (function ($) {
@@ -19,9 +77,13 @@ window._ccLiveLoaded = true;
 	var draggedTrunk = null;
 	var featuredDraft = [];
 	var history = {overall: [], trunks: {}};
-	var charts = {overall: null, trunks: {}, historical: null};
+	var charts = {overall: null, trunks: {}};
 	var historicalResult = null;
 	var historicalSeries = null;
+	var historicalChart = null;
+	var historicalSelectedSeries = [];
+	var continueToLiveWallAfterSave = false;
+	var wallTheme = 'dark';
 
 	function ajax(params) {
 		params = $.extend({}, params, {token: $('.concurrencycount').first().attr('data-csrf-token') || $('input[name="token"]').first().val() || ''});
@@ -33,7 +95,9 @@ window._ccLiveLoaded = true;
 	}
 
 	function initialise() {
+		applyLiveWallTheme(wallTheme, false);
 		bindEvents();
+		if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') window.visualViewport.addEventListener('resize', onWallViewportChange);
 		loadSettings().always(function () { startPolling(true); });
 	}
 
@@ -45,17 +109,24 @@ window._ccLiveLoaded = true;
 			startPolling(true);
 		});
 		$('#cc-live-settings').off('click.ccLive').on('click.ccLive', openSettings);
-		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', enterLiveWall);
-		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', openLiveWallConfiguration);
+		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', launchLiveWall);
+		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', function () { openLiveWallConfiguration(false); });
+		$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen);
 		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
+		$('.cc-wall-theme-option').off('click.ccLive').on('click.ccLive', function () {
+			applyLiveWallTheme($(this).data('theme'), false);
+			if (settings) { settings.live_wall_theme = wallTheme; saveSettings(settings, false); }
+		});
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
+		$(window).off('resize.ccLive orientationchange.ccLive').on('resize.ccLive orientationchange.ccLive', onWallViewportChange);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
+		$('#cc-historical-graph').off('click.ccHistoricalExport', '.cc-historical-export-format').on('click.ccHistoricalExport', '.cc-historical-export-format', function (event) { event.preventDefault(); exportHistoricalGraph($(this).data('format')); });
 	}
 
 	/**
@@ -77,6 +148,7 @@ window._ccLiveLoaded = true;
 		return ajax({command: 'getsettings'}).done(function (response) {
 			if (!response.status || saveSequenceWhenRequested !== latestSettingsSaveSequence) return;
 			settings = response.settings;
+			applyLiveWallTheme(settings.live_wall_theme, false);
 			$('#cc-live-refresh, #cc-setting-refresh').val(String(settings.refresh_interval));
 		}).fail(function () {
 			showLiveMessage('Unable to load Live settings. Defaults are being used.', 'warning');
@@ -315,20 +387,63 @@ window._ccLiveLoaded = true;
 		$('#cc-hidden-trunk-list .cc-toggle-monitoring').on('click', function () { toggleMonitoring($(this).closest('[data-trunk]').attr('data-trunk')); });
 	}
 
-	function openLiveWallConfiguration() {
-		if (!settings) {
-			loadSettings().done(openLiveWallConfiguration);
-			return;
-		}
-		featuredDraft = (settings.live_wall_featured_trunks || []).slice(0, 3);
+	function currentConfiguredWallTrunks() {
+		return Object.keys(settings && settings.trunks ? settings.trunks : {});
+	}
+
+	function refreshLiveWallSettings(onSuccess, onFailure) {
+		ajax({command: 'getsettings'}).done(function (response) {
+			if (!response.status || !response.settings) {
+				showLiveMessage(response.message || 'Unable to load configured trunks.', 'warning');
+				if (onFailure) onFailure(response.message || 'Unable to load configured trunks.');
+				return;
+			}
+			settings = response.settings;
+			onSuccess();
+		}).fail(function () {
+			showLiveMessage('Unable to load configured trunks.', 'warning');
+			if (onFailure) onFailure('Unable to load configured trunks.');
+		});
+	}
+
+	function initialiseLiveWallConfiguration(continueAfterSave) {
+		continueToLiveWallAfterSave = !!continueAfterSave;
+		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
+		featuredDraft = selection.valid.slice();
 		$('#cc-wall-featured-error').hide();
 		renderLiveWallConfiguration();
 		$('#cc-live-wall-config-modal').modal('show');
 	}
 
+	function openLiveWallConfiguration(continueAfterSave) {
+		refreshLiveWallSettings(function () { initialiseLiveWallConfiguration(continueAfterSave); });
+	}
+
+	function launchLiveWall() {
+		if (!settings) { openLiveWallConfiguration(true); return; }
+		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
+		window.CCLiveWallLaunch.start(selection, {
+			configure: function () { openLiveWallConfiguration(true); },
+			enter: function () { enterLiveWall(true); },
+			revalidate: function (done) {
+				refreshLiveWallSettings(function () {
+					done(window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks()));
+				}, function () {
+					exitLiveWall();
+					openLiveWallConfiguration(true);
+				});
+			},
+			invalidate: function () {
+				exitLiveWall();
+				initialiseLiveWallConfiguration(true);
+			}
+		});
+	}
+
 	function configuredTrunksForWallConfiguration() {
-		if (snapshot && snapshot.trunks) return orderedTrunks(snapshot.trunks);
-		return Object.keys(settings && settings.trunks ? settings.trunks : {}).sort();
+		var configured = currentConfiguredWallTrunks();
+		var ordered = orderedTrunks((settings && settings.trunks) || {});
+		return ordered.filter(function (trunk) { return configured.indexOf(trunk) >= 0; });
 	}
 
 	function featuredTrunkLabel(trunk) {
@@ -338,6 +453,8 @@ window._ccLiveLoaded = true;
 
 	function renderLiveWallConfiguration() {
 		var configured = configuredTrunksForWallConfiguration();
+		var selection = window.CCLiveWallSelection.state(featuredDraft, configured);
+		featuredDraft = selection.valid.slice();
 		var rows = [];
 		featuredDraft.forEach(function (trunk, index) {
 			var available = configured.indexOf(trunk) >= 0;
@@ -354,12 +471,16 @@ window._ccLiveLoaded = true;
 		});
 		if (!rows.length) rows.push('<p class="text-muted">No configured Live trunks are currently available.</p>');
 		$('#cc-wall-featured-list').html(rows.join(''));
-		$('#cc-wall-featured-count').text(featuredDraft.length + ' of 3 featured trunks selected.' + (featuredDraft.length === 3 ? ' Deselect one to choose another.' : ''));
+		var counter = featuredDraft.length + '/' + selection.inventoryCount + ' trunks selected';
+		if (!selection.complete) counter += ' · ' + selection.required + ' required';
+		$('#cc-wall-featured-count').text(counter);
+		$('#cc-wall-featured-save').prop('disabled', !selection.complete);
 		bindLiveWallConfigurationControls();
 	}
 
 	function featuredConfigurationRow(trunk, index, selected, stateText) {
-		var disabled = !selected && featuredDraft.length >= 3;
+		var required = Math.min(3, configuredTrunksForWallConfiguration().length);
+		var disabled = !selected && featuredDraft.length >= required;
 		return '<div class="cc-wall-featured-row" data-featured-trunk="' + escapeHtml(trunk) + '">' +
 			'<label><input type="checkbox" class="cc-wall-featured-choice"' + (selected ? ' checked' : '') + (disabled ? ' disabled' : '') + '> <strong>' + escapeHtml(featuredTrunkLabel(trunk)) + '</strong> <small>' + escapeHtml(trunk) + '</small></label>' +
 			'<span class="cc-wall-featured-state">' + escapeHtml(stateText) + '</span>' +
@@ -370,9 +491,10 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-featured-list .cc-wall-featured-choice').on('change', function () {
 			var trunk = $(this).closest('[data-featured-trunk]').attr('data-featured-trunk');
 			if ($(this).is(':checked')) {
-				if (featuredDraft.length >= 3) {
+				var required = Math.min(3, configuredTrunksForWallConfiguration().length);
+				if (featuredDraft.length >= required) {
 					$(this).prop('checked', false);
-					$('#cc-wall-featured-error').text('Choose no more than 3 featured trunks.').show();
+					$('#cc-wall-featured-error').text('Choose exactly ' + required + ' trunks to display on Live Wall.').show();
 					return;
 				}
 				featuredDraft.push(trunk);
@@ -392,36 +514,102 @@ window._ccLiveLoaded = true;
 	}
 
 	function saveLiveWallConfiguration() {
-		var candidate = $.extend(true, {}, settings);
-		candidate.live_wall_featured_trunks = featuredDraft.slice();
+		var continueAfterSave = continueToLiveWallAfterSave;
 		var button = $('#cc-wall-featured-save').prop('disabled', true);
-		$('#cc-wall-featured-error').hide();
-		saveSettings(candidate, false, function () {
-			$('#cc-live-wall-config-modal').modal('hide');
+		window.CCLiveWallSavePreflight.run(refreshLiveWallSettings, function () {
+			var selection = window.CCLiveWallSelection.state(featuredDraft, currentConfiguredWallTrunks());
+			featuredDraft = selection.valid.slice();
+			if (!selection.complete) {
+				renderLiveWallConfiguration();
+				$('#cc-wall-featured-error').text('Choose exactly ' + selection.required + ' trunks to display on Live Wall.').show();
+				return;
+			}
+			var candidate = $.extend(true, {}, settings);
+			candidate.live_wall_featured_trunks = featuredDraft.slice();
+			$('#cc-wall-featured-error').hide();
+			saveSettings(candidate, false, function () {
+				$('#cc-live-wall-config-modal').modal('hide');
+				continueToLiveWallAfterSave = false;
+				if (continueAfterSave) enterLiveWall(false);
+			}, function (message) {
+				recoverLiveWallConfiguration(message || 'Unable to save featured trunks.');
+			}, false, true);
 		}, function (message) {
-			$('#cc-wall-featured-error').text(message || 'Unable to save featured trunks.').show();
-		}).always(function () { button.prop('disabled', false); });
+			button.prop('disabled', false);
+			$('#cc-wall-featured-error').text(message || 'Unable to load configured trunks.').show();
+			$('#cc-live-wall-config-modal').modal('show');
+		});
 	}
 
-	function enterLiveWall() {
+	function recoverLiveWallConfiguration(message) {
+		window.CCLiveWallConfigurationRecovery.run(featuredDraft, function (ready, failed) {
+			refreshLiveWallSettings(function () { ready(currentConfiguredWallTrunks()); }, failed);
+		}, function (selection) {
+			featuredDraft = selection.valid.slice();
+			renderLiveWallConfiguration();
+			$('#cc-wall-featured-error').text(message).show();
+			$('#cc-live-wall-config-modal').modal('show');
+		}, function () {
+			$('#cc-wall-featured-save').prop('disabled', false);
+			$('#cc-wall-featured-error').text(message).show();
+			$('#cc-live-wall-config-modal').modal('show');
+		});
+	}
+
+	function enterLiveWall(requestBrowserFullscreen) {
 		wallActive = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
 		$('body').addClass('cc-wall-active');
+		syncLiveWallFullscreenState();
+		applyLiveWallTheme(wallTheme, false);
 		if (snapshot) renderLiveWall(snapshot);
 		scheduleChartResize(resizeWallCharts);
 		startPolling(!snapshot);
+		if (requestBrowserFullscreen) requestLiveWallFullscreen();
+	}
+
+	function requestLiveWallFullscreen() {
 		var wall = document.getElementById('cc-live-wall');
-		if (wall && typeof wall.requestFullscreen === 'function') {
-			var requestResult;
-			try { requestResult = wall.requestFullscreen(); } catch (error) { requestResult = null; }
-			if (requestResult && typeof requestResult.catch === 'function') requestResult.catch(function () { /* Full-page fallback remains active. */ });
-		}
+		window.CCLiveWallFullscreen.request(wall, syncLiveWallFullscreenState);
+	}
+
+	function syncLiveWallFullscreenState() {
+		var wall = document.getElementById('cc-live-wall');
+		var isWallFullscreen = document.fullscreenElement === wall;
+		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', isWallFullscreen);
+		$('#cc-live-wall-fullscreen').toggle(window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		syncLiveWallViewport();
+	}
+
+	function syncLiveWallViewport() {
+		var viewportHeight = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
+		var state = window.CCLiveWallPresentation.layout(viewportHeight, document.fullscreenElement === document.getElementById('cc-live-wall'));
+		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px'});
+	}
+
+	function onWallViewportChange() {
+		if (!wallActive) return;
+		syncLiveWallViewport();
+		scheduleChartResize(resizeWallCharts);
+	}
+
+	function applyLiveWallTheme(theme, persist) {
+		wallTheme = window.CCLiveWallPresentation.normaliseTheme(theme);
+		$('#cc-live-wall').removeClass('cc-theme-light cc-theme-dark').addClass('cc-theme-' + wallTheme);
+		$('.cc-wall-theme-option').each(function () {
+			var selected = $(this).data('theme') === wallTheme;
+			$(this).toggleClass('btn-primary', selected).toggleClass('btn-default', !selected).attr('aria-pressed', selected ? 'true' : 'false');
+		});
+		var chartTheme = 'wall-' + wallTheme;
+		if (charts.wallOverall) charts.wallOverall.setTheme(chartTheme);
+		Object.keys(charts.wallTrunks || {}).forEach(function (trunk) { charts.wallTrunks[trunk].setTheme(chartTheme); });
 	}
 
 	function exitLiveWall() {
 		wallActive = false;
 		$('#cc-live-wall').hide().attr('aria-hidden', 'true');
 		$('body').removeClass('cc-wall-active');
+		syncLiveWallFullscreenState();
 		if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
 			var exitResult = document.exitFullscreen();
 			if (exitResult && typeof exitResult.catch === 'function') exitResult.catch(function () {});
@@ -431,7 +619,7 @@ window._ccLiveLoaded = true;
 	}
 
 	function onFullscreenChange() {
-		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', document.fullscreenElement === document.getElementById('cc-live-wall'));
+		syncLiveWallFullscreenState();
 		if (wallActive) scheduleChartResize(resizeWallCharts);
 	}
 
@@ -459,7 +647,7 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-overall-threshold').text(data.overall.threshold_enabled ? 'Threshold ' + data.overall.threshold : 'Threshold off');
 		$('#cc-wall-overall-peak').text('Recent peak ' + recentPeak(history.overall));
 		$('.cc-wall-overall').attr('data-status', data.overall.status);
-		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'), {theme: 'dark'});
+		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'), {theme: 'wall-' + wallTheme});
 		charts.wallOverall.setData(history.overall, data.overall.threshold_enabled ? data.overall.threshold : 0);
 		var configuredFeatured = settings && settings.live_wall_featured_trunks ? settings.live_wall_featured_trunks : [];
 		var names = configuredFeatured.filter(function (trunk) { return Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk); });
@@ -478,7 +666,7 @@ window._ccLiveLoaded = true;
 			$('#cc-wall-trunks').html(names.map(function (trunk, index) {
 				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(featuredTrunkLabel(trunk)) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-threshold"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="110"></canvas></article>';
 			}).join('')).data('trunks', names);
-			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index), {theme: 'dark'}); });
+			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index), {theme: 'wall-' + wallTheme}); });
 		}
 		names.forEach(function (trunk) {
 			var result = data.trunks[trunk];
@@ -561,6 +749,9 @@ window._ccLiveLoaded = true;
 		$('#cc-threshold-rows').html(rows.join(''));
 		$('#cc-settings-error').hide();
 		$('#cc-live-settings-modal').modal('show');
+		ajax({command: 'historicalprotection'}).done(function (response) {
+			if (response.status) $('#cc-setting-pbx-protection').val(response.threshold);
+		});
 		loadMonitorStatus();
 	}
 
@@ -606,6 +797,7 @@ window._ccLiveLoaded = true;
 			alert_email: $('#cc-setting-email').val().trim(),
 			hidden_trunks: (settings.hidden_trunks || []).slice(), trunk_order: (settings.trunk_order || []).slice(),
 			live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice(),
+			live_wall_theme: wallTheme,
 			overall: {}, trunks: {}
 		};
 		$('#cc-threshold-rows tr').each(function () {
@@ -619,10 +811,14 @@ window._ccLiveLoaded = true;
 				candidate.trunks[trunk] = value;
 			}
 		});
-		saveSettings(candidate, true, null, null, true);
+		var protection = parseInt($('#cc-setting-pbx-protection').val(), 10);
+		ajax({command: 'historicalprotection', threshold: protection}).done(function (response) {
+			if (!response.status) { $('#cc-settings-error').text(response.message || 'Unable to save PBX Protection.').show(); return; }
+			saveSettings(candidate, true, null, null, true);
+		}).fail(function () { $('#cc-settings-error').text('Unable to save PBX Protection.').show(); });
 	}
 
-	function saveSettings(candidate, closeModal, onSuccess, onFailure, pollAfterSave) {
+	function saveSettings(candidate, closeModal, onSuccess, onFailure, pollAfterSave, requireCompleteLiveWall) {
 		var deferred = $.Deferred();
 		var sequence = ++settingsSaveSequence;
 		latestSettingsSaveSequence = sequence;
@@ -632,6 +828,7 @@ window._ccLiveLoaded = true;
 			onSuccess: onSuccess,
 			onFailure: onFailure,
 			pollAfterSave: !!pollAfterSave,
+			requireCompleteLiveWall: !!requireCompleteLiveWall,
 			sequence: sequence,
 			deferred: deferred
 		});
@@ -643,11 +840,11 @@ window._ccLiveLoaded = true;
 		if (settingsSaveInFlight || !settingsSaveQueue.length) return;
 		settingsSaveInFlight = true;
 		var pending = settingsSaveQueue.shift();
-		ajax({command: 'savesettings', settings: JSON.stringify(pending.candidate)}).done(function (response) {
+		ajax({command: 'savesettings', settings: JSON.stringify(pending.candidate), live_wall_configuration: pending.requireCompleteLiveWall ? 1 : 0}).done(function (response) {
 			if (!response.status) {
 				$('#cc-settings-error').text(response.message || 'Unable to save settings.').show();
 				showLiveMessage(response.message || 'Unable to save Live View settings.', 'warning');
-				if (pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+				if (!pending.requireCompleteLiveWall && pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
 				if (pending.onFailure) pending.onFailure(response.message || 'Unable to save settings.');
 				pending.deferred.reject(response.message || 'Unable to save settings.');
 				return;
@@ -664,7 +861,7 @@ window._ccLiveLoaded = true;
 		}).fail(function () {
 			$('#cc-settings-error').text('Unable to save settings.').show();
 			showLiveMessage('Unable to save Live View settings.', 'warning');
-			if (pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
+			if (!pending.requireCompleteLiveWall && pending.sequence === latestSettingsSaveSequence && !settingsSaveQueue.length) loadSettings().always(function () { if (snapshot) renderSnapshot(snapshot); });
 			if (pending.onFailure) pending.onFailure('Unable to save settings.');
 			pending.deferred.reject('Unable to save settings.');
 		}).always(function () {
@@ -676,43 +873,118 @@ window._ccLiveLoaded = true;
 	function loadHistoricalGraph(result, cachedSeries) {
 		historicalResult = result;
 		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message) {
+			clearHistoricalGraphState();
 			$('#cc-historical-graph').hide();
 			return;
 		}
 		if (cachedSeries) {
 			historicalSeries = cachedSeries;
-			renderHistoricalSeries();
+			if (renderHistoricalSeries()) finishHistoricalGraphRender();
 			return;
 		}
-		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : ''}).done(function (response) {
-			if (!response.status) return;
+		clearHistoricalGraphState();
+		$('#cc-historical-graph').show().addClass('is-loading');
+		$('#cc-historical-graph-loading').show();
+		$('#cc-historical-graph-error').hide().text('');
+		ajax({command: 'historicalgraph', mode: result.mode, start_date: result.start, end_date: result.end, trunk: result.mode === 'trunk' ? (result.filter || '') : '', minimum_concurrency: result.minimum_concurrency || ''}).done(function (response) {
+			if (!window.HistoricalSvgChart.isCurrentResult(historicalResult, result)) return;
+			if (!response.status) { failHistoricalGraph(response.message || 'Unable to load this Historical graph.'); return; }
 			historicalSeries = response.graph;
-			renderHistoricalSeries();
+			try {
+				if (!renderHistoricalSeries()) { failHistoricalGraph('This Historical graph contains no displayable series.'); return; }
+				finishHistoricalGraphRender();
+			} catch (error) { failHistoricalGraph('Unable to render this Historical graph.'); return; }
 			$(document).trigger('cc:historical-graph-loaded', [response.graph]);
-		});
+		}).fail(function () { if (window.HistoricalSvgChart.isCurrentResult(historicalResult, result)) failHistoricalGraph('Unable to load this Historical graph.'); });
+	}
+
+	function setHistoricalExportAvailable(available) { $('#cc-historical-export').prop('disabled', !available).attr('aria-disabled', available ? 'false' : 'true'); }
+	function clearHistoricalGraphState() {
+		historicalSeries = null; historicalSelectedSeries = [];
+		if (historicalChart) { historicalChart.destroy(); historicalChart = null; }
+		$('#cc-historical-series, #cc-historical-resolution').empty();
+		setHistoricalExportAvailable(false);
+	}
+	function failHistoricalGraph(message) {
+		clearHistoricalGraphState();
+		$('#cc-historical-graph').show().removeClass('is-loading');
+		$('#cc-historical-graph-loading').hide();
+		$('#cc-historical-graph-error').text(message).show();
+	}
+	function finishHistoricalGraphRender() {
+		$('#cc-historical-graph').removeClass('is-loading');
+		$('#cc-historical-graph-loading, #cc-historical-graph-error').hide();
+		setHistoricalExportAvailable(historicalSelectedSeries.length > 0);
 	}
 
 	function renderHistoricalSeries() {
 		var names = Object.keys(historicalSeries.series || {});
-		if (!names.length) return;
-		var selected = names[0];
-		for (var index = 1; index < names.length; index++) if (historicalSeries.series[names[index]].exact_peak > historicalSeries.series[selected].exact_peak) selected = names[index];
-		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
-		$('#cc-historical-series').html(buttons.join(''));
-		$('#cc-historical-series .cc-series-choice').on('click', function () { showHistoricalSeries($(this).data('series')); });
-		$('#cc-historical-graph').show();
-		showHistoricalSeries(selected);
+		if (!names.length) return false;
+		historicalSelectedSeries = window.HistoricalSvgChart.selection.initial(names, historicalSeries.series);
+		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
+		$('#cc-historical-series').html('<button type="button" class="btn btn-default btn-sm cc-series-select-all" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-default btn-sm cc-series-unselect-all" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
+		$('#cc-historical-series .cc-series-choice').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.toggle(historicalSelectedSeries, String($(this).attr('data-series'))); redrawHistoricalSelection(); });
+		$('#cc-historical-series .cc-series-select-all').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.all(names); redrawHistoricalSelection(); });
+		$('#cc-historical-series .cc-series-unselect-all').on('click', function () { historicalSelectedSeries = []; redrawHistoricalSelection(); });
+		redrawHistoricalSelection();
+		return true;
 	}
 
-	function showHistoricalSeries(name) {
-		var series = historicalSeries.series[name];
-		if (!series) return;
-		$('#cc-historical-series .cc-series-choice').removeClass('btn-primary').addClass('btn-default').filter(function () { return $(this).data('series') === name; }).addClass('btn-primary').removeClass('btn-default');
-		$('#cc-historical-resolution').text(series.display_resolution === 'exact_events' ? 'Exact CDR event transitions' : 'Display uses bucket maxima; exact peak remains ' + series.exact_peak);
-		var thresholdConfig = historicalSeries.thresholds[name] || {};
-		if (!charts.historical) charts.historical = new window.ConcurrencyChart(document.getElementById('cc-historical-chart'), {onSelect: function (point) { focusHistoricalPoint(name, point); }});
-		else charts.historical.options.onSelect = function (point) { focusHistoricalPoint(name, point); };
-		charts.historical.setData(series.points, thresholdConfig.enabled ? thresholdConfig.threshold : 0);
+	function historicalResolutionText(series) {
+		var resolutionText = 'Display uses bucket maxima; exact peak remains ' + series.exact_peak;
+		if (series.display_resolution === 'exact_events') resolutionText = 'Exact CDR event transitions';
+		if (series.display_resolution === 'floor_events') resolutionText = 'Exact floor-relevant CDR event transitions';
+		if (series.display_resolution === 'floor_events_sampled') resolutionText = 'Display samples real floor-qualified event boundaries; exact peak remains ' + series.exact_peak;
+		return resolutionText;
+	}
+
+	function redrawHistoricalSelection() {
+		var names = Object.keys(historicalSeries.series || {});
+		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
+		var buttonState = window.HistoricalSvgChart.selection.presentation(names, historicalSelectedSeries);
+		$('#cc-historical-series .cc-series-select-all, #cc-historical-series .cc-series-unselect-all').removeClass('btn-primary active').addClass(buttonState.bulkClass).removeAttr('aria-pressed');
+		$('#cc-historical-series .cc-series-choice').each(function () {
+			var state = buttonState.series[String($(this).attr('data-series'))];
+			$(this).toggleClass('btn-primary', state.selected).toggleClass('btn-default', !state.selected).attr('aria-pressed', state.ariaPressed);
+		});
+		if (!historicalSelectedSeries.length) {
+			if (historicalChart) { historicalChart.destroy(); historicalChart = null; }
+			$('#cc-historical-chart').hide(); $('#cc-historical-no-series').show(); $('#cc-historical-resolution').text(''); setHistoricalExportAvailable(false);
+			return;
+		}
+		var selectedSpecs = [];
+		names.forEach(function (name) {
+			if (historicalSelectedSeries.indexOf(name) < 0) return;
+			var series = historicalSeries.series[name], thresholdConfig = historicalSeries.thresholds[name] || {};
+			selectedSpecs.push({name: name, label: name === 'overall' ? 'Overall' : name, color: inventoryColours[name], points: series.points, exactPeak: series.exact_peak, threshold: thresholdConfig.enabled ? thresholdConfig.threshold : 0, resolution: series.display_resolution});
+		});
+		var resolutionText = selectedSpecs.length === 1 ? historicalResolutionText(historicalSeries.series[selectedSpecs[0].name]) : selectedSpecs.length + ' selected series';
+		$('#cc-historical-resolution').text(resolutionText); $('#cc-historical-no-series').hide(); $('#cc-historical-chart').show();
+		var image = document.getElementById('cc-historical-chart-image');
+		var overlay = document.getElementById('cc-historical-chart-overlay');
+		var tooltip = document.getElementById('cc-historical-chart-tooltip');
+		if (!historicalChart || historicalChart.image !== image) {
+			if (historicalChart) historicalChart.destroy();
+			historicalChart = new window.HistoricalSvgChart(image, overlay, tooltip, {onSelect: function (name, point) { focusHistoricalPoint(name, point); }});
+		} else historicalChart.options.onSelect = function (name, point) { focusHistoricalPoint(name, point); };
+		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
+		var graphSubtitle = resolutionText;
+		if (historicalResult.minimum_concurrency) graphSubtitle += ' · Minimum concurrency ' + historicalResult.minimum_concurrency;
+		var titleSeries = selectedSpecs.length === 1 ? selectedSpecs[0].label : selectedSpecs.length + ' selected series';
+		historicalChart.setSeries(selectedSpecs, {minTs: historicalSeries.start_ts, maxTs: historicalSeries.end_ts}, {title: reportName + ' — ' + titleSeries, subtitle: graphSubtitle});
+		setHistoricalExportAvailable(true);
+	}
+
+	function exportHistoricalGraph(format) {
+		if (!historicalChart || !historicalSelectedSeries.length) return;
+		var reportName = $('#cc-historical-graph').data('report-name') || 'Historical Report';
+		var exportSeries = window.HistoricalGraphExport.seriesComponent(historicalSelectedSeries);
+		window.HistoricalGraphExport.download(String(format), historicalChart.svgDocument, historicalChart.chart, {
+			report: reportName,
+			series: exportSeries,
+			title: historicalChart.metadata.title,
+			subtitle: historicalChart.metadata.subtitle
+		});
 	}
 
 	function focusHistoricalPoint(name, point) {

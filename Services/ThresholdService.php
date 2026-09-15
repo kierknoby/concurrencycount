@@ -14,6 +14,7 @@ class ThresholdService {
 			'hidden_trunks' => [],
 			'trunk_order' => [],
 			'live_wall_featured_trunks' => [],
+			'live_wall_theme' => 'dark',
 			'overall' => $this->scopeDefaults(),
 			'trunks' => [],
 		];
@@ -25,6 +26,19 @@ class ThresholdService {
 
 	public function reconcileStored(array $input, array $trunks = []): array {
 		return $this->normaliseInternal($input, $trunks, false);
+	}
+
+	public function validateFeaturedSelection(array $featured, array $trunks): array {
+		$trunks = array_values(array_unique(array_map('strval', $trunks)));
+		$required = min(3, count($trunks));
+		$allowed = array_fill_keys($trunks, true);
+		$valid = [];
+		foreach ($featured as $trunk) {
+			$trunk = (string)$trunk;
+			if (isset($allowed[$trunk]) && !in_array($trunk, $valid, true)) $valid[] = $trunk;
+		}
+		$complete = count($valid) === $required;
+		return ['required' => $required, 'inventory_count' => count($trunks), 'valid' => $valid, 'complete' => $complete, 'exact' => $complete && count($featured) === $required];
 	}
 
 	private function normaliseInternal(array $input, array $trunks, bool $rejectUnknownTrunks): array {
@@ -46,6 +60,7 @@ class ThresholdService {
 			'hidden_trunks' => $this->normaliseIdentifierList(isset($input['hidden_trunks']) ? $input['hidden_trunks'] : [], 'Hidden trunks', $rejectUnknownTrunks),
 			'trunk_order' => $this->normaliseIdentifierList(isset($input['trunk_order']) ? $input['trunk_order'] : [], 'Trunk order', $rejectUnknownTrunks),
 			'live_wall_featured_trunks' => $this->normaliseIdentifierList(isset($input['live_wall_featured_trunks']) ? $input['live_wall_featured_trunks'] : [], 'Live Wall featured trunks', $rejectUnknownTrunks, 3),
+			'live_wall_theme' => isset($input['live_wall_theme']) && $input['live_wall_theme'] === 'light' ? 'light' : 'dark',
 			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : []),
 			'trunks' => [],
 		];

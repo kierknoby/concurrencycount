@@ -1,4 +1,4 @@
-# Concurrency Count 2.1.1 for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.2.0 for FreePBX/PBXact 16 and 17
 
 **`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-0_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-0_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 10 SEPTEMBER 2026.**
 
@@ -30,6 +30,38 @@ Historical Reports provide three different measurements:
 | **Group Concurrency** | PBX-wide simultaneous extension-side legs, independent of configured FreePBX Ring Groups. |
 
 Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
+
+### v2.2.0 highlights
+
+**Historical calculation safety and control**
+
+- Historical and Demo now expose modelled engine progress rather than projecting completion from a small early sample. ETA remains gated for the first five minutes and is shown as High confidence only after stable forward-progress evidence.
+- **PBX Protection** assesses sustained CPU, memory, swap, I/O and observed database-query pressure during the calculation. High or Critical impact can pause work for an administrator decision without discarding completed progress.
+- Historic Reports now store a configurable **Maximum runtime** from 5 to 1,440 minutes. An active paused run can be given more time without resetting its calculation identity, elapsed time or completed work.
+- **Minimum concurrency** provides a persisted output floor for Historical and Demo presentation while preserving the complete underlying calculation and exact peak.
+- Historical CDR acquisition is bounded and database-aware: newer MariaDB/MySQL use supported server-side SELECT execution limits, while legacy MariaDB uses adaptive indexed ranges with explicit capability and index validation rather than unbounded full-table work.
+- Worker-owned process telemetry, memory headroom protection and calculation-specific cadence/state handling strengthen long-running Historical and Demo operation without changing Original or Sweep counting semantics.
+
+**Historical graphs and exclusions**
+
+- Historical graphs now use one deterministic multi-series SVG image with a fixed report-window axis, deterministic colours across the complete series inventory, built-in legend and independently identified thresholds.
+- Series selection is explicit: fresh graphs start with every available series selected, while **Select All**, **Unselect All** and individual series controls change the one shared graph without changing the underlying result.
+- The currently selected graph series can be exported as **SVG, PDF, PNG or JPEG**. Single-series exports retain the series name; large multi-series selections use bounded filenames such as `15-series`.
+- Historical peak detail adds **Exclude All** for every eligible logical call contributing to the exact displayed peak occurrence and **Restore Group** for the remaining members of that grouped exclusion, while retaining individual Restore and global Restore All.
+
+**Demo**
+
+- Demo now uses the pinned CDRgen 1.1.0 core to generate deterministic PJSIP-only synthetic traffic, with Light, Medium and Heavy profiles of 1,000, 5,000 and 20,000 calls over exact one-day ranges.
+- GUI scenarios use cryptographically random 128-bit identities with deterministic generation numbers, while existing CLI `--demo-seed` workflows remain reproducible.
+- Demo generation starts from authoritative FreePBX PJSIP trunk/device inventories, supplementing only the extension side with isolated synthetic fallback identities when too few configured extensions are available. Numeric configured trunks and configured extensions beginning with 1 or 9 retain their authoritative roles.
+- The independent Demo expectation derives topology from observable PJSIP channel legs and the exact Demo inventory rather than trusting CDRgen direction/helper metadata.
+- Completed Demo results expose generator provenance, dataset identity, traffic mix and generated/inserted/audited/removed/remaining integrity totals. Synthetic-call detail is retained in an authenticated transient server spool and fetched in bounded 100-row pages.
+- Demo preflight and cleanup are fail-closed and database-aware, with conservative database/binlog filesystem headroom checks, bounded insertion and cleanup, stale-run recovery, a verified `accountcode` cleanup access path, an independent mandatory-cleanup allowance and a dedicated legacy MariaDB 5.5.65 InnoDB path.
+
+**Live Wall**
+
+- Live Wall adds persisted **Light** and **Dark** presentation with matching chart palettes.
+- The wall now follows the visible viewport, retains a bounded inset outside browser fullscreen, consumes the full viewport in fullscreen, and reflows panels and charts after resize, orientation and fullscreen changes.
 
 ## Requirements
 
@@ -219,6 +251,12 @@ Unknown or deleted endpoints seen in Historical CDRs appear as endpoint anomalie
 
 Historical Reports query candidate answered PJSIP CDR rows, remove globally excluded logical calls, classify endpoint sides, apply the selected reporting mode, and pass the same eligible dataset to Original or Sweep.
 
+**Minimum concurrency** is an inclusive output floor for Trunk, Extension, Group and Demo reports. Historic Reports default to 2 and cannot be set below 2; a value of 4 shows only detailed entities or periods whose calculated concurrency is 4 or greater. The full calculation always completes first, and the report period, completion state, calculation summary and actual peak remain visible even when no detail reaches the floor. A distinct notice separates that state from a report with no eligible Historical data. The same floor is applied to the GUI, Historical graph presentation, CSV/download, email, CLI and Demo output. Below-floor graph points are presented as gaps; the complete underlying graph calculation and actual peak remain unchanged. The floor does not affect Live View, CDR acquisition, engine calculations, assessment, telemetry, pause decisions or cleanup.
+
+**Maximum runtime** is stored with each Historic Report in whole minutes. It defaults to 60 minutes and accepts values from 5 through 1440. A GUI calculation starts with that saved allowance; any increase made from the administrator decision dialog applies only to the active run and does not change the report definition.
+
+The floor is stored in the Historical Report definition and restored by **Edit Report**. Changing it reruns the exact calculation. Completed results cannot currently be reused safely because the browser receives only the transformed detail and the server does not retain a separate unfiltered completed result; adding such retention would create a larger result cache outside this scoped feature.
+
 ### Trunk Concurrency
 
 Trunk Concurrency measures matching trunk legs from both CDR `channel` and `dstchannel`. If the same trunk appears on both sides of one CDR, both matching legs can count. Trunks are evaluated separately.
@@ -272,15 +310,23 @@ The GUI's **Compare Engines** Demo workflow checks Original and Sweep against an
 4. Previous/next moves by the displayed inclusive span; month ranges move by calendar month.
 5. The browser resolves the selection to `YYYY-MM-DD HH:MM:SS`. Past date-only ranges end at `23:59:59`; today ends at the current time.
 
-If projected completion would exceed the fixed 3,600-second (1 hour) runtime allowance, the GUI asks whether to continue. Continue acknowledges the prediction only: the count may restart from the beginning, but it retains the original server-owned runtime origin and only the time still remaining in that same allowance. Time spent reading the warning counts against the hour, and reaching the original deadline still aborts the calculation. Demo uses the separate **Run Demo** workflow.
+Each logical run starts with the Maximum runtime saved in its Historic Report definition; new reports default to 60 minutes. A paused administrator may increase that active run's allowance, in whole minutes, to at most 1,440 minutes (24 hours), without changing the saved report definition. The calculation ID, original runtime start, elapsed time, ownership and completed work do not change, so extending a 60-minute run to 120 minutes after five minutes leaves about 115 minutes. A new workload, including a reduced date range, receives a new calculation identity and assessment while using the report's configured Maximum runtime.
 
 ### Historical runtime safety, cancellation and telemetry
 
-The Historical estimator measures engine work rather than projecting from a tiny first sample. ETA remains **Estimating...** until at least 0.5 seconds and a sufficient row/work sample have completed; this avoids misleading early multi-hour projections. Elapsed time and the remaining 3,600-second runtime allowance remain visible during that warm-up. This changes estimation and protection only: Original still walks inclusive occupied seconds, while Sweep retains its inclusive event-based calculation semantics and both produce the same result definitions as before.
+The first five minutes are an assessment window. Engine completion is based on engine work rather than elapsed time. Before the engine total is known, acquisition and classification report their phase and processed row count separately instead of inventing a percentage. Original measures inclusive occupied seconds; Sweep models row construction, sorting and event traversal as separate stages so a cheap completed stage cannot imply that expensive work is almost finished. Engine completion is monotonic and reaches 100% only when engine work completes.
+
+While a calculation is active, its engine appears in the panel heading opposite **Stop**. The calculation telemetry presents six values in three columns: **Engine completion** above **Elapsed**, **Estimated time remaining** above **ETA confidence**, and **Maximum runtime remaining** above **PBX impact**. The five-minute assessment continues internally without a separate visible countdown.
+
+ETA remains **Calculating...** for at least 300 seconds. After that it appears only when at least ten recent forward-progress samples in one meaningful engine stage have throughput variation within the deterministic 15% stability limit, sufficient work has completed, and no pause, long stall, backwards movement or stage transition has contaminated the sample. Public confidence is **High**, **Calculating...** or **Insufficient**; a positive estimate below one second remains **< 1 second**.
+
+The complete five-minute window samples lightweight system and calculation evidence for **PBX Protection**. Its persisted module-owned threshold applies to Historical and Demo, defaults to 90% and is restricted to 50–95%; it is a CPU or memory headroom input, independent of Live thresholds, and not the classifier by itself. High requires concerning evidence in at least three quarters of that complete window, so isolated transients do not dominate and early sustained pressure cannot disappear during a quiet final minute. A separate recent one-minute window supports early Critical detection. The classifier considers sustained CPU pressure, change from the starting baseline while PHP or report database work is active, memory availability, swap activity, I/O wait/pressure and the report's observed query response. One transient CPU spike cannot produce High or Critical. Low and Moderate continue after five minutes. High pauses for an administrator decision. Acute memory exhaustion or sustained extreme CPU, I/O or swap pressure can pause as Critical earlier. The wording describes correlation observed while the calculation ran and does not claim exclusive causation.
 
 #### Runtime enforcement and memory
 
-`MAX_RUNTIME` protects the complete engine calculation rather than only the gaps between CDR rows. Original checks during long occupied-second loops and its later Group peak scan. Sweep checks while constructing events and, in batches of 4,096 operations, during event sorting, event traversal and the additional Group peak traversal. The batching keeps the hard limit enforceable during expensive post-ingestion work without adding a timer call to every iteration.
+The runtime allowance protects acquisition, classification and engine work. On MariaDB 10.1.1 or later, Historical CDR acquisition uses `max_statement_time=2`; on MySQL 5.7.8 or later it uses the SELECT-only `max_execution_time=2000`. Acquisition normally starts with non-overlapping six-hour `calldate` ranges with exact inclusive final bounds, streams each statement, and bisects a timed-out range repeatedly down to a one-minute minimum. MariaDB versions without `max_statement_time`, including 5.5.65, keep ordinary Historical available through adaptive acquisition after verifying that `cdr.calldate` is the full leading column of an index; legacy range SELECTs then explicitly use that escaped index name with `FORCE INDEX`. The first range is 15 minutes. A successful query taking at least one second halves the next range; two consecutive queries completing within 250 milliseconds double it. Ranges remain between one minute and six hours and every statement has a preceding worker checkpoint. Fast long-range reports therefore converge to the normal six-hour ceiling instead of issuing one query per minute. No index is added automatically; missing or unavailable index metadata stops the legacy report clearly to avoid repeated full-table scans. This strategy limits submitted work without changing ANSWERED, PJSIP, exclusion, boundary or date semantics, but it is not a query timeout: PHP cannot run cancellation, runtime, memory or PBX Protection checkpoints while one legacy database statement is blocked, and cannot forcibly cancel that in-flight query. Unrelated database errors propagate unchanged. MySQL older than 5.7.8 remains unsupported. Original checks during long occupied-second loops and its later peak scan. Sweep checks during work modelling, construction, sorting and traversal in batches of 4,096 operations.
+
+Every recognized MariaDB/MySQL session also sets `innodb_lock_wait_timeout=2`; this limits InnoDB lock waits rather than total statement execution. Unparseable or unknown database server versions are rejected instead of receiving guessed capabilities. The Historical SQL otherwise assumes the deployed FreePBX CDR schema supports prepared range comparisons, `TIMESTAMPADD`, `BINARY`, `REGEXP` and `LIMIT`. Demo additionally requires `@@datadir`, `@@hostname`, `@@log_bin` and, when binary logging is active, an absolute `@@log_bin_basename`, plus `information_schema.STATISTICS` (`INDEX_NAME`, `SEQ_IN_INDEX`, `COLUMN_NAME`, `SUB_PART`) and `information_schema.TABLES` (`DATA_LENGTH`, `INDEX_LENGTH`, `TABLE_ROWS`). Missing cleanup-index metadata or required filesystem/binlog information makes Demo fail closed; unavailable table-size statistics use the documented conservative estimate.
 
 Original retains its straightforward inclusive per-second result contract but processes timestamp state in aligned 3,600-second windows. Calls crossing a window are clipped to each window's inclusive bounds, compact peak/range summaries are merged across boundaries, and the temporary seconds map is then discarded. This bounds the timestamp dimension of working memory without imposing a new duration cap on Trunk or Extension; Group retains its existing 86,400-second contribution cap. Estimator progress remains actual occupied-second work, not chunks completed.
 
@@ -289,6 +335,8 @@ At calculation checkpoints, Concurrency Count also observes its PHP process allo
 #### Stop and terminal behavior
 
 An active GUI Historical calculation has a cooperative **Stop** control tied to its validated, unique calculation ID. Stop is present only while that calculation is active or stopping; pressing it disables the button, records backend cancellation and lets the shared engine checkpoints stop work cleanly. Aborting the browser request alone is not treated as backend cancellation. After backend cancellation is acknowledged, explicit GUI Stop closes that Historic Report through the normal close path, removing its persisted definition and freeing its slot. Resource-limit, runtime and ordinary calculation failures remain visible and do not automatically close the report. Calculation ID plus browser sequence checks prevent stale or superseded responses from replacing or recreating a newer state.
+
+High impact and projected runtime shortage pause cooperatively inside the active PHP request. **Continue Anyway** resumes the same in-memory calculation and suppresses another advisory for that logical run; hard runtime and memory protection remain active. **Recalculate** retains the calculation ID, runtime origin, allowance and progress, clears ETA confidence and starts a fresh five-minute impact window. Reproduced concern pauses again; a clean reassessment continues automatically. Recalculate is rejected when fewer than five runtime minutes remain. **Reduce Date Range** cancels safely and returns to the report controls; running the changed range starts a fresh workload without replacing an earlier completed result unless the new calculation succeeds.
 
 #### Single active GUI calculation
 
@@ -308,9 +356,9 @@ The CLI traps `SIGINT` (Ctrl+C) and `SIGTERM` when PHP PCNTL asynchronous signal
 
 #### Active calculation telemetry
 
-While a GUI Historical calculation is active or stopping, a temporary panel presents **Stop**, a separate Calculation timing group, and a System resources group. It is absent while idle and disappears after success, failure, runtime abort or cancellation. ETA remains **Estimating...** until reliable, and a positive estimate below one second is shown as **< 1 second** rather than zero. **Excluded Calls** is genuinely disabled while calculation or stopping is active and restored at the terminal outcome.
+While a GUI Historical calculation is active or paused, its temporary panel shows Stop, modelled engine completion, engine, assessment time, estimate confidence, PBX impact, elapsed time, maximum-runtime remaining and estimated time remaining. It remains visible while a decision modal is open. Per-second timer changes are outside the polite live region; only meaningful state changes are announced.
 
-A non-overlapping poll runs every two seconds and reads FreePBX Dashboard's native cached `getSysInfo()` data. **System load (5 min)** is the average number of tasks running or waiting for CPU/resources over that period—not a percentage—and is shown with the number of logical CPUs derived from native phpSysInfo `CpuCore` entries. Memory uses FreePBX application-memory used/total semantics (excluding cache and buffers), native swap used/total is shown when available, and disk represents the root filesystem `/`. Calculation-process memory is intentionally omitted because measuring it in the separate telemetry AJAX process would report the wrong PHP process. Resource values are observational server context only; no resource thresholds or automatic resource-based cancellation were added, and the administrator decides whether to press Stop.
+The actual calculation process publishes its current and peak PHP memory, process CPU time, phase, work and accumulated query timing to server-owned state at a bounded cadence. Optional `/proc` reads add CPU utilisation, logical CPUs, available memory, swap activity, load, I/O wait and Linux pressure data. Missing files or metrics are omitted and never represented as zero. The separate non-overlapping two-second AJAX poll reads that persisted worker state and FreePBX Dashboard context; it never presents its own PHP process as the calculation process.
 
 During an active GUI Historical calculation, elapsed, maximum-runtime and reliable ETA clocks update locally once per second between the two-second backend telemetry synchronizations. Backend telemetry remains authoritative and resource values still change only when an actual telemetry response arrives.
 
@@ -320,7 +368,9 @@ The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` modul
 
 ### Historic Report tabs and persistence
 
-Historical Reports supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse.
+The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse.
+
+For a completed report, **Edit Report** reopens the same configuration with the submitted criteria. Cancelling leaves the displayed result unchanged; **Run Again** replaces it only after the revised calculation completes successfully. The completed result records the global Excluded Calls configuration used, and a rerun stops clearly if that configuration changed outside the normal invalidate-and-regenerate workflow.
 
 A sixth report is rejected without replacing an existing tab. The five-report limit and slot allocation are enforced atomically by the backend as well as presented in the GUI.
 
@@ -330,6 +380,8 @@ Persisted report-definition fields include:
 - mode, engine and selected trunk/extension filter;
 - date preset identity and resolved/custom date information;
 - Include time and its From/To values;
+- Minimum concurrency;
+- Maximum runtime in minutes;
 - active report state where applicable.
 
 Relative presets remain relative: **Last 7 days** is re-resolved against the current date on restore. **Custom** retains exact, valid calendar dates; impossible dates and reversed ranges are rejected.
@@ -349,7 +401,9 @@ Reopening the module restores tab definitions, regenerates the previously active
 
 ### Graphs, call detail and output
 
-Historical graph points retain exact numeric counts, including 1. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+The complete Historical graph is calculated with exact numeric counts. Points below the effective Minimum concurrency floor are presented as gaps, while the actual calculated peak remains unchanged. The X axis always spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+
+Historical series buttons are independent selections. Every available series is selected when a fresh graph result is first rendered. **Select All** restores every available series and **Unselect All** clears the graph until at least one series is selected. Selected series share one generated SVG graph image and report-window axis, with colours distributed deterministically across the complete available-series inventory, a built-in legend and separately identified thresholds. The same finished graph can be exported as SVG, PDF, PNG or JPEG and contains exactly the currently selected series. Single-series filenames use the series name, while multiple-series filenames use a bounded count such as `15-series`.
 
 The detail path is conservative. CDR can prove the selected trunk leg, DID, source/destination and a directly recorded opposite PJSIP extension. Concurrency Count asks installed FreePBX `*_getdestinfo` providers for labels and safe local `config.php` edit links. Unresolved values remain plain text. It does not infer a historic IVR, queue or announcement chain from current configuration.
 
@@ -361,13 +415,16 @@ Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment
 
 ### Excluded Calls
 
-**Exclude Call** creates a reversible module-level exclusion for a safely identified logical call. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
+**Exclude Call** creates a reversible module-level exclusion for one safely identified logical call. **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence as one group. Group members remain individually inspectable and restorable; **Restore Group** restores only the group's still-excluded members, while **Restore all excluded calls** retains its global meaning. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
 
 - Asterisk `linkedid` is preferred. Every row sharing that excluded `linkedid` is removed together.
 - `uniqueid` is the fallback when `linkedid` is unavailable.
 - Similar calls with different logical identities remain independent.
-- **Exclude Call** is available only where a safe logical-call identity exists.
-- **Restore** reverses one exclusion; **Restore All** reverses all exclusions.
+- **Exclude Call** excludes one safely identified logical call and is available only where a safe logical-call identity exists.
+- **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence and records those exclusions as one group.
+- **Restore** reverses one exclusion; restoring one member of a bulk peak group does not restore the others.
+- **Restore Group** restores every still-excluded member of that peak group without affecting unrelated exclusions.
+- **Restore All** reverses all exclusions globally.
 - Demo calls cannot be persistently excluded.
 - A defensive maximum of 5,000 valid exclusions is retained.
 
@@ -420,11 +477,11 @@ Unknown saved channelids are retained but ignored while unavailable, and newly d
 
 ### Live Wall
 
-Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Overall remains primary. Administrators can feature zero to three ordered trunks.
+Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Its persisted Light/Dark choice applies only to Live Wall, using FreePBX-style green accents in both themes. The wall follows the visible viewport with a small inset outside browser fullscreen and reflows its panels and charts after viewport, orientation and fullscreen changes. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
 
-Hidden featured trunks are suppressed without deleting preference. Monitoring-stopped featured trunks still display current data and contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
+Live Wall launch opens **Configure Live Wall** when the saved selection is incomplete. No trunk is selected or substituted automatically, so deleting a selected trunk can require reconfiguration. Hidden featured trunks remain selected but are suppressed from presentation. Monitoring-stopped featured trunks remain valid and display current data. Saved left-to-right order remains authoritative. All configured trunks, including hidden, monitoring-stopped and unfeatured trunks, continue to contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
 
-Launching requests the Fullscreen API when available. Denial leaves the full-page wall active. Browser Esc exits fullscreen but leaves Live Wall active; **Exit Live Wall** returns to Live View.
+An already-valid launch requests the Fullscreen API directly from the launch gesture when available, then revalidates the current inventory; an invalidated selection closes the Wall and opens configuration. A first-time configure-and-save continuation enters the full-page Wall without assuming the earlier gesture can still request fullscreen. Denial leaves the full-page Wall active. **Full Screen** is available whenever Live Wall is active, supported and outside browser fullscreen. Browser Esc exits fullscreen but leaves Live Wall active and makes **Full Screen** available again; **Exit Live Wall** returns to Live View.
 
 Preferences use the FreePBX Core PJSIP trunk `channelid`. Changing a trunk channelid can leave saved visibility, order, feature or monitoring preferences attached to the old identifier; automatic migration is not currently performed.
 
@@ -474,20 +531,32 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 ## Demo
 
-Demo is an administrator/test-PBX accuracy and performance workflow. The GUI generates Light, Medium or Heavy Trunk, Extension or Group fixtures. CLI examples are:
+Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load and uses a cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs. **Save selection** persists only the token, generation, profile, row count and one-day range so the same generation request can be restored without retaining generated CDRs. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the profiles also increase duration, overlap and burst density. Demo Minimum concurrency defaults to 2. CLI examples are:
 
 ```bash
 fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345
 fwconsole concurrencycount --mode=demo --compare=original,sweep
 ```
 
-Demo temporarily inserts deterministic CDR rows tagged with a unique `CCDEMO*` accountcode. It calculates an independent expectation, runs the normal CDR-backed path against those rows, compares results and removes them. It reports rows inserted, removed and remaining.
+Demo uses the server-side `max_statement_time` limit for cleanup `DELETE` statements on MariaDB 10.1.1 or later. Legacy MariaDB, including 5.5.65, requires the actual CDR table to use InnoDB and uses exact-tag batches of at most 100 rows with conservative row and metadata lock waits and the same five-minute application cleanup deadline; an unknown or different storage engine fails before cleanup or synthetic writes. MySQL `max_execution_time` protects SELECT statements only, so Demo remains unavailable on supported MySQL while ordinary Historical remains available. Before stale recovery or any exact cleanup DELETE, Demo verifies from `information_schema.STATISTICS` that the CDR table has an index whose leading column is `accountcode`. This makes exact reserved-accountcode cleanup use an identifiable access path; absent, non-leading, insufficient-prefix or unavailable index metadata fails closed without changing the CDR schema or writing synthetic rows. For a new run, that access-path check precedes stale recovery; the separate disk/binlog capacity check then determines whether new rows may be inserted. Demo reads the MariaDB data directory and verifies its local backing filesystem. Its estimate uses four times the CDR table's allocated bytes per reported row for indexes, page churn and approximate table statistics and never falls below 16 KiB per requested row. When binary logging is enabled, Demo resolves `@@log_bin_basename`; the same filesystem receives another row allowance, while a separate binary-log filesystem receives its own requirement and larger-of-1-GiB-or-20% reserve. An unavailable binary-log location fails closed. Missing, remote or invalid filesystem information also fails closed. The GUI shows requested rows, estimated need, free space, reserve and safely available space before asking to run.
+
+After preflight, Demo inserts deterministic CDR rows tagged with a unique `CCDEMO*` accountcode in bounded groups with cancellation and resource checkpoints every 100 rows. It rechecks filesystem headroom between groups and aborts if remaining safety or actual growth invalidates the plan. The completed result reports generated, inserted, audited, removed and remaining counts, verifies those totals against one another, and shows the generated traffic mix and synthetic-traffic-engine provenance. Only the first 100-row synthetic-call audit page is carried in the completed result; later detail pages are retrieved from a short-lived authenticated server spool in batches of at most 100. Audit rows become eligible only after their database transaction commits, and failed or cancelled runs discard their audit spool rather than retaining partial detail.
+
+Demo then uses the same five-minute progress, ETA, PBX impact, pause, reassessment and runtime framework as Historical. Cleanup runs in `finally`, deletes by the unique tag and verifies zero remaining rows after success, Stop, cancellation, runtime/resource/disk failure or ordinary exceptions. Mandatory cleanup does not reuse the calculation's terminal cancellation, runtime or memory checkpoint; it has a separate monotonic five-minute housekeeping allowance, a bounded 330-second PHP execution-time backstop, the verified exact indexed access path, bounded adaptive batches and database lock/statement protections. Its registry heartbeat remains active throughout housekeeping so concurrent recovery does not treat it as stale. Successful cleanup removes the registry afterwards; a genuine cleanup failure retains it for recovery after five minutes without a heartbeat.
+
+Concurrency Count bundles the side-effect-free CDRgen 1.1.0 generation core from exact upstream revision `e8f45d82163b081196efb82219751ce66b65cca4` under `lib/cdrgen/`. `Services/CdrgenAdapter.php` is the only integration boundary and requests PJSIP-only traffic. CDRgen generates synthetic traffic; Original and Sweep remain Concurrency Count calculation engines. The module retains ownership of inventory adaptation, CDR schema mapping, insertion, calculation, preflight and cleanup.
+
+Demo generation starts from the authoritative configured PJSIP trunk and device inventories used by the rest of Concurrency Count, supplementing the extension side with isolated synthetic fallback identities only when too few configured extensions are available to generate meaningful mixed traffic. Configured numeric trunks remain trunks even when their channelids look like extension numbers, configured extensions beginning with 1 or 9 remain extensions, and unknown numeric-looking endpoints are not promoted by number shape alone. The expected-value oracle uses the exact Demo inventory supplied to generation and derives topology independently from observable `channel` and `dstchannel` legs; it does not trust CDRgen's generated direction or helper metadata when checking engine accuracy.
+
+To upgrade CDRgen, select and review an upstream release, replace the bundled core, update its import revision and hashes, run upstream and adapter compatibility tests plus the full regression suite, inspect the complete diff, and smoke-test representative PBXs before release.
+
+Demo is a capacity assessment of this Historical/CDR processing workload on this PBX. Its summary includes only measurements obtained reliably. It does not test maximum simultaneous voice-call capacity.
 
 Omitted Demo arguments retain their documented defaults. Explicit invalid Demo report modes, sizes or comparison-engine values are rejected rather than silently replaced; Original remains the default comparison engine and Sweep remains experimental.
 
-Cleanup runs in `finally` and is verified after a normal run, but is best-effort: a fatal error, server kill, database interruption or host crash could leave tagged rows. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
+`CCDEMO` followed by exactly eight lowercase hexadecimal characters is reserved for synthetic rows and is always excluded from ordinary Historical SQL and post-fetch processing. Cleanup runs in `finally`; it halves timed-out exact-tag delete batches from 1,000 rows and treats a successful batch shorter than its limit as verified exhaustion, avoiding a second full-table `COUNT(*)` scan. MariaDB `max_statement_time` covers cleanup statements. MySQL Demo is unavailable because `max_execution_time` does not cover `DELETE`; bounded batches and the two-second InnoDB lock-wait limit are retained as additional protections but are not treated as execution deadlines. A durable registry heartbeat is refreshed during an active Demo. Before each later Demo preflight or run, registry entries inactive for five minutes are recovered after fatal error, server kill, database interruption or host crash. A failed recovery remains registered for a later retry. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
 
-Demo lacks a dedicated FreePBX permission or feature flag. Treat it as an administrator/test-PBX feature until that gate and an orphan-cleanup command exist.
+Demo lacks a dedicated FreePBX permission or feature flag. Treat it as an administrator/test-PBX feature.
 
 ## Architecture at a glance
 
@@ -516,17 +585,37 @@ This is a pre-production checklist, not a claim that these checks have been comp
 
 ### Historical
 
+- Complete a small report before five minutes and confirm progress reaches 100% while ETA remains Calculating until completion.
+- Run a report longer than five minutes; confirm visible monotonic progress, the full five-minute ETA gate, and a High-confidence ETA only after stable evidence.
+- Create sustained High impact and confirm cooperative pause, Continue Anyway with no repeated advisory, Stop while paused, and hard memory/runtime protection after continuation.
+- Create an unrelated temporary load spike, choose Recalculate, and confirm work/progress/runtime origin survive; test both a clean reassessment that continues and repeated concern that pauses again.
+- Increase a paused run from 60 minutes, confirm maximum runtime remaining changes without elapsed reset, and reject values above 1,440 minutes.
+- Choose Reduce Date Range, alter the range and rerun; confirm a fresh calculation ID, progress and assessment while the report's configured Maximum runtime is retained and any earlier completed result remains until success.
+- Stop while running and paused; refresh and close the browser while paused; confirm ownership lease cleanup and that no partial result replaces a completed result.
+- Exercise Asterisk restart and unrelated system activity during calculation where applicable, plus the PHP memory guard.
+- Run safe and unsafe Demo preflights. Confirm unsafe preflight inserts zero rows, including with the database filesystem nearly full in a controlled test environment.
+- On legacy MariaDB 5.5.65 with an InnoDB CDR table and suitable `accountcode` index, run Demo through generation, calculation and cleanup; confirm bounded cleanup completes with zero `CCDEMO*` rows and no unsupported `@@log_bin_basename` access when binary logging does not require it.
+- Run Light, Medium and Heavy Demo profiles and confirm they request exactly 1,000, 5,000 and 20,000 calls over one day. Save and restore a scenario, rerun it, and confirm its scenario/dataset identity remains deterministic.
+- Run a Medium or Heavy GUI Demo to completion, inspect traffic mix and integrity totals, open the synthetic-call audit, fetch at least page 2, and confirm each audit page contains at most 100 calls.
+- Cancel and abandon Demo during insertion and calculation, and confirm verified zero `CCDEMO*` rows and no retained partial audit spool. Run a large Demo workload and inspect the capacity-assessment summary.
+- Run CLI Demo twice with the same explicit `--demo-seed` and confirm deterministic scenario generation remains compatible with the legacy CLI option.
+- Test a host where one or more procfs metrics are unavailable and confirm omitted values do not appear as zero or stop the calculation.
 - A normal outbound extension call.
 - A numeric configured PJSIP trunk and alphanumeric configured PJSIP device.
+- Configured extensions beginning with 1 and 9, including inbound, outbound and internal traffic, and confirm number shape does not change their authoritative role.
 - Existing or synthetic CDRs with dialled `dst` values 999, 911, 111 and another 1XX; do not place unsafe calls merely to create data.
 - An unknown/deleted endpoint; Treat as Trunk, Treat as Extension, Ignore, reset one and reset all.
 - Authoritative configuration superseding an override, and a trunk/device collision remaining a conflict.
 - Peak 0, peak 1 Activity only and peak 2+ concurrency in all three modes.
 - Activity-only Trunk occurrences, lazy detail, CDR Reports and Exclude Call.
-- Exclude, Restore and Restore All, including multiple rows sharing one `linkedid` and an independent similar call.
+- Exclude one call and Restore it, including multiple rows sharing one `linkedid` and an independent similar call.
+- On a displayed Trunk peak, use **Exclude All**, confirm every eligible contributing logical call is grouped and the report regenerates, restore one member individually, then use **Restore Group** and confirm only the remaining members of that group return.
+- Confirm stale Exclude All state is rejected if the global exclusion configuration changes before submission, and **Restore All** retains its global meaning.
 - Source CDR removal after exclusion, retaining summary with relevance unavailable.
 - Multiple Historic Report tabs, stable names/IDs, relative and Custom restoration, and lazy regeneration.
 - Exclusion/classification changes causing recalculation and the expected presentation transition.
+- Exercise a multi-series Historical graph: confirm all available series begin selected, individual selection and Select All/Unselect All update the one shared graph, colours remain stable for the same complete inventory, thresholds remain associated with the correct series, and the X axis stays fixed to the report window.
+- Export the same selected graph as SVG, PDF, PNG and JPEG; confirm each export contains exactly the selected series and that single-series and large multi-series filenames remain sensible and bounded.
 - Start a Historical calculation and confirm every other report tab, Start Historical Report, Live View and Live Wall entry are disabled while Stop remains usable; let it complete and confirm all controls unlock with the completed report still selected.
 - Repeat and navigate to another FreePBX module; confirm navigation is not blocked and the calculation stops shortly afterward without a generic AJAX warning.
 - Repeat with page refresh, then immediately try another run; confirm admission reports the previous calculation still stopping and no duplicate engine job survives.
@@ -551,6 +640,8 @@ This is a pre-production checklist, not a claim that these checks have been comp
 
 - Desktop, tablet and approximately 320px layouts.
 - Keyboard operation and visible focus for tabs, date controls, Activity only, occurrences, call actions, trunk ordering, modals and Live Wall exit.
+- Switch Live Wall between Light and Dark and confirm the preference survives reload without affecting the normal FreePBX/PBXact theme.
+- Exercise Live Wall outside browser fullscreen, in browser fullscreen, after Esc, after resize and after orientation/viewport changes; confirm the normal inset remains visible outside fullscreen, fullscreen uses the complete viewport, and charts/panels reflow without clipping.
 - Screen-reader names and expanded state for disclosures.
 
 ## Tests
@@ -561,31 +652,53 @@ Standalone tests and contracts include:
 php tests/AlertMonitorCoordinatorTest.php
 php tests/AlertOutboxServiceTest.php
 php tests/AmiChannelSourceTest.php
+php tests/CdrgenAdapterTest.php
+php tests/CdrgenBundleIntegrityTest.php
 php tests/CliCancellationControlTest.php
+php tests/DemoCleanupServiceTest.php
+php tests/DemoDiskGuardTest.php
+php tests/DemoExpectedTrafficTest.php
+php tests/DemoLegacyPreflightTest.php
+php tests/DemoSyntheticCallCollectionTest.php
+php tests/DemoTerminalCleanupTest.php
 php tests/EngineParityTest.php
 php tests/EngineRuntimeCheckpointTest.php
 php tests/FreepbxEntityResolverTest.php
+php tests/HistoricalAssessmentTest.php
 php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalCallExclusionServiceTest.php
+php tests/HistoricalCdrAcquisitionTest.php
+php tests/HistoricalDatabaseCapabilitiesTest.php
 php tests/HistoricalEndpointFilterServiceTest.php
+php tests/HistoricalFloorOutputTest.php
+php tests/HistoricalImpactAssessmentTest.php
 php tests/HistoricalMemoryGuardTest.php
+php tests/HistoricalNoControllerTest.php
 php tests/HistoricalReportsServiceTest.php
+php tests/HistoricalResultFloorTest.php
 php tests/HistoricalRuntimeEstimatorTest.php
+php tests/HistoricalTelemetryCadenceTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
+php tests/OriginalMemoryBenchmarkTest.php
+php tests/OriginalWindowingTest.php
 php tests/PeakDetailAnalyserTest.php
 php tests/PjsipIdentityServiceTest.php
-php tests/OriginalWindowingTest.php
-php tests/OriginalMemoryBenchmarkTest.php
 php tests/SettingsRepositoryTest.php
 php tests/SystemResourceTelemetryTest.php
 php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
+node tests/ConcurrencyChartLifecycleTest.js
 node tests/DateRangeTest.js
+node tests/DemoScenarioTest.js
+node tests/HistoricalGraphExportTest.js
 node tests/HistoricalRunStateTest.js
+node tests/HistoricalSvgChartTest.js
 node tests/TelemetryFormatTest.js
 ```
+
+The release suite also runs any additional PHP and JavaScript test files present under `tests/`; the list above highlights the standalone contracts and the principal regression suites documented for this release.
 
 Source checks include:
 
@@ -594,7 +707,10 @@ node --check assets/js/concurrencycount.js
 node --check assets/js/live-view.js
 node --check assets/js/date-range.js
 node --check assets/js/concurrency-charts.js
+node --check assets/js/demo-scenario.js
+node --check assets/js/historical-graph-export.js
 node --check assets/js/historical-run-state.js
+node --check assets/js/historical-svg-chart.js
 node --check assets/js/telemetry-format.js
 find . -path './.git' -prune -o -type f -name '*.php' -print | while IFS= read -r file; do php -l "$file"; done
 git diff --check
@@ -643,7 +759,7 @@ AI assistance used for code, review, testing or documentation must be disclosed 
 Assisted-by: AGENT_NAME:MODEL_VERSION
 ```
 
-For example: `Assisted-by: OpenAI-Codex:gpt-5.6-sol`
+For example: `Assisted-by: Codex:gpt-5.6-sol`
 
 The human contributor remains solely responsible. AI tools must not be listed as co-authors.
 

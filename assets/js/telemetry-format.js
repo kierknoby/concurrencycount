@@ -15,7 +15,7 @@
 
 	function eta(reliable, seconds) {
 		seconds = Number(seconds);
-		if (!reliable || !isFinite(seconds) || seconds < 0) return 'Estimating...';
+		if (!reliable || !isFinite(seconds) || seconds < 0) return 'Calculating...';
 		if (seconds < 1) return '< 1 second';
 		return duration(seconds);
 	}
@@ -34,7 +34,8 @@
 			elapsed: elapsed + delta,
 			runtimeRemaining: Math.max(0, runtime - delta),
 			etaReliable: !!state.etaReliable,
-			etaRemaining: state.etaReliable ? Math.max(0, estimated - delta) : null
+			etaRemaining: state.etaReliable ? Math.max(0, estimated - delta) : null,
+			runtimeAllowance: Number(state.runtimeAllowance) || 3600
 		};
 	}
 
@@ -53,6 +54,7 @@
 			runtimeRemaining: Math.max(0, backendRuntime),
 			etaReliable: reliable,
 			etaRemaining: reliable ? backendEta : null,
+			runtimeAllowance: Number(telemetry.runtime_allowance_seconds) || (current ? current.runtimeAllowance : 3600),
 			syncedAt: Number(now)
 		};
 	}

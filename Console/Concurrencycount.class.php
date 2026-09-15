@@ -35,6 +35,7 @@ class Concurrencycount extends Command {
 			->addOption('demo-seed', null, InputOption::VALUE_REQUIRED, 'Demo random seed', '0')
 			->addOption('engine', null, InputOption::VALUE_REQUIRED, 'Engine: original (default), sweep, ...', 'original')
 			->addOption('compare', null, InputOption::VALUE_REQUIRED, 'Demo mode only: comma-separated engine list to compare')
+			->addOption('minimum-concurrency', null, InputOption::VALUE_REQUIRED, 'Only show detailed results at or above this concurrency; blank shows all')
 			->addOption('csv', null, InputOption::VALUE_NONE, 'Output CSV instead of formatted text')
 			->addOption('live', null, InputOption::VALUE_NONE, 'Show one current AMI live-status snapshot and exit')
 			->addOption('settings', null, InputOption::VALUE_NONE, 'Show Live View, monitoring and threshold settings')
@@ -70,6 +71,7 @@ class Concurrencycount extends Command {
 		$demo_seed = $input->getOption('demo-seed');
 		$engine = $input->getOption('engine');
 		$compare = $input->getOption('compare');
+		$minimum_concurrency = $input->getOption('minimum-concurrency');
 		$csv = $input->getOption('csv');
 
 		$cc = \FreePBX::Concurrencycount();
@@ -107,6 +109,7 @@ class Concurrencycount extends Command {
 				'demo_seed' => $demo_seed,
 				'engine' => $engine,
 				'demo_engines' => ($mode === 'demo' && $compare) ? explode(',', $compare) : [$engine],
+				'minimum_concurrency' => $minimum_concurrency,
 				'cancellation_check' => function () use ($cliCancellation): bool { return $cliCancellation->isInterrupted(); },
 			]);
 		} catch (HistoricalCalculationCancelled $cancelled) {
@@ -136,6 +139,7 @@ class Concurrencycount extends Command {
 			$output->writeln('Engine:         ' . $results['engine']);
 		}
 		$output->writeln('Rows processed: ' . $results['rows_processed']);
+		if (isset($results['minimum_concurrency']) && $results['minimum_concurrency'] !== null) $output->writeln('Minimum concurrency: ' . $results['minimum_concurrency']);
 		$output->writeln('');
 
 		if (!empty($results['empty_message'])) {
@@ -146,7 +150,7 @@ class Concurrencycount extends Command {
 
 		if ($results['mode'] === 'demo') {
 			$output->writeln('Demo report:    ' . ucfirst($results['demo_report']));
-			$output->writeln('Demo seed:      ' . $results['demo_seed']);
+			$output->writeln(!empty($results['demo_seed']) ? 'Demo seed:      ' . $results['demo_seed'] : 'Demo scenario:  ' . $results['demo_scenario']);
 			$output->writeln('Accuracy:       ' . strtoupper($results['accuracy_status']));
 			$output->writeln('Rows removed:   ' . $results['rows_removed']);
 			$output->writeln('Rows remaining: ' . $results['cleanup_remaining']);
@@ -203,6 +207,10 @@ class Concurrencycount extends Command {
 			}
 			$output->writeln('');
 			$output->writeln('<info>Global maximum: ' . $results['global_max'] . '</info>');
+		}
+		if (!empty($results['floor_notice'])) {
+			$output->writeln('');
+			$output->writeln('<comment>' . $results['floor_notice'] . '</comment>');
 		}
 
 		$output->writeln('');
@@ -369,7 +377,7 @@ class Concurrencycount extends Command {
 				return 1;
 			}
 			try {
-				$result = $cc->getHistoricalGraph($input->getOption('historical-graph'), $start, $end, (string)$input->getOption('graph-trunk'));
+				$result = $cc->getHistoricalGraph($input->getOption('historical-graph'), $start, $end, (string)$input->getOption('graph-trunk'), $input->getOption('minimum-concurrency'));
 				$this->writeStructured($output, $result, $json, 'Historical graph');
 				return 0;
 			} catch (\Exception $exception) {
@@ -480,14 +488,14 @@ class Concurrencycount extends Command {
 	private function demoPlan(int $seed, string $size): array {
 		$seed = $seed ?: time();
 		$size = in_array($size, ['light', 'medium', 'heavy'], true) ? $size : 'light';
-		$hours = ['light' => 1, 'medium' => 3, 'heavy' => 6];
+		$days = ['light' => 1, 'medium' => 1, 'heavy' => 1];
 		$dayOffset = (int)(floor($seed / 7) % 365);
 		$hour = 8 + (int)(floor($seed / 13) % 8);
 		$minute = (int)(floor($seed / 17) % 4) * 15;
 		$start = mktime($hour, $minute, 0, 1, 1 + $dayOffset, 2001);
 		return [
 			'start' => date('Y-m-d H:i:s', $start),
-			'end' => date('Y-m-d H:i:s', $start + ($hours[$size] * 3600)),
+			'end' => date('Y-m-d H:i:s', $start + ($days[$size] * 86400)),
 		];
 	}
 

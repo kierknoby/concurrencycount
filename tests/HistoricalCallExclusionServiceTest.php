@@ -41,6 +41,23 @@ $three = $service->exclude($three, 'linkedid:b', [], 2);
 $three = $service->exclude($three, 'linkedid:c', [], 3);
 exclusion_assert([], $service->repair([]), 'Restore All target is an empty exclusion set');
 
+$groupId = '0123456789abcdef0123456789abcdef';
+$grouped = $service->excludeGroup([], [
+	['identity' => 'linkedid:call-a', 'summary' => ['src' => '201']],
+	['identity' => 'linkedid:call-a', 'summary' => ['src' => 'duplicate']],
+	['identity' => 'linkedid:call-b', 'summary' => ['src' => '202']],
+], $groupId, ['trunk' => 'TRUNK', 'occurrence_from' => '2026-08-27 10:00:00', 'occurrence_to' => '2026-08-27 10:01:00'], 3000);
+exclusion_assert(2, count($grouped), 'Bulk peak exclusion deduplicates authoritative call identities');
+exclusion_assert($groupId, $grouped['linkedid:call-a']['group_id'], 'Bulk relationship is persisted with an opaque group id');
+$partial = $service->restore($grouped, 'linkedid:call-a');
+exclusion_assert(true, isset($partial['linkedid:call-b']), 'Individual restore leaves other group members excluded');
+exclusion_assert([], $service->restoreGroup($partial, $groupId), 'Restore Group removes every still-excluded group member');
+$unrelated = $service->exclude($grouped, 'linkedid:unrelated', [], 3001);
+$restoredGroup = $service->restoreGroup($unrelated, $groupId);
+exclusion_assert(true, isset($restoredGroup['linkedid:unrelated']), 'Restore Group cannot affect unrelated exclusions');
+$legacy = $service->repair(['linkedid:legacy' => ['excluded_at' => 1, 'summary' => ['src' => '100']]]);
+exclusion_assert(false, isset($legacy['linkedid:legacy']['group_id']), 'Legacy exclusions remain valid and ungrouped');
+
 $overLimit = [];
 for ($index = 0; $index < HistoricalCallExclusionService::MAX_EXCLUSIONS + 1; $index++) {
 	$overLimit['linkedid:repair-' . $index] = ['excluded_at' => $index, 'summary' => []];

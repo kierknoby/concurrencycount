@@ -15,6 +15,10 @@ class HistoricalCallExclusionService {
 			if (count($out) >= self::MAX_EXCLUSIONS) break;
 			$summary = isset($entry['summary']) && is_array($entry['summary']) ? $this->normaliseSummary($entry['summary']) : [];
 			$out[$identity] = ['excluded_at' => isset($entry['excluded_at']) ? max(0, (int)$entry['excluded_at']) : 0, 'summary' => $summary];
+			if (isset($entry['group_id']) && $this->isValidGroupId($entry['group_id'])) {
+				$out[$identity]['group_id'] = strtolower((string)$entry['group_id']);
+				$out[$identity]['group_context'] = $this->normaliseGroupContext(isset($entry['group_context']) && is_array($entry['group_context']) ? $entry['group_context'] : []);
+			}
 		}
 		return $out;
 	}
@@ -54,13 +58,47 @@ class HistoricalCallExclusionService {
 		return $stored;
 	}
 
-	public function filterRows(array $rows, array $stored): array {
+	public function excludeGroup(array $stored, array $calls, string $groupId, array $context, ?int $now = null): array {
+		$stored = $this->repair($stored);
+		if (!$this->isValidGroupId($groupId)) throw new \InvalidArgumentException('Invalid historical exclusion group id.');
+		$unique = [];
+		foreach ($calls as $call) {
+			if (!is_array($call) || !isset($call['identity'])) continue;
+			$identity = $this->validateIdentity($call['identity']);
+			if (!isset($unique[$identity])) $unique[$identity] = isset($call['summary']) && is_array($call['summary']) ? $call['summary'] : [];
+		}
+		$newCount = count(array_diff_key($unique, $stored));
+		if (count($stored) + $newCount > self::MAX_EXCLUSIONS) throw new \RuntimeException('Historical call exclusion limit reached. Restore unused exclusions before adding more.');
+		foreach ($unique as $identity => $summary) {
+			if (isset($stored[$identity])) continue;
+			$stored[$identity] = [
+				'excluded_at' => $now === null ? time() : $now,
+				'summary' => $this->normaliseSummary($summary),
+				'group_id' => strtolower($groupId),
+				'group_context' => $this->normaliseGroupContext($context),
+			];
+		}
+		return $stored;
+	}
+
+	public function restoreGroup(array $stored, string $groupId): array {
+		$stored = $this->repair($stored);
+		if (!$this->isValidGroupId($groupId)) throw new \InvalidArgumentException('Invalid historical exclusion group id.');
+		$groupId = strtolower($groupId);
+		foreach ($stored as $identity => $entry) if (isset($entry['group_id']) && hash_equals($groupId, $entry['group_id'])) unset($stored[$identity]);
+		return $stored;
+	}
+
+	public function filterRows(array $rows, array $stored, ?callable $checkpoint = null): array {
 		$stored = $this->repair($stored);
 		if (empty($stored)) return $rows;
-		return array_values(array_filter($rows, function (array $row) use ($stored): bool {
+		$out = [];
+		foreach ($rows as $index => $row) {
+			if ($checkpoint !== null && ($index % 256) === 0) call_user_func($checkpoint, $index, count($rows));
 			$identity = $this->identityForRow($row);
-			return $identity === null || !isset($stored[$identity]);
-		}));
+			if ($identity === null || !isset($stored[$identity])) $out[] = $row;
+		}
+		return $out;
 	}
 
 	private function normaliseSummary(array $summary): array {
@@ -78,6 +116,19 @@ class HistoricalCallExclusionService {
 			if ($channel !== '' && strlen($channel) <= 255 && !preg_match('/[\x00-\x1F\x7F]/', $channel) && !in_array($channel, $out['channels'], true)) $out['channels'][] = $channel;
 		}
 		return $out;
+	}
+
+	private function normaliseGroupContext(array $context): array {
+		$out = [];
+		foreach (['trunk', 'occurrence_from', 'occurrence_to'] as $field) {
+			$value = trim((string)($context[$field] ?? ''));
+			if ($value !== '' && strlen($value) <= 255 && !preg_match('/[\x00-\x1F\x7F]/', $value)) $out[$field] = $value;
+		}
+		return $out;
+	}
+
+	private function isValidGroupId($groupId): bool {
+		return is_string($groupId) && (bool)preg_match('/^[0-9a-f]{32}$/i', $groupId);
 	}
 
 	private function isValidIdentity(string $identity): bool {

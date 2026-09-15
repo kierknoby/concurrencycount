@@ -3,11 +3,13 @@
 require_once __DIR__ . '/../Services/LiveSnapshotService.php';
 require_once __DIR__ . '/../Services/ThresholdService.php';
 require_once __DIR__ . '/../Services/HistoricalGraphService.php';
+require_once __DIR__ . '/../Services/HistoricalResultFloor.php';
 require_once __DIR__ . '/../Services/PjsipIdentityService.php';
 
 use FreePBX\modules\Concurrencycount\Services\LiveSnapshotService;
 use FreePBX\modules\Concurrencycount\Services\ThresholdService;
 use FreePBX\modules\Concurrencycount\Services\HistoricalGraphService;
+use FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor;
 use FreePBX\modules\Concurrencycount\Services\PjsipIdentityService;
 
 function live_identity(array $trunks, array $devices = [], array $overrides = []): PjsipIdentityService {
@@ -152,6 +154,23 @@ live_assert_same(1, $authoritativeShapes['trunks']['custom-gateway']['current'],
 live_assert_same([], $authoritativeShapes['identity_anomalies'], 'Ignored endpoint is excluded without repeated anomaly');
 
 $thresholds = new ThresholdService();
+$zeroWall = $thresholds->validateFeaturedSelection([], []);
+live_assert_same(true, $zeroWall['complete'], 'No configured trunks permits an Overall-only 0/0 Live Wall');
+foreach ([1, 2, 3, 7] as $inventoryCount) {
+	$inventory = array_slice(['one', 'two', 'three', 'four', 'five', 'six', 'seven'], 0, $inventoryCount);
+	$required = min(3, $inventoryCount);
+	$partial = $thresholds->validateFeaturedSelection(array_slice($inventory, 0, max(0, $required - 1)), $inventory);
+	$complete = $thresholds->validateFeaturedSelection(array_slice($inventory, 0, $required), $inventory);
+	live_assert_same(false, $partial['complete'], 'Partial featured selection must be incomplete for inventory ' . $inventoryCount);
+	live_assert_same(true, $complete['complete'], 'Required featured selection must be complete for inventory ' . $inventoryCount);
+}
+$orderedWall = $thresholds->validateFeaturedSelection(['three', 'one', 'two'], ['one', 'two', 'three', 'four', 'five', 'six', 'seven']);
+live_assert_same(['three', 'one', 'two'], $orderedWall['valid'], 'Featured selection validation preserves left-to-right channelid order');
+$deletedWall = $thresholds->validateFeaturedSelection(['three', 'one', 'two'], ['one', 'two', 'four', 'five', 'six', 'seven']);
+live_assert_same(['one', 'two'], $deletedWall['valid'], 'Deleted featured trunk is removed without an automatic substitute');
+$staleExtraWall = $thresholds->validateFeaturedSelection(['one', 'deleted'], ['one']);
+live_assert_same(true, $staleExtraWall['complete'], 'Launch validity counts only configured saved trunks');
+live_assert_same(false, $staleExtraWall['exact'], 'Configuration persistence rejects extra stale trunk identifiers');
 $defaults = $thresholds->defaults();
 live_assert_same(5, $defaults['refresh_interval'], 'Default browser refresh interval');
 live_assert_same(false, $defaults['alerts_enabled'], 'Alerts disabled by default');
@@ -159,6 +178,9 @@ live_assert_same(true, $defaults['recovery_enabled'], 'Recovery enabled by defau
 live_assert_same([], $defaults['hidden_trunks'], 'Hidden trunks default empty');
 live_assert_same([], $defaults['trunk_order'], 'Trunk order defaults empty before inventory reconciliation');
 live_assert_same([], $defaults['live_wall_featured_trunks'], 'Live Wall featured trunks default empty');
+live_assert_same('dark', $defaults['live_wall_theme'], 'Live Wall theme defaults to dark');
+live_assert_same('light', $thresholds->normalise(['live_wall_theme' => 'light'], [])['live_wall_theme'], 'Light Live Wall preference is persisted through settings normalisation');
+live_assert_same('dark', $thresholds->reconcileStored(['live_wall_theme' => 'invalid'], [])['live_wall_theme'], 'Invalid stored Live Wall themes reconcile safely to dark');
 $config = $thresholds->normalise([
 	'refresh_interval' => 1,
 	'alerts_enabled' => 'on',
@@ -313,6 +335,8 @@ $trunkGraph = $graphs->trunkSeries([
 ], ['gamma', 'gamma-backup'], '2026-08-26 10:00:00', '2026-08-26 10:01:00');
 live_assert_same(2, $trunkGraph['series']['gamma']['exact_peak'], 'Historical trunk exact peak');
 live_assert_same('exact_events', $trunkGraph['series']['gamma']['display_resolution'], 'Short historical graph uses exact events');
+live_assert_same(strtotime('2026-08-26 10:00:00'), $trunkGraph['start_ts'], 'Historical graph exposes the selected window start as Unix seconds');
+live_assert_same(strtotime('2026-08-26 10:01:00'), $trunkGraph['end_ts'], 'Historical graph exposes the selected window end as Unix seconds');
 $overallGraph = $graphs->overallSeries([
 	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'extension_legs' => 2],
 	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'extension_legs' => 1],
@@ -346,5 +370,80 @@ $aggregated = $graphs->trunkSeries($manyRows, ['gamma'], '2026-01-01 00:00:00', 
 live_assert_same('bucket_maxima', $aggregated['series']['gamma']['display_resolution'], 'Large historical graph aggregates display points');
 live_assert_same(1, $aggregated['series']['gamma']['exact_peak'], 'Display aggregation preserves exact peak');
 live_assert_same(true, count($aggregated['series']['gamma']['points']) <= HistoricalGraphService::MAX_DISPLAY_POINTS, 'Display points are bounded');
+live_assert_same(strtotime('2026-01-01 00:00:00'), $aggregated['start_ts'], 'Aggregation cannot replace the selected X-domain start');
+live_assert_same(strtotime('2026-01-02 00:00:00'), $aggregated['end_ts'], 'Aggregation cannot replace the selected X-domain end');
+
+$longRangeRows = [];
+$longRangeStart = strtotime('2025-01-01 00:00:00');
+for ($index = 0; $index < 650; $index++) {
+	$calldate = date('Y-m-d H:i:s', $longRangeStart + ($index * 40000));
+	$legs = $index % 32 === 0 ? 5 : 1;
+	for ($leg = 0; $leg < $legs; $leg++) {
+		$longRangeRows[] = ['calldate' => $calldate, 'duration' => 60, 'identity' => 'gamma'];
+	}
+}
+$longRangeFloor = $graphs->trunkSeries(
+	$longRangeRows,
+	['gamma'],
+	'2025-01-01 00:00:00',
+	'2025-12-31 23:59:59',
+	5
+);
+$longRangeFloor = (new HistoricalResultFloor())->applyGraph($longRangeFloor, 5);
+$floorPoints = $longRangeFloor['series']['gamma']['points'];
+$hasHiddenPoint = false;
+foreach ($floorPoints as $point) {
+	if ($point['value'] === null) {
+		$hasHiddenPoint = true;
+		continue;
+	}
+	live_assert_same(true, (int)$point['value'] >= 5, 'Long-range floor hides every below-floor event transition');
+}
+live_assert_same('floor_events', $longRangeFloor['series']['gamma']['display_resolution'], 'Long-range floor uses exact floor-relevant event transitions when they fit');
+live_assert_same(5, $longRangeFloor['series']['gamma']['exact_peak'], 'Long-range floor leaves the exact calculated peak unchanged');
+live_assert_same(true, $hasHiddenPoint, 'Long-range floor retains null gaps for below-floor activity');
+live_assert_same($longRangeStart, $floorPoints[0]['ts'], 'First qualifying interval retains its real start timestamp');
+live_assert_same(5, $floorPoints[0]['value'], 'First qualifying interval retains its real value');
+live_assert_same($longRangeStart + 61, $floorPoints[1]['ts'], 'A 60-second qualifying interval ends at its real inclusive-second boundary');
+live_assert_same(null, $floorPoints[1]['value'], 'The real end of the first qualifying interval becomes a null gap');
+$secondQualifyingStart = $longRangeStart + (32 * 40000);
+live_assert_same($secondQualifyingStart, $floorPoints[2]['ts'], 'A separated qualifying interval retains its own real start timestamp');
+live_assert_same($secondQualifyingStart + 61, $floorPoints[3]['ts'], 'A separated qualifying interval retains its own real end timestamp');
+live_assert_same(null, $floorPoints[3]['value'], 'Separated qualifying intervals remain divided by null gaps');
+live_assert_same(true, count($floorPoints) <= HistoricalGraphService::MAX_DISPLAY_POINTS, 'Floor-aware aggregation remains within the display-point limit');
+live_assert_same(strtotime('2025-01-01 00:00:00'), $longRangeFloor['start_ts'], 'Floor-aware aggregation preserves the selected X-domain start');
+live_assert_same(strtotime('2025-12-31 23:59:59'), $longRangeFloor['end_ts'], 'Floor-aware aggregation preserves the selected X-domain end');
+
+$denseFloorRows = [];
+$denseStarts = [];
+$denseEnds = [];
+for ($index = 0; $index < 650; $index++) {
+	$timestamp = $longRangeStart + ($index * 40000);
+	$denseStarts[$timestamp] = true;
+	$denseEnds[$timestamp + 61] = true;
+	for ($leg = 0; $leg < 5; $leg++) {
+		$denseFloorRows[] = ['calldate' => date('Y-m-d H:i:s', $timestamp), 'duration' => 60, 'identity' => 'gamma'];
+	}
+}
+$denseFloor = $graphs->trunkSeries($denseFloorRows, ['gamma'], '2025-01-01 00:00:00', '2025-12-31 23:59:59', 5);
+$denseFloor = (new HistoricalResultFloor())->applyGraph($denseFloor, 5);
+live_assert_same('floor_events_sampled', $denseFloor['series']['gamma']['display_resolution'], 'Excess floor-relevant runs use boundary-preserving sampling');
+live_assert_same(5, $denseFloor['series']['gamma']['exact_peak'], 'Boundary-preserving sampling leaves the exact peak unchanged');
+live_assert_same(true, count($denseFloor['series']['gamma']['points']) <= HistoricalGraphService::MAX_DISPLAY_POINTS, 'Boundary-preserving sampling enforces the display-point limit');
+foreach ($denseFloor['series']['gamma']['points'] as $point) {
+	if ($point['value'] === null) {
+		live_assert_same(true, isset($denseEnds[(int)$point['ts']]), 'Sampled null gaps retain real qualifying exit timestamps');
+	} else {
+		live_assert_same(true, isset($denseStarts[(int)$point['ts']]), 'Sampled visible points retain real qualifying entry timestamps');
+	}
+}
+
+$shortFloor = $graphs->trunkSeries([
+	['calldate' => '2026-08-26 10:00:00', 'duration' => 10, 'identity' => 'gamma'],
+	['calldate' => '2026-08-26 10:00:05', 'duration' => 5, 'identity' => 'gamma'],
+], ['gamma'], '2026-08-26 10:00:00', '2026-08-26 10:01:00', 2);
+$shortFloor = (new HistoricalResultFloor())->applyGraph($shortFloor, 2);
+live_assert_same('exact_events', $shortFloor['series']['gamma']['display_resolution'], 'Short-range floor keeps exact-event rendering');
+live_assert_same(2, $shortFloor['series']['gamma']['exact_peak'], 'Short-range floor keeps its exact calculated peak');
 
 echo "Live service tests passed\n";
