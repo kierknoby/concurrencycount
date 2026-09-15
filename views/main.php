@@ -173,7 +173,7 @@ $_ccAssetVer = max(
 <section id="cc-live-wall" class="cc-live-wall cc-theme-dark" style="display:none;" aria-labelledby="cc-live-wall-title">
 	<header class="cc-wall-header">
 		<div><span class="cc-section-kicker"><?php echo _('READ-ONLY LIVE DASHBOARD'); ?></span><h1 id="cc-live-wall-title"><?php echo _('Live Wall'); ?></h1></div>
-		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><button type="button" id="cc-live-wall-fullscreen" class="btn btn-default btn-lg" style="display:none;"><i class="fa fa-expand" aria-hidden="true"></i> <?php echo _('Full Screen'); ?></button><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress" aria-hidden="true"></i> <?php echo _('Exit Live Wall'); ?></button></div>
+		<div class="cc-wall-header-meta"><span id="cc-wall-updated"><?php echo _('Waiting for live state...'); ?></span><div class="btn-group cc-wall-theme-toggle" role="group" aria-label="<?php echo _('Live Wall theme'); ?>"><button type="button" class="btn btn-default cc-wall-theme-option" data-theme="light" aria-pressed="false"><i class="fa fa-sun-o" aria-hidden="true"></i> <?php echo _('Light'); ?></button><button type="button" class="btn btn-primary cc-wall-theme-option" data-theme="dark" aria-pressed="true"><i class="fa fa-moon-o" aria-hidden="true"></i> <?php echo _('Dark'); ?></button></div><button type="button" id="cc-live-wall-fullscreen" class="btn btn-default btn-lg" style="display:none;"><i class="fa fa-expand" aria-hidden="true"></i> <?php echo _('Full Screen'); ?></button><button type="button" id="cc-live-wall-exit" class="btn btn-default btn-lg"><i class="fa fa-compress" aria-hidden="true"></i> <?php echo _('Exit Live Wall'); ?></button></div>
 	</header>
 	<div id="cc-wall-message" class="alert alert-info"><?php echo _('Connecting to Asterisk live state...'); ?></div>
 	<div id="cc-wall-content" style="display:none;">
@@ -283,12 +283,23 @@ $_ccAssetVer = max(
 				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
 				<div class="form-group"><label class="control-label"><?php echo _('Load'); ?></label>
 					<div class="btn-group" id="cc-demo-loads">
-					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><label class="btn btn-default<?php echo $value === 'medium' ? ' active' : ''; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><input type="radio" name="cc-demo-load" value="<?php echo $value; ?>" <?php echo $value === 'medium' ? 'checked' : ''; ?>><?php echo $label; ?></label><?php endforeach; ?>
+					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><button type="button" class="btn cc-demo-load <?php echo $value === 'medium' ? 'btn-primary active' : 'btn-default'; ?>" data-load="<?php echo $value; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><?php echo $label; ?></button><?php endforeach; ?>
 					</div>
 				</div>
 				<div class="form-group"><button type="button" class="btn btn-default" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button> <button type="button" class="btn btn-default" id="cc-demo-save"><i class="fa fa-save"></i> <?php echo _('Save selection'); ?></button><span class="help-block" id="cc-demo-selection-status"></span></div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
-				<p class="text-muted"><?php echo _('Randomise creates a new reproducible scenario using the selected load. Saving stores only its definition, never synthetic CDR rows.'); ?></p>
+				<p class="text-muted"><?php echo _('Randomise creates a new reproducible scenario using strong browser randomness and the selected load.'); ?></p>
+				<div class="panel panel-default" id="cc-demo-preflight">
+					<div class="panel-heading"><strong><?php echo _('Disk preflight'); ?></strong></div>
+					<div class="panel-body"><dl class="dl-horizontal">
+						<dt><?php echo _('Synthetic CDR rows'); ?></dt><dd id="cc-demo-preflight-rows">--</dd>
+						<dt><?php echo _('Conservative storage need'); ?></dt><dd id="cc-demo-preflight-required">--</dd>
+						<dt><?php echo _('Database filesystem free'); ?></dt><dd id="cc-demo-preflight-free">--</dd>
+						<dt><?php echo _('Reserved safety margin'); ?></dt><dd id="cc-demo-preflight-reserve">--</dd>
+						<dt><?php echo _('Safely available'); ?></dt><dd id="cc-demo-preflight-available">--</dd>
+						<dt><?php echo _('Disk safety'); ?></dt><dd id="cc-demo-preflight-safety" class="text-info">Checking...</dd>
+					</dl></div>
+				</div>
 				<div class="form-group">
 					<label class="control-label"><?php echo _('Compare engines'); ?></label>
 					<?php foreach ($availableEngines as $id => $engine): ?>

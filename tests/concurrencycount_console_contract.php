@@ -46,6 +46,7 @@ console_contract_assert(substr_count($console, '->addOption(') === count($option
 console_contract_assert(strpos($console, '$cc->normaliseStartDate($start_raw)') !== false, 'Console start-date normalization changed');
 console_contract_assert(strpos($console, '$cc->normaliseEndDate($end_raw)') !== false, 'Console end-date normalization changed');
 console_contract_assert(strpos($console, '$cc->calculate($mode, $start, $end, true, [') !== false, 'Console calculation path changed');
+console_contract_assert(strpos($console, "'demo_seed' => \$demo_seed") !== false, 'Existing --demo-seed input must continue to reach Demo calculation');
 console_contract_assert(strpos($console, 'peak_occurrences') === false && strpos($console, 'peakdetails') === false, 'GUI drill-down leaked into console output');
 foreach (['getLiveStatus', 'getLiveSettings', 'saveLiveSettings', 'getHistoricalGraph', 'runThresholdMonitor', 'getAlertMonitorStatus', 'restartAlertMonitor'] as $sharedMethod) {
 	console_contract_assert(strpos($console, '$cc->' . $sharedMethod . '(') !== false, 'CLI does not use shared backend method: ' . $sharedMethod);
@@ -68,7 +69,10 @@ console_contract_assert(strpos($console, 'catch (HistoricalCalculationCancelled 
 console_contract_assert(strpos($console, 'catch (HistoricalResourceLimitException $resourceLimit)') !== false && strpos($console, "safe memory allowance") !== false, 'CLI soft-memory stop must be a distinct human-readable nonzero failure');
 console_contract_assert(strpos($console, 'Calculation cancelled.') !== false && strpos($console, '128 + $cliCancellation->signal()') !== false, 'CLI cancellation must report clearly and return conventional signal status');
 $mainClass = file_get_contents($root . '/Concurrencycount.class.php');
-console_contract_assert(strpos($mainClass, 'array_chunk($rows, 100)') !== false && strpos($mainClass, '$this->workerCheckpoint();') !== false && strpos($mainClass, 'cleanupDemoCdrRows($accountcode)') !== false, 'Demo cancellation must checkpoint bounded insertion batches and retain finally cleanup');
+console_contract_assert(strpos($mainClass, 'CdrgenAdapter::identityFromSeed($seed)') !== false && strpos($mainClass, 'random_bytes(16)') !== false, 'Demo calculation must derive canonical CDRgen identity from an explicit CLI seed and securely create one when omitted');
+console_contract_assert(strpos($console, "\$days = ['light' => 1, 'medium' => 1, 'heavy' => 1]") !== false, 'CLI Demo planner must use the Light, Medium and Heavy one-day profile ranges');
+console_contract_assert(strpos($console, "\$start + (\$days[\$size] * 86400)") !== false && strpos($console, "\$start + (\$days[\$size] * 86400) - 1") === false, 'CLI Demo must use the same exact end-exclusive one-day interval as the browser planner');
+console_contract_assert(strpos($mainClass, 'array_slice($rows, $batchOffset, 100)') !== false && strpos($mainClass, 'array_chunk($rows, 100)') === false && strpos($mainClass, '$this->workerCheckpoint();') !== false && strpos($mainClass, 'cleanupDemoCdrRows($accountcode)') !== false, 'Demo insertion must materialise only one bounded 100-row batch while retaining checkpoints and finally cleanup');
 console_contract_assert(strpos($mainClass, "DEMO_RUN_KEY_PREFIX = 'demo_run:'") !== false && strpos($mainClass, 'recoverStaleDemoRuns()') !== false && strpos($mainClass, 'DemoCleanupService') !== false, 'Demo must retain a durable stale-run cleanup path');
 console_contract_assert(strpos($mainClass, 'Demo cleanup incomplete:') !== false, 'Incomplete Demo cleanup must be reported explicitly');
 

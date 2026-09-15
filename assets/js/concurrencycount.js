@@ -40,13 +40,18 @@ window._ccLoaded = true;
 	var finalDemoReport = null;
 	var finalDemoSize = null;
 	var finalDemoSeed = null;
+	var finalDemoToken = null;
+	var finalDemoGeneration = null;
 	var finalEngine = 'original';
 	var finalDemoEngines = ['original'];
 	var currentResults = null;
 	var demoSeed = 0;
 	var demoPlan = null;
-	var demoSelectedLoad = 'medium';
 	var savedDemoPlan = null;
+	var demoSelectedLoad = 'medium';
+	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
+	var demoPreflightRequest = null;
+	var demoPreflightGuard = window.CCDemoScenario.preflightGuard();
 	var guiRange = null;
 	var modeDescriptions = {
 		trunk: 'Trunks measure external capacity. Peak details can show when and which CDRs reached it.',
@@ -188,11 +193,15 @@ window._ccLoaded = true;
 		$('#cc-demo-error').hide().text('');
 		$('#cc-demo-minimum-concurrency').val('2');
 		renderDemoLoadSelection('medium');
+		$('.cc-demo-run-mode').prop('disabled', true);
+		renderDemoPreflight('Checking...', {});
 		$('#cc-demo').modal('show');
 		ajax({command: 'getdemoscenario'}).done(function (response) {
-			if (response.status && response.scenario) { savedDemoPlan = response.scenario; applyDemoPlan(savedDemoPlan, true); }
-			else randomiseDemoScenario();
-		}).fail(function () { randomiseDemoScenario(); showDemoError('Unable to restore the saved Demo selection. A new scenario is ready.'); });
+			if (response.status && response.scenario) {
+				savedDemoPlan = window.CCDemoScenario.restore(response.scenario);
+				applyDemoPlan(savedDemoPlan, true);
+			} else randomiseDemoScenario();
+		}).fail(function () { randomiseDemoScenario(); });
 	}
 
 	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
@@ -200,31 +209,64 @@ window._ccLoaded = true;
 	function renderDemoLoadSelection(load) {
 		var state = window.CCDemoScenario.loadState(load);
 		demoSelectedLoad = Object.keys(state).filter(function (name) { return state[name].checked; })[0];
-		$('input[name="cc-demo-load"]').each(function () {
-			var item = state[$(this).val()];
-			$(this).prop('checked', item.checked).closest('label').toggleClass('active', item.active).attr('aria-pressed', item.ariaPressed);
+		$('.cc-demo-load').each(function () {
+			var item = state[$(this).data('load')];
+			$(this).toggleClass('active btn-primary', item.active).toggleClass('btn-default', !item.active).attr('aria-pressed', item.ariaPressed);
 		});
 	}
-	function applyDemoPlan(plan, saved) {
+	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
+	function renderDemoPreflight(state, plan) {
+		plan = plan || {};
+		$('#cc-demo-preflight-rows').text(plan.rows === undefined ? '--' : Number(plan.rows).toLocaleString());
+		$('#cc-demo-preflight-required').text(formatTelemetryBytes(plan.required_bytes));
+		$('#cc-demo-preflight-free').text(formatTelemetryBytes(plan.free_bytes));
+		$('#cc-demo-preflight-reserve').text(formatTelemetryBytes(plan.reserve_bytes));
+		$('#cc-demo-preflight-available').text(formatTelemetryBytes(plan.available_bytes));
+		$('#cc-demo-preflight-safety').text(state).removeClass('text-success text-danger text-info').addClass(state === 'Good' ? 'text-success' : (state === 'Checking...' ? 'text-info' : 'text-danger'));
+	}
+	function requestDemoPreflight(plan, onSuccess) {
+		var key = demoPreflightKey(plan), token = demoPreflightGuard.begin(key);
+		if (demoPreflightRequest && demoPreflightRequest.readyState !== 4) demoPreflightRequest.abort();
+		$('.cc-demo-run-mode').prop('disabled', true);
+		$('#cc-demo-error').hide().text('');
+		renderDemoPreflight('Checking...', {rows: plan.rows});
+		demoPreflightRequest = ajax({command: 'demopreflight', demo_size: plan.size, demo_rows: String(plan.rows)}).done(function (response) {
+			if (!demoPreflightGuard.accepts(token, key)) return;
+			if (!response.status || !response.preflight) {
+				renderDemoPreflight('Failed', {rows: plan.rows}); showDemoError(response.message || 'Demo cannot start safely.'); return;
+			}
+			renderDemoPreflight('Good', response.preflight);
+			$('.cc-demo-run-mode').prop('disabled', false);
+			if (onSuccess) onSuccess(response.preflight);
+		}).fail(function (xhr, status) {
+			if (status === 'abort' || !demoPreflightGuard.accepts(token, key)) return;
+			renderDemoPreflight('Failed', {rows: plan.rows}); showDemoError('Demo preflight request failed. Check the PBX connection and try again.');
+		});
+	}
+	function applyDemoPlan(plan, refreshPreflight) {
 		demoPlan = $.extend({}, plan); demoSeed = Number(demoPlan.seed) >>> 0;
 		renderDemoLoadSelection(demoPlan.size);
 		renderDemoPlan();
-		$('#cc-demo-selection-status').text(saved ? 'Saved selection restored.' : 'Current scenario is not saved.');
+		updateDemoSelectionStatus();
+		if (refreshPreflight) requestDemoPreflight($.extend({}, demoPlan));
 	}
 	function updateDemoSelectionStatus() {
-		$('#cc-demo-selection-status').text(savedDemoPlan && window.CCDemoScenario.equal(demoPlan, savedDemoPlan) ? 'Saved selection.' : 'Current scenario is not saved.');
+		$('#cc-demo-selection-status').text(savedDemoPlan && window.CCDemoScenario.equal(demoPlan, savedDemoPlan) ? 'Saved deterministic scenario.' : 'Unsaved deterministic scenario.');
 	}
-	function randomiseDemoScenario() {
-		var nextSeed = ((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) & 0x7fffffff) >>> 0;
-		applyDemoPlan(window.CCDemoScenario.build(nextSeed || 1, selectedDemoLoad()), false);
+	function demoScenarioDefinition(plan) {
+		return {token:plan.token,generation:plan.generation,size:plan.size,rows:plan.rows,start:plan.start,end:plan.end};
 	}
 	function saveDemoScenario() {
-		if (!demoPlan) return showDemoError('Randomise a Demo scenario before saving.');
-		$('#cc-demo-error').hide(); $('#cc-demo-save').prop('disabled', true);
-		ajax({command: 'savedemoscenario', scenario: JSON.stringify(demoPlan)}).done(function (response) {
-			if (!response.status || !response.scenario) return showDemoError(response.message || 'Unable to save the Demo selection.');
-			savedDemoPlan = response.scenario; applyDemoPlan(savedDemoPlan, true);
-		}).fail(function () { showDemoError('Unable to save the Demo selection.'); }).always(function () { $('#cc-demo-save').prop('disabled', false); });
+		if (!demoPlan) return;
+		$('#cc-demo-save').prop('disabled', true);
+		ajax({command:'savedemoscenario',scenario:JSON.stringify(demoScenarioDefinition(demoPlan))}).done(function(response){
+			if (!response.status || !response.scenario) { showDemoError(response.message || 'Unable to save the Demo scenario.'); return; }
+			savedDemoPlan = window.CCDemoScenario.restore(response.scenario); updateDemoSelectionStatus();
+		}).fail(function(){showDemoError('Unable to save the Demo scenario. Check the PBX connection and try again.');}).always(function(){$('#cc-demo-save').prop('disabled', false);});
+	}
+	function randomiseDemoScenario() {
+		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad()), true); }
+		catch (error) { showDemoError('Secure browser randomness is unavailable; Demo cannot create a safe scenario.'); }
 	}
 
 	function runDemo(report) {
@@ -238,31 +280,18 @@ window._ccLoaded = true;
 		}
 		if (!demoPlan) { showDemoError('Randomise a Demo scenario before running.'); return; }
 		var engines = selectedDemoEngines();
-		if (demoPlan.size === 'heavy' && !window.confirm('Heavy demo creates about 10,000 synthetic CDR rows and may take several minutes. Continue?')) {
+		if (demoPlan.size === 'heavy' && !window.confirm('Heavy demo creates about 20,000 synthetic CDR rows and may take several minutes. Continue?')) {
 			return;
 		}
-		$('#cc-demo-error').hide();
-		$('.cc-demo-run-mode').prop('disabled', true);
-		$('#cc-demo-selection-status').text('Checking Demo safety requirements...');
-		ajax({command: 'demopreflight', demo_size: demoPlan.size, demo_rows: String(demoPlan.rows)}).done(function (response) {
-			if (!response.status || !response.preflight) {
-				showDemoError(response.message || 'Demo cannot start safely.');
-				return;
-			}
-			var plan = response.preflight;
-			updateDemoSelectionStatus();
-			var prompt = 'Demo disk preflight\n\nSynthetic CDR rows: ' + plan.rows.toLocaleString() +
-				'\nConservative storage need: ' + formatTelemetryBytes(plan.required_bytes) +
-				'\nDatabase filesystem free: ' + formatTelemetryBytes(plan.free_bytes) +
-				'\nReserved safety margin: ' + formatTelemetryBytes(plan.reserve_bytes) +
-				'\nSafely available: ' + formatTelemetryBytes(plan.available_bytes) + '\n\nDisk safety: Good\n\nRun Demo?';
-			if (!window.confirm(prompt)) return;
+		var runPlan = $.extend({}, demoPlan);
+		requestDemoPreflight(runPlan, function () {
+			if (!window.CCDemoScenario.equal(demoPlan, runPlan)) return;
 			$('#cc-demo').modal('hide');
 			// Demo results are transient and use the shared Historical surface.
 			runTargetReportId = null;
 			showTransientDemoResult();
-			executeRun('demo', demoPlan.start, demoPlan.end, window.CCDemoScenario.runParameters(demoPlan, report, engines, minimumConcurrency));
-		}).fail(function () { showDemoError('Demo preflight request failed. Check the PBX connection and try again.'); }).always(function () { $('.cc-demo-run-mode').prop('disabled', false); updateDemoSelectionStatus(); });
+			executeRun('demo', runPlan.start, runPlan.end, window.CCDemoScenario.runParameters(runPlan, report, engines, minimumConcurrency));
+		});
 	}
 
 	function selectedDemoEngines() {
@@ -293,7 +322,7 @@ window._ccLoaded = true;
 		if (!demoPlan) return;
 		$('#cc-demo-plan').html(
 			'<dt>Load</dt><dd>' + escapeHtml(demoPlan.size) + ' (' + escapeHtml(demoPlan.rows) + ' calls)</dd>' +
-			'<dt>Seed</dt><dd>' + escapeHtml(demoPlan.seed) + '</dd>' +
+			'<dt>Scenario</dt><dd>' + escapeHtml(String(demoPlan.token).slice(0, 12) + ':' + demoPlan.generation) + '</dd>' +
 			'<dt>CDR write range</dt><dd>' + escapeHtml(demoPlan.start) + ' to ' + escapeHtml(demoPlan.end) + '</dd>' +
 			'<dt>Accountcode</dt><dd>CCDEMO&lt;unique-run-id&gt;</dd>'
 		);
@@ -353,6 +382,8 @@ window._ccLoaded = true;
 		finalDemoReport = r.demo_report || null;
 		finalDemoSize = r.demo_size || null;
 		finalDemoSeed = r.demo_seed || null;
+		finalDemoToken = r.demo_token || null;
+		finalDemoGeneration = r.demo_generation || null;
 		finalEngine = r.engine || 'original';
 		finalDemoEngines = r.engines ? Object.keys(r.engines) : [r.engine || 'original'];
 
@@ -703,6 +734,7 @@ window._ccLoaded = true;
 				detail.html('<div class="alert alert-danger">' + escapeHtml(response.message || 'Unable to load call details.') + ' Select this occurrence to retry.</div>');
 				return;
 			}
+			response.detail.exclusion_context = {trunk: trunk, start_date: currentResults.start, end_date: currentResults.end, occurrence_from: occurrence.from, occurrence_to: occurrence.to};
 			detail.data('loaded', true).data('detail', response.detail).html(renderPeakCalls(response.detail));
 			if (report) report.occurrenceCache[cacheKey] = {expanded: true, detail: response.detail};
 		}).fail(function () {
@@ -720,7 +752,8 @@ window._ccLoaded = true;
 		if (counts.inbound) summary.push(counts.inbound + ' inbound');
 		if (counts.outbound) summary.push(counts.outbound + ' outbound');
 		if (counts.unknown) summary.push(counts.unknown + ' unknown');
-		var html = '<p class="cc-direction-summary">' + escapeHtml(summary.join(' \u00b7 ')) + '</p>';
+		var eligible = (detail.calls || []).filter(function (call) { return !!call.call_identity; }).length;
+		var html = '<p class="cc-direction-summary">' + escapeHtml(summary.join(' \u00b7 ')) + (eligible ? ' <button type="button" class="btn btn-warning btn-sm cc-exclude-all-calls">Exclude All</button>' : '') + '</p>';
 		html += '<div class="cc-table-scroll"><table class="table table-condensed cc-call-table"><thead><tr>' +
 			'<th>Started</th><th>Caller / source</th><th>DID / destination</th><th>Direction</th><th>Duration</th><th>Observed path</th><th></th>' +
 			'</tr></thead><tbody>';
@@ -740,6 +773,22 @@ window._ccLoaded = true;
 		});
 		html += '</tbody></table></div>';
 		return html;
+	}
+
+	function excludeAllPeakCalls(button) {
+		var detailElement = button.closest('.cc-occurrence').find('.cc-occurrence-detail');
+		var detail = detailElement.data('detail') || {};
+		var context = detail.exclusion_context || {};
+		var fingerprint = currentResults && currentResults.excluded_call_configuration ? currentResults.excluded_call_configuration.fingerprint : '';
+		if (!context.trunk || !fingerprint) return;
+		button.prop('disabled', true);
+		ajax($.extend({command: 'excludepeakcalls', excluded_call_fingerprint: fingerprint}, context)).done(function (response) {
+			if (!response.status) { setStatus(response.message || 'Unable to exclude this peak occurrence.', 'error'); return; }
+			updateExcludedCount(response.excluded_count);
+			setStatus('All eligible calls at this peak were excluded. Regenerating this report...', 'success');
+			invalidateAndRerunReports();
+		}).fail(function () { setStatus('Unable to save this peak exclusion. The current report has not been changed.', 'error'); })
+			.always(function () { button.prop('disabled', false); });
 	}
 
 	function callFromDetailButton(button) {
@@ -796,13 +845,33 @@ window._ccLoaded = true;
 			return;
 		}
 		$('#cc-restore-all-excluded').prop('disabled', false);
+		var groupCounts = {};
+		calls.forEach(function (entry) { if (entry.group_id) groupCounts[entry.group_id] = (groupCounts[entry.group_id] || 0) + 1; });
+		var renderedGroups = {};
 		calls.forEach(function (entry) {
+			if (entry.group_id && !renderedGroups[entry.group_id]) {
+				renderedGroups[entry.group_id] = true;
+				var group = entry.group_context || {};
+				var groupCount = groupCounts[entry.group_id];
+				var label = 'Peak ' + [group.occurrence_from, group.occurrence_to].filter(Boolean).join(' to ') + (group.trunk ? ' on ' + group.trunk : '') + ' \u00b7 ' + groupCount + ' call' + (groupCount === 1 ? '' : 's');
+				body.append('<tr class="cc-exclusion-group"><th colspan="' + (hasReportContext ? '8' : '7') + '">' + escapeHtml(label) + '</th><th><button type="button" class="btn btn-default btn-sm cc-restore-excluded-group" data-group-id="' + escapeHtml(entry.group_id) + '">Restore Group</button></th></tr>');
+			}
 			var summary = entry.summary || {};
 			var context = [summary.trunk, summary.extension].filter(Boolean).join(' / ') || '-';
 			var relevance = entry.matches_current_report === true ? 'Would be eligible' : (entry.matches_current_report === false ? 'Not in scope' : 'Relevance unavailable');
 			var relevanceClass = !hasReportContext ? 'cc-excluded-global' : (entry.matches_current_report === true ? 'cc-excluded-relevant' : (entry.matches_current_report === false ? 'cc-excluded-not-in-scope' : 'cc-excluded-unknown'));
 			var sourceState = entry.source_available ? '' : '<br><span class="text-muted">Source CDR unavailable</span>';
 			body.append('<tr class="' + relevanceClass + '"><td>' + escapeHtml(summary.calldate || '-') + '</td><td>' + escapeHtml(summary.src || '-') + '</td><td>' + escapeHtml(summary.dst || '-') + '</td><td>' + escapeHtml(context) + '</td><td>' + escapeHtml(formatDuration(summary.duration || 0)) + '</td><td><code>' + escapeHtml(entry.call_identity) + '</code>' + sourceState + '</td><td>' + escapeHtml(entry.excluded_at) + '</td>' + (hasReportContext ? '<td class="cc-excluded-relevance">' + escapeHtml(relevance) + '</td>' : '') + '<td><button type="button" class="btn btn-default btn-sm cc-restore-excluded" data-call-identity="' + escapeHtml(entry.call_identity) + '">Restore</button></td></tr>');
+		});
+	}
+
+	function restoreExcludedGroup(groupId) {
+		if (!window.confirm('Restore the remaining calls in this peak exclusion group?')) return;
+		ajax({command: 'restoreexcludedgroup', group_id: groupId}).done(function (response) {
+			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore this exclusion group.').show(); return; }
+			updateExcludedCount(response.excluded_count);
+			openExcludedCalls();
+			invalidateAndRerunReports();
 		});
 	}
 
@@ -850,7 +919,7 @@ window._ccLoaded = true;
 			'<dt>Run id</dt><dd>' + escapeHtml(r.demo_run_id || '') + '</dd>' +
 			'<dt>Report</dt><dd>' + escapeHtml(demoReportLabel) + '</dd>' +
 			'<dt>Size</dt><dd>' + escapeHtml(r.demo_size || 'light') + '</dd>' +
-			'<dt>Seed</dt><dd>' + escapeHtml(r.demo_seed || '') + '</dd>' +
+			'<dt>Scenario</dt><dd>' + escapeHtml(r.demo_scenario || '') + '</dd>' +
 			'<dt>Rows inserted</dt><dd>' + escapeHtml(r.rows_inserted || r.rows_processed) + '</dd>' +
 			'<dt>Rows removed</dt><dd>' + escapeHtml(r.rows_removed || 0) + '</dd>' +
 			'<dt>Cleanup remaining</dt><dd>' + escapeHtml(r.cleanup_remaining || 0) + '</dd>' +
@@ -880,6 +949,13 @@ window._ccLoaded = true;
 		if (r.engines) {
 			html += renderEngineComparison(r.engines);
 		}
+		var traffic = r.traffic_mix || {}, directions = traffic.directions || {}, dispositions = traffic.dispositions || {}, trunks = traffic.trunks || {}, flows = traffic.flows || {};
+		var engine = r.synthetic_traffic_engine || {};
+		html += '<h4>Demo Traffic mix</h4><p><strong>Synthetic traffic engine:</strong> ' + escapeHtml((engine.name || 'CDRgen') + ' ' + (engine.version || '')) + '</p>' +
+			'<div class="row"><div class="col-sm-4"><strong>Direction</strong><dl><dt>Inbound</dt><dd>' + escapeHtml(directions.inbound || 0) + '</dd><dt>Outbound</dt><dd>' + escapeHtml(directions.outbound || 0) + '</dd><dt>Internal</dt><dd>' + escapeHtml(directions.internal || 0) + '</dd></dl></div>' +
+			'<div class="col-sm-4"><strong>Disposition</strong><dl><dt>ANSWERED</dt><dd>' + escapeHtml(dispositions.ANSWERED || 0) + '</dd><dt>NO ANSWER</dt><dd>' + escapeHtml(dispositions['NO ANSWER'] || 0) + '</dd><dt>BUSY</dt><dd>' + escapeHtml(dispositions.BUSY || 0) + '</dd><dt>FAILED</dt><dd>' + escapeHtml(dispositions.FAILED || 0) + '</dd></dl></div>' +
+			'<div class="col-sm-4"><strong>Trunks</strong><dl>' + Object.keys(trunks).map(function (name) { return '<dt>' + escapeHtml(name) + '</dt><dd>' + escapeHtml(trunks[name]) + '</dd>'; }).join('') + '</dl></div></div>';
+		if (Object.keys(flows).length) html += '<p><strong>Inbound/routing flows:</strong> ' + Object.keys(flows).map(function (name) { return escapeHtml(name) + ' (' + escapeHtml(flows[name]) + ')'; }).join(', ') + '</p>';
 		if (r.demo_report === 'group') {
 			html += '<h4>Group accuracy</h4>';
 			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>Metric</th><th>Expected</th><th>Actual</th></tr></thead><tbody>';
@@ -902,7 +978,36 @@ window._ccLoaded = true;
 			html += '</tbody></table></div>';
 			html += '<div class="cc-peak-summary">Expected highest ' + escapeHtml(demoUnit) + ': <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
+		var auditPage = r.synthetic_calls_page || {token:'',items:[],page:1,pages:1,total:0};
+		html += '<details class="cc-demo-synthetic"><summary>Synthetic calls (' + escapeHtml(auditPage.total) + ')</summary>' +
+			'<div class="cc-demo-integrity ' + (r.synthetic_call_integrity === 'verified' ? 'alert alert-success' : 'alert alert-danger') + '">' +
+			'Generated ' + escapeHtml(r.rows_generated) + ' · Inserted ' + escapeHtml(r.rows_inserted) + ' · Audited ' + escapeHtml(r.synthetic_calls_returned) + ' · Removed ' + escapeHtml(r.rows_removed) + ' · Cleanup remaining ' + escapeHtml(r.cleanup_remaining) +
+			(r.synthetic_call_integrity === 'verified' ? ' — Dataset integrity verified.' : ' — Dataset counts do not agree.') + '</div>' +
+			'<div class="cc-table-scroll"><table class="table table-condensed table-striped"><thead><tr><th>Start</th><th>Answer</th><th>End</th><th>Duration</th><th>Billsec</th><th>Direction</th><th>Source</th><th>Destination</th><th>DID</th><th>Disposition</th><th>Channel</th><th>Destination channel</th><th>Report identity</th><th>Details</th></tr></thead><tbody class="cc-demo-synthetic-rows"></tbody></table></div>' +
+			'<div class="cc-demo-synthetic-pages"><button type="button" class="btn btn-default btn-sm cc-demo-calls-previous">Previous</button> <span class="cc-demo-calls-page"></span> <button type="button" class="btn btn-default btn-sm cc-demo-calls-next">Next</button></div></details>';
 		el.html(html);
+		renderDemoSyntheticCallsPage(el.find('.cc-demo-synthetic'), auditPage);
+	}
+
+	function renderDemoSyntheticCallsPage(container, page) {
+		if (!page || !Array.isArray(page.items) || page.items.length > 100) return;
+		container.data('audit-token', page.token);
+		var body = container.find('.cc-demo-synthetic-rows').empty();
+		page.items.forEach(function (call) {
+			var detail = [['Last application',call.last_application],['Last data',call.last_data],['Context',call.context],['Trunk',call.trunk],['Carrier',call.carrier],['Queue',call.queue],['Hangup source',call.hangup_source],['Hangup cause',call.hangup_cause],['Recording file',call.recording_file],['Accountcode',call.accountcode]];
+			body.append('<tr><td>' + escapeHtml(call.start) + '</td><td>' + escapeHtml(call.answer || '-') + '</td><td>' + escapeHtml(call.end || '-') + '</td><td>' + escapeHtml(formatDuration(call.duration)) + '</td><td>' + escapeHtml(formatDuration(call.billsec)) + '</td><td>' + escapeHtml(call.direction) + '</td><td>' + escapeHtml(call.source) + '</td><td>' + escapeHtml(call.destination) + '</td><td>' + escapeHtml(call.did || '-') + '</td><td>' + escapeHtml(call.disposition) + '</td><td>' + escapeHtml(call.channel) + '</td><td>' + escapeHtml(call.destination_channel || '-') + '</td><td>' + escapeHtml(call.report_identity) + '</td><td><details><summary>CDR data</summary><dl>' + detail.map(function(item){return '<dt>'+escapeHtml(item[0])+'</dt><dd>'+escapeHtml(item[1] === '' ? '-' : item[1])+'</dd>';}).join('') + '</dl></details></td></tr>');
+		});
+		container.find('.cc-demo-calls-page').text('Page ' + page.page + ' of ' + page.pages + ' · ' + page.total + ' calls');
+		function fetchPage(number) {
+			var token=page.token; container.find('.cc-demo-calls-previous,.cc-demo-calls-next').prop('disabled',true);
+			ajax({command:'democallpage',token:token,page:number}).done(function(response){
+				if (container.data('audit-token') !== token) return;
+				if (!response.status || !response.audit) { container.find('.cc-demo-calls-page').text(response.message || 'Unable to load this page.'); return; }
+				renderDemoSyntheticCallsPage(container,response.audit);
+			}).fail(function(){if(container.data('audit-token')===token)container.find('.cc-demo-calls-page').text('Unable to load this page.');});
+		}
+		container.find('.cc-demo-calls-previous').prop('disabled', page.page <= 1).off('click').on('click', function () { fetchPage(page.page - 1); });
+		container.find('.cc-demo-calls-next').prop('disabled', page.page >= page.pages).off('click').on('click', function () { fetchPage(page.page + 1); });
 	}
 
 	function renderEngineComparison(engines) {
@@ -1787,7 +1892,7 @@ window._ccLoaded = true;
 	function clearHistoricalResultUi() {
 		currentResults = null;
 		finalMode = null; finalStart = null; finalEnd = null;
-		finalDemoReport = null; finalDemoSize = null; finalDemoSeed = null;
+		finalDemoReport = null; finalDemoSize = null; finalDemoSeed = null; finalDemoToken = null; finalDemoGeneration = null;
 		$('#cc-results, #cc-historical-graph, #cc-email-row, #cc-report-empty').hide();
 		$('#cc-results-title, #cc-results-meta, #cc-results-body, #cc-historical-series, #cc-historical-resolution').empty();
 		$('#cc-results-warning').text('').prop('hidden', true).attr('aria-hidden', 'true');
@@ -2118,6 +2223,8 @@ window._ccLoaded = true;
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
+			params.demo_token = finalDemoToken || '';
+			params.demo_generation = finalDemoGeneration || '0';
 			params.demo_engines = finalDemoEngines.join(',');
 		} else {
 			params.engine = finalEngine || 'original';
@@ -2135,7 +2242,7 @@ window._ccLoaded = true;
 			demo_report: finalDemoReport || 'extension',
 			demo_size: finalDemoSize || 'light',
 			demo_rows: $('#cc-results-body').data('demoRows') || '',
-			demo_seed: finalDemoSeed || '0'
+			demo_seed: finalDemoSeed || '0', demo_token: finalDemoToken || '', demo_generation: finalDemoGeneration || '0'
 		});
 		window.location.href = 'ajax.php?' + qs;
 	}
@@ -2162,6 +2269,8 @@ window._ccLoaded = true;
 			params.demo_size = finalDemoSize || 'light';
 			params.demo_rows = $('#cc-results-body').data('demoRows') || '';
 			params.demo_seed = finalDemoSeed || '0';
+			params.demo_token = finalDemoToken || '';
+			params.demo_generation = finalDemoGeneration || '0';
 			params.demo_engines = finalDemoEngines.join(',');
 		} else {
 			params.engine = finalEngine || 'original';
@@ -2193,6 +2302,8 @@ window._ccLoaded = true;
 		$('#cc-exclude-call-confirm').off('click').on('click', excludePendingCall);
 		$('#cc-restore-all-excluded').off('click').on('click', restoreAllExcludedCalls);
 		$('#cc-excluded-calls-rows').off('click.ccExcluded', '.cc-restore-excluded').on('click.ccExcluded', '.cc-restore-excluded', function () { restoreExcludedCall($(this).data('call-identity')); });
+		$('#cc-excluded-calls-rows').off('click.ccExcludedGroup', '.cc-restore-excluded-group').on('click.ccExcludedGroup', '.cc-restore-excluded-group', function () { restoreExcludedGroup($(this).data('group-id')); });
+		$('#cc-results-body').off('click.ccExcludeAll', '.cc-exclude-all-calls').on('click.ccExcludeAll', '.cc-exclude-all-calls', function () { excludeAllPeakCalls($(this)); });
 		$('#cc-results-body').off('click.ccIdentity', '.cc-classify-endpoint').on('click.ccIdentity', '.cc-classify-endpoint', function () { saveIdentityClassification($(this).data('endpoint'), $(this).data('classification')); });
 		$('#cc-identity-rows').off('click.ccIdentity', '.cc-reset-identity').on('click.ccIdentity', '.cc-reset-identity', function () {
 			ajax({command: 'resetidentityclassification', endpoint: $(this).data('endpoint')}).done(function (response) { if (response.status) { renderIdentityClassifications(response.classifications || []); invalidateAndRerunReports(); } });
@@ -2220,9 +2331,9 @@ window._ccLoaded = true;
 		});
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
 		$('#cc-demo-save').off('click').on('click', saveDemoScenario);
-		$('input[name="cc-demo-load"]').off('change').on('change', function () {
-			var load = $(this).val(); renderDemoLoadSelection(load);
-			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build(demoPlan.seed, load), false);
+		$('.cc-demo-load').off('click').on('click', function () {
+			var load = $(this).data('load'); renderDemoLoadSelection(load);
+			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load), true);
 		});
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-report-filter').off('change').on('change', function () {

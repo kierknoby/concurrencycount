@@ -45,6 +45,14 @@
 			refresh(ready, failed);
 		}
 	};
+	root.CCLiveWallPresentation = {
+		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
+		layout: function (viewportHeight, fullscreen) {
+			var height = Math.max(0, Number(viewportHeight) || 0);
+			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
+			return {inset: inset, height: Math.max(0, height - (inset * 2))};
+		}
+	};
 
 }(window));
 
@@ -75,6 +83,7 @@ window._ccLiveLoaded = true;
 	var historicalChart = null;
 	var historicalSelectedSeries = [];
 	var continueToLiveWallAfterSave = false;
+	var wallTheme = 'dark';
 
 	function ajax(params) {
 		params = $.extend({}, params, {token: $('.concurrencycount').first().attr('data-csrf-token') || $('input[name="token"]').first().val() || ''});
@@ -86,7 +95,9 @@ window._ccLiveLoaded = true;
 	}
 
 	function initialise() {
+		applyLiveWallTheme(wallTheme, false);
 		bindEvents();
+		if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') window.visualViewport.addEventListener('resize', onWallViewportChange);
 		loadSettings().always(function () { startPolling(true); });
 	}
 
@@ -102,12 +113,17 @@ window._ccLiveLoaded = true;
 		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', function () { openLiveWallConfiguration(false); });
 		$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen);
 		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
+		$('.cc-wall-theme-option').off('click.ccLive').on('click.ccLive', function () {
+			applyLiveWallTheme($(this).data('theme'), false);
+			if (settings) { settings.live_wall_theme = wallTheme; saveSettings(settings, false); }
+		});
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
+		$(window).off('resize.ccLive orientationchange.ccLive').on('resize.ccLive orientationchange.ccLive', onWallViewportChange);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 		$('#cc-historical-graph').off('click.ccHistoricalExport', '.cc-historical-export-format').on('click.ccHistoricalExport', '.cc-historical-export-format', function (event) { event.preventDefault(); exportHistoricalGraph($(this).data('format')); });
@@ -132,6 +148,7 @@ window._ccLiveLoaded = true;
 		return ajax({command: 'getsettings'}).done(function (response) {
 			if (!response.status || saveSequenceWhenRequested !== latestSettingsSaveSequence) return;
 			settings = response.settings;
+			applyLiveWallTheme(settings.live_wall_theme, false);
 			$('#cc-live-refresh, #cc-setting-refresh').val(String(settings.refresh_interval));
 		}).fail(function () {
 			showLiveMessage('Unable to load Live settings. Defaults are being used.', 'warning');
@@ -544,6 +561,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
 		$('body').addClass('cc-wall-active');
 		syncLiveWallFullscreenState();
+		applyLiveWallTheme(wallTheme, false);
 		if (snapshot) renderLiveWall(snapshot);
 		scheduleChartResize(resizeWallCharts);
 		startPolling(!snapshot);
@@ -560,6 +578,31 @@ window._ccLiveLoaded = true;
 		var isWallFullscreen = document.fullscreenElement === wall;
 		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', isWallFullscreen);
 		$('#cc-live-wall-fullscreen').toggle(window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		syncLiveWallViewport();
+	}
+
+	function syncLiveWallViewport() {
+		var viewportHeight = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
+		var state = window.CCLiveWallPresentation.layout(viewportHeight, document.fullscreenElement === document.getElementById('cc-live-wall'));
+		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px'});
+	}
+
+	function onWallViewportChange() {
+		if (!wallActive) return;
+		syncLiveWallViewport();
+		scheduleChartResize(resizeWallCharts);
+	}
+
+	function applyLiveWallTheme(theme, persist) {
+		wallTheme = window.CCLiveWallPresentation.normaliseTheme(theme);
+		$('#cc-live-wall').removeClass('cc-theme-light cc-theme-dark').addClass('cc-theme-' + wallTheme);
+		$('.cc-wall-theme-option').each(function () {
+			var selected = $(this).data('theme') === wallTheme;
+			$(this).toggleClass('btn-primary', selected).toggleClass('btn-default', !selected).attr('aria-pressed', selected ? 'true' : 'false');
+		});
+		var chartTheme = 'wall-' + wallTheme;
+		if (charts.wallOverall) charts.wallOverall.setTheme(chartTheme);
+		Object.keys(charts.wallTrunks || {}).forEach(function (trunk) { charts.wallTrunks[trunk].setTheme(chartTheme); });
 	}
 
 	function exitLiveWall() {
@@ -604,7 +647,7 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-overall-threshold').text(data.overall.threshold_enabled ? 'Threshold ' + data.overall.threshold : 'Threshold off');
 		$('#cc-wall-overall-peak').text('Recent peak ' + recentPeak(history.overall));
 		$('.cc-wall-overall').attr('data-status', data.overall.status);
-		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'), {theme: 'dark'});
+		if (!charts.wallOverall) charts.wallOverall = new window.ConcurrencyChart(document.getElementById('cc-wall-overall-chart'), {theme: 'wall-' + wallTheme});
 		charts.wallOverall.setData(history.overall, data.overall.threshold_enabled ? data.overall.threshold : 0);
 		var configuredFeatured = settings && settings.live_wall_featured_trunks ? settings.live_wall_featured_trunks : [];
 		var names = configuredFeatured.filter(function (trunk) { return Object.prototype.hasOwnProperty.call(data.trunks, trunk) && !isHidden(trunk); });
@@ -623,7 +666,7 @@ window._ccLiveLoaded = true;
 			$('#cc-wall-trunks').html(names.map(function (trunk, index) {
 				return '<article class="cc-wall-trunk" data-wall-trunk="' + escapeHtml(trunk) + '" data-status="normal"><h2>' + escapeHtml(featuredTrunkLabel(trunk)) + '</h2><strong class="cc-wall-trunk-value">0</strong><span class="cc-wall-trunk-split"></span><span class="cc-wall-monitoring"></span><span class="cc-wall-threshold"></span><span class="cc-wall-status"></span><span class="cc-wall-peak"></span><canvas id="cc-wall-trunk-chart-' + index + '" height="110"></canvas></article>';
 			}).join('')).data('trunks', names);
-			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index), {theme: 'dark'}); });
+			names.forEach(function (trunk, index) { charts.wallTrunks[trunk] = new window.ConcurrencyChart(document.getElementById('cc-wall-trunk-chart-' + index), {theme: 'wall-' + wallTheme}); });
 		}
 		names.forEach(function (trunk) {
 			var result = data.trunks[trunk];
@@ -754,6 +797,7 @@ window._ccLiveLoaded = true;
 			alert_email: $('#cc-setting-email').val().trim(),
 			hidden_trunks: (settings.hidden_trunks || []).slice(), trunk_order: (settings.trunk_order || []).slice(),
 			live_wall_featured_trunks: (settings.live_wall_featured_trunks || []).slice(),
+			live_wall_theme: wallTheme,
 			overall: {}, trunks: {}
 		};
 		$('#cc-threshold-rows tr').each(function () {

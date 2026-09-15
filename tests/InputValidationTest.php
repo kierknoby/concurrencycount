@@ -462,21 +462,43 @@ class InputValidationTest extends InputValidationBase {
 		$this->assertCount(3, $result);
 	}
 
-	public function testDemoScenarioValidationPreservesReproducibleDefinition(): void {
-		$scenario = ['seed' => 12345, 'size' => 'medium', 'rows' => 1000, 'start' => '2005-04-01 10:00:00', 'end' => '2005-04-01 12:00:00'];
-		$this->assertSame($scenario, $this->invokePrivate('normaliseDemoScenario', [$scenario]));
+	public function testDemoScenarioAcceptsOnlyTheCompleteDefinition(): void {
+		$scenario = ['token'=>'00112233445566778899aabbccddeeff','generation'=>7,'size'=>'medium','rows'=>5000,'start'=>'2001-01-01 00:00:00','end'=>'2001-01-02 00:00:00','generated_rows'=>[['src'=>'must not persist']]];
+		$this->assertSame(array_slice($scenario, 0, 6, true), $this->invokePrivate('normaliseDemoScenario', [$scenario]));
 	}
 
-	public function testDemoScenarioRowsMustMatchSelectedLoad(): void {
+	public function testDemoScenarioRejectsAProfileRowMismatch(): void {
 		$rejected = false;
-		try { $this->invokePrivate('normaliseDemoScenario', [['seed' => 12345, 'size' => 'light', 'rows' => 1000, 'start' => '2005-04-01 10:00:00', 'end' => '2005-04-01 12:00:00']]); }
-		catch (\InvalidArgumentException $exception) { $rejected = true; }
-		$this->assertTrue($rejected);
+		try {
+			$this->invokePrivate('normaliseDemoScenario', [['token'=>'00112233445566778899aabbccddeeff','generation'=>1,'size'=>'heavy','rows'=>5000,'start'=>'2001-01-01 00:00:00','end'=>'2001-01-02 00:00:00']]);
+		} catch (\ReflectionException $exception) { throw $exception; }
+		catch (\Throwable $exception) { $rejected = true; }
+		$this->assertTrue($rejected, 'Mismatched saved Demo rows were accepted.');
 	}
 
-	public function testSavedDemoScenarioBuildsIdenticalSyntheticInput(): void {
-		$args = ['2005-04-01 10:00:00', '2005-04-01 12:00:00', 'medium', 12345, 'CCDEMOaaaaaaaa', 'extension', '', 100];
-		$this->assertSame($this->invokePrivate('buildDemoRows', $args), $this->invokePrivate('buildDemoRows', $args));
+	public function testDemoScenarioRequiresAnExactExclusiveOneDayRange(): void {
+		$rejected = false;
+		try {
+			$this->invokePrivate('normaliseDemoScenario', [['token'=>'00112233445566778899aabbccddeeff','generation'=>1,'size'=>'light','rows'=>1000,'start'=>'2001-01-01 00:00:00','end'=>'2001-01-01 23:59:59']]);
+		} catch (\ReflectionException $exception) { throw $exception; }
+		catch (\Throwable $exception) { $rejected = true; }
+		$this->assertTrue($rejected, 'An inclusive 86,399-second Demo range was accepted.');
+	}
+
+	public function testEveryDemoProfileExecutionRequiresAnExactExclusiveDay(): void {
+		$valid = $this->invokePrivate('normaliseDemoProfileRange', ['2001-01-01 00:00:00', '2001-01-02 00:00:00']);
+		$this->assertSame('2001-01-02 00:00:00', $valid['end']);
+		foreach ([
+			['2001-01-01 00:00:00', '2001-01-01 23:00:00'],
+			['2001-01-01 00:00:00', '2001-01-01 23:59:59'],
+			['2001-01-01 00:00:00', '2001-01-03 00:00:00'],
+			['2001-01-01 00:00:00', '2001-01-01 12:00:00'],
+		] as $range) {
+			$rejected = false;
+			try { $this->invokePrivate('normaliseDemoProfileRange', $range); }
+			catch (\Throwable $exception) { $rejected = true; }
+			$this->assertTrue($rejected, 'A manipulated non-one-day Demo execution range was accepted.');
+		}
 	}
 
 	/* ---------- helpers ---------- */

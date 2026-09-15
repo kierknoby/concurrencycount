@@ -14,6 +14,7 @@ class ThresholdService {
 			'hidden_trunks' => [],
 			'trunk_order' => [],
 			'live_wall_featured_trunks' => [],
+			'live_wall_theme' => 'dark',
 			'overall' => $this->scopeDefaults(),
 			'trunks' => [],
 		];
@@ -59,6 +60,7 @@ class ThresholdService {
 			'hidden_trunks' => $this->normaliseIdentifierList(isset($input['hidden_trunks']) ? $input['hidden_trunks'] : [], 'Hidden trunks', $rejectUnknownTrunks),
 			'trunk_order' => $this->normaliseIdentifierList(isset($input['trunk_order']) ? $input['trunk_order'] : [], 'Trunk order', $rejectUnknownTrunks),
 			'live_wall_featured_trunks' => $this->normaliseIdentifierList(isset($input['live_wall_featured_trunks']) ? $input['live_wall_featured_trunks'] : [], 'Live Wall featured trunks', $rejectUnknownTrunks, 3),
+			'live_wall_theme' => isset($input['live_wall_theme']) && $input['live_wall_theme'] === 'light' ? 'light' : 'dark',
 			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : []),
 			'trunks' => [],
 		];

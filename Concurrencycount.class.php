@@ -39,6 +39,8 @@ require_once __DIR__ . '/Services/HistoricalDatabaseCapabilities.php';
 require_once __DIR__ . '/Services/DemoCleanupService.php';
 require_once __DIR__ . '/Services/DemoCleanupCoordinator.php';
 require_once __DIR__ . '/Services/DemoCleanupHeartbeat.php';
+require_once __DIR__ . '/Services/DemoSyntheticCallCollection.php';
+require_once __DIR__ . '/Services/CdrgenAdapter.php';
 require_once __DIR__ . '/Services/HistoricalTelemetryCadence.php';
 require_once __DIR__ . '/Services/HistoricalResultFloor.php';
 
@@ -50,7 +52,7 @@ class Concurrencycount implements \BMO {
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
 	const VERSION = '2.2.0';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'getdemoscenario', 'savedemoscenario', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'restoreexcludedcall', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'getdemoscenario', 'savedemoscenario', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -283,10 +285,12 @@ class Concurrencycount implements \BMO {
 			switch ($command) {
 				case 'demopreflight':
 					return $this->handleDemoPreflight();
-				case 'getdemoscenario':
-					return ['status' => true, 'scenario' => $this->getSavedDemoScenario()];
-				case 'savedemoscenario':
-					return $this->handleSaveDemoScenario();
+			case 'getdemoscenario':
+				return ['status'=>true,'scenario'=>$this->getSavedDemoScenario()];
+			case 'savedemoscenario':
+				return $this->handleSaveDemoScenario();
+			case 'democallpage':
+				return $this->handleDemoCallPage();
 			case 'calculationdecision':
 				return $this->handleCalculationDecision();
 			case 'historicalprotection':
@@ -343,8 +347,12 @@ class Concurrencycount implements \BMO {
 				return $this->handleListExcludedCalls();
 			case 'excludecall':
 				return $this->handleExcludeCall();
+			case 'excludepeakcalls':
+				return $this->handleExcludePeakCalls();
 			case 'restoreexcludedcall':
 				return $this->handleRestoreExcludedCall();
+			case 'restoreexcludedgroup':
+				return $this->handleRestoreExcludedGroup();
 			case 'restoreallexcludedcalls':
 				return $this->handleRestoreAllExcludedCalls();
 		}
@@ -527,6 +535,47 @@ class Concurrencycount implements \BMO {
 		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
 	}
 
+	private function handleExcludePeakCalls(): array {
+		try {
+			$expected = trim((string)($_REQUEST['excluded_call_fingerprint'] ?? ''));
+			$current = $this->historicalExclusionConfiguration($this->getHistoricalCallExclusions());
+			if ($expected === '' || !hash_equals($current['fingerprint'], $expected)) throw new \RuntimeException(_('Excluded Calls changed after this peak was displayed. Reload the report and try again.'));
+			$trunk = trim((string)($_REQUEST['trunk'] ?? ''));
+			$start = (string)($_REQUEST['start_date'] ?? '');
+			$end = (string)($_REQUEST['end_date'] ?? '');
+			$from = (string)($_REQUEST['occurrence_from'] ?? '');
+			$to = (string)($_REQUEST['occurrence_to'] ?? '');
+			if (!preg_match('/^[A-Za-z0-9_.:@+\-]{1,128}$/', $trunk) || $this->getPjsipIdentityService()->classify($trunk)['type'] !== 'trunk') throw new \InvalidArgumentException(_('Invalid or unavailable trunk.'));
+			foreach ([$start, $end, $from, $to] as $value) if (!$this->isCanonicalTimestamp($value)) throw new \InvalidArgumentException(_('Invalid detail date range.'));
+			$range = $this->resolveDateRange(['kind' => 'custom', 'start' => $start, 'end' => $end]);
+			$start = $range['start'];
+			$end = $range['end'];
+			if (strtotime($start) > strtotime($from) || strtotime($from) > strtotime($to) || strtotime($to) > strtotime($end)) throw new \InvalidArgumentException(_('Peak occurrence falls outside the report range.'));
+			$detail = $this->buildPeakDetails($trunk, $start, $end, $from, $to);
+			$calls = [];
+			foreach ($detail['calls'] as $call) {
+				if (empty($call['call_identity'])) continue;
+				$rows = $this->fetchLogicalCallRows($call['call_identity']);
+				if (empty($rows)) continue;
+				foreach ($rows as $row) if (strpos((string)($row['accountcode'] ?? ''), 'CCDEMO') === 0) throw new \InvalidArgumentException(_('Demo calls cannot be added to persistent Historical exclusions.'));
+				$calls[$call['call_identity']] = ['identity' => $call['call_identity'], 'summary' => $this->buildExcludedCallSummary($rows)];
+			}
+			if (empty($calls)) throw new \RuntimeException(_('No eligible calls remain in this peak occurrence.'));
+			$groupId = bin2hex(random_bytes(16));
+			$result = $this->withHistoricalCallExclusionsLock(function () use ($expected, $calls, $groupId, $trunk, $from, $to): array {
+				$service = $this->getHistoricalCallExclusionService();
+				$repository = $this->getSettingsRepository();
+				$stored = $service->repair($repository->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []));
+				if (!hash_equals($this->historicalExclusionConfiguration($stored)['fingerprint'], $expected)) throw new \RuntimeException(_('Excluded Calls changed after this peak was displayed. Reload the report and try again.'));
+				$stored = $service->excludeGroup($stored, array_values($calls), $groupId, ['trunk' => $trunk, 'occurrence_from' => $from, 'occurrence_to' => $to]);
+				$repository->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, $stored);
+				return $stored;
+			});
+			$this->historicalCallExclusions = $result;
+			return ['status' => true, 'excluded_count' => count($result)];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
 	private function handleRestoreExcludedCall(): array {
 		try {
 			$service = $this->getHistoricalCallExclusionService();
@@ -534,6 +583,21 @@ class Concurrencycount implements \BMO {
 			$result = $this->withHistoricalCallExclusionsLock(function () use ($service, $identity): array {
 				$repository = $this->getSettingsRepository();
 				$stored = $service->restore($repository->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []), $identity);
+				$repository->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, $stored);
+				return $stored;
+			});
+			$this->historicalCallExclusions = $result;
+			return ['status' => true, 'excluded_count' => count($result)];
+		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function handleRestoreExcludedGroup(): array {
+		try {
+			$groupId = trim((string)($_REQUEST['group_id'] ?? ''));
+			$result = $this->withHistoricalCallExclusionsLock(function () use ($groupId): array {
+				$service = $this->getHistoricalCallExclusionService();
+				$repository = $this->getSettingsRepository();
+				$stored = $service->restoreGroup($repository->get(self::HISTORICAL_CALL_EXCLUSIONS_KEY, []), $groupId);
 				$repository->set(self::HISTORICAL_CALL_EXCLUSIONS_KEY, $stored);
 				return $stored;
 			});
@@ -568,13 +632,21 @@ class Concurrencycount implements \BMO {
 					'summary' => $summary,
 					'source_available' => !empty($sourceRows[$identity]),
 					'matches_current_report' => $report === null || empty($sourceRows[$identity]) ? null : $this->excludedCallMatchesReport($sourceRows[$identity], $report),
+					'group_id' => $entry['group_id'] ?? null,
+					'group_context' => $entry['group_context'] ?? null,
 				];
 			}
 			usort($calls, function ($a, $b) { return strcmp($b['excluded_at'], $a['excluded_at']); });
 			$identities = array_keys($stored);
 			sort($identities, SORT_STRING);
-			return ['status' => true, 'calls' => $calls, 'excluded_count' => count($calls), 'excluded_call_configuration' => ['count' => count($identities), 'fingerprint' => hash('sha256', implode("\n", $identities))], 'has_report_context' => $report !== null];
+			return ['status' => true, 'calls' => $calls, 'excluded_count' => count($calls), 'excluded_call_configuration' => $this->historicalExclusionConfiguration($stored), 'has_report_context' => $report !== null];
 		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+	}
+
+	private function historicalExclusionConfiguration(array $stored): array {
+		$identities = array_keys($stored);
+		sort($identities, SORT_STRING);
+		return ['count' => count($identities), 'fingerprint' => hash('sha256', implode("\n", $identities))];
 	}
 
 	private function withHistoricalCallExclusionsLock(callable $callback): array {
@@ -2068,34 +2140,6 @@ class Concurrencycount implements \BMO {
 	 * Temporary demo fixture. Rows are inserted with a unique accountcode,
 	 * counted via the normal CDR queries, then removed in a finally block.
 	 */
-	private function normaliseDemoScenario($scenario): array {
-		if (!is_array($scenario)) throw new \InvalidArgumentException('Invalid Demo scenario.');
-		$size = $this->normaliseDemoSize($scenario['size'] ?? '');
-		$seed = filter_var($scenario['seed'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 2147483647]]);
-		if ($seed === false) throw new \InvalidArgumentException('Demo seed must be a positive whole number.');
-		$rows = filter_var($scenario['rows'] ?? null, FILTER_VALIDATE_INT);
-		$limits = ['light' => [25, 140], 'medium' => [650, 2200], 'heavy' => [7000, 14000]];
-		if ($rows === false || $rows < $limits[$size][0] || $rows > $limits[$size][1]) throw new \InvalidArgumentException('Demo row count does not match the selected load.');
-		$range = $this->normaliseDemoRange((string)($scenario['start'] ?? ''), (string)($scenario['end'] ?? ''));
-		return ['seed' => (int)$seed, 'size' => $size, 'rows' => (int)$rows, 'start' => $range['start'], 'end' => $range['end']];
-	}
-
-	private function getSavedDemoScenario(): ?array {
-		$stored = $this->getSettingsRepository()->get(self::DEMO_SCENARIO_KEY, null);
-		if (!is_array($stored)) return null;
-		try { return $this->normaliseDemoScenario($stored); }
-		catch (\Throwable $exception) { return null; }
-	}
-
-	private function handleSaveDemoScenario(): array {
-		try {
-			$decoded = json_decode((string)($_REQUEST['scenario'] ?? ''), true);
-			$scenario = $this->normaliseDemoScenario($decoded);
-			$this->getSettingsRepository()->set(self::DEMO_SCENARIO_KEY, $scenario);
-			return ['status' => true, 'scenario' => $scenario];
-		} catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
-	}
-
 	private function handleDemoPreflight(): array {
 		try {
 			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');
@@ -2112,6 +2156,41 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
+	private function normaliseDemoScenario($scenario): array {
+		if (!is_array($scenario)) throw new \InvalidArgumentException(_('Invalid Demo scenario.'));
+		$token = strtolower(trim((string)($scenario['token'] ?? '')));
+		if (!preg_match('/^[a-f0-9]{32}$/', $token)) throw new \InvalidArgumentException(_('Demo scenario token must contain 128 bits in hexadecimal.'));
+		$generation = filter_var($scenario['generation'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1, 'max_range'=>2147483647]]);
+		if ($generation === false) throw new \InvalidArgumentException(_('Demo scenario generation must be a positive whole number.'));
+		$size = $this->normaliseDemoSize($scenario['size'] ?? '');
+		$expected = ['light'=>1000, 'medium'=>5000, 'heavy'=>20000][$size];
+		$rows = filter_var($scenario['rows'] ?? null, FILTER_VALIDATE_INT);
+		if ($rows === false || (int)$rows !== $expected) throw new \InvalidArgumentException(_('Demo row count does not match the selected load.'));
+		$range = $this->normaliseDemoProfileRange((string)($scenario['start'] ?? ''), (string)($scenario['end'] ?? ''));
+		return ['token'=>$token, 'generation'=>(int)$generation, 'size'=>$size, 'rows'=>(int)$rows, 'start'=>$range['start'], 'end'=>$range['end']];
+	}
+	private function getSavedDemoScenario(): ?array {
+		$stored = $this->getSettingsRepository()->get(self::DEMO_SCENARIO_KEY, null);
+		if (!is_array($stored)) return null;
+		try { return $this->normaliseDemoScenario($stored); }
+		catch (\Throwable $exception) { return null; }
+	}
+	private function handleSaveDemoScenario(): array {
+		try {
+			$scenario = $this->normaliseDemoScenario(json_decode((string)($_REQUEST['scenario'] ?? ''), true));
+			$this->getSettingsRepository()->set(self::DEMO_SCENARIO_KEY, $scenario);
+			return ['status'=>true, 'scenario'=>$scenario];
+		} catch (\Throwable $exception) { return ['status'=>false, 'message'=>$exception->getMessage()]; }
+	}
+	private function handleDemoCallPage(): array {
+		try {
+			$page = filter_var($_REQUEST['page'] ?? 1, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+			if ($page === false) throw new \InvalidArgumentException(_('Invalid Demo audit page.'));
+			$result = \FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection::fetchPage((string)($_REQUEST['token'] ?? ''), $this->guiCalculationOwner(), (int)$page);
+			return ['status'=>true, 'audit'=>$result];
+		} catch (\Throwable $exception) { return ['status'=>false, 'message'=>$exception->getMessage()]; }
+	}
+
 	private function calculateDemo(string $start, string $end, float $started_at, array $options): array {
 		$capabilities = $this->configureHistoricalQueryDeadline();
 		$this->configureDemoCleanupStrategy($capabilities);
@@ -2123,32 +2202,44 @@ class Concurrencycount implements \BMO {
 		$demo_engines = $this->normaliseDemoEngines(isset($options['demo_engines']) ? $options['demo_engines'] : ['original']);
 		$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
 		$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
+		$token = strtolower(trim((string)($options['demo_token'] ?? ''))); $generation = (int)($options['demo_generation'] ?? 0);
+		if (!preg_match('/^[a-f0-9]{32}$/', $token) || $generation < 1) {
+			if ($seed !== 0) {
+				$identity = \FreePBX\modules\Concurrencycount\Services\CdrgenAdapter::identityFromSeed($seed);
+				$token = $identity['token']; $generation = $identity['generation'];
+			} else {
+				$token = bin2hex(random_bytes(16));
+				$generation = 1;
+			}
+		}
 		$cancellationCheck = isset($options['cancellation_check']) && is_callable($options['cancellation_check']) ? $options['cancellation_check'] : null;
 		$progressUpdate = isset($options['progress_update']) && is_callable($options['progress_update']) ? $options['progress_update'] : null;
-		if ($seed === 0) {
-			$seed = random_int(1, 0x7fffffff);
-		}
-		$range = $this->normaliseDemoRange($start, $end);
+		$range = $this->normaliseDemoProfileRange($start, $end);
 		$start = $range['start'];
 		$end = $range['end'];
 		$accountcode = 'CCDEMO' . substr(hash('sha1', microtime(true) . random_int(0, PHP_INT_MAX)), 0, 8);
-		$demo_trunk = '';
+		$inventory = $this->demoEndpointInventory();
+		$trunks = $inventory['trunks'];
+		$extensions = $inventory['extensions'];
 		if ($report === 'trunk') {
-			$trunks = $this->getTrunks();
-			if (empty($trunks)) {
-				throw new \Exception(_('Demo trunk mode requires at least one non-numeric PJSIP trunk on the PBX.'));
+			if (empty($inventory['configured_trunks'])) {
+				throw new \Exception(_('Demo trunk mode requires at least one configured PJSIP trunk on the PBX.'));
 			}
-			$demo_trunk = $trunks[0];
 		}
 		$this->workerWork = [0, 0, 'demo-disk-preflight']; $this->workerCheckpoint();
 		$diskPlan = $diskGuard->preflight($row_count);
 		$this->configureHistoricalQueryDeadline();
 		$this->workerWork = [0, 0, 'demo-preparing']; $this->workerCheckpoint();
-		$rows = $this->buildDemoRows($start, $end, $size, $seed, $accountcode, $report, $demo_trunk, $row_count);
+		$cdrgen = new \FreePBX\modules\Concurrencycount\Services\CdrgenAdapter();
+		$generationResult = $cdrgen->generate(['profile'=>$size, 'rows'=>$row_count, 'start'=>$start, 'end'=>$end, 'identity'=>$token . ':' . $generation, 'accountcode'=>$accountcode, 'extensions'=>$extensions, 'extension_names'=>$inventory['extension_names'], 'trunks'=>$inventory['generator_trunks'], 'progress'=>function(int $completed,int $total):void{$this->workerWork=[$completed,$total,'demo-generation'];$this->workerCheckpoint();}]);
+		$rows = $generationResult['rows'];
 		$expected = ($report === 'group')
-			? $this->expectedDemoGroup($rows)
-			: $this->expectedDemoPerName($rows, $report);
+			? $this->expectedDemoGroup($rows, $trunks, $extensions)
+			: $this->expectedDemoPerName($rows, $report, $trunks, $extensions);
 		$inserted = 0;
+		$syntheticCalls = new \FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection($this->workerControl!==null?$this->workerOwner:'');
+		$retainSyntheticCalls = false;
+		try {
 		$result = null;
 		$cleanup = ['rows_removed' => 0, 'cleanup_remaining' => 0];
 		$demoRegistryKey = self::DEMO_RUN_KEY_PREFIX . $accountcode;
@@ -2158,16 +2249,20 @@ class Concurrencycount implements \BMO {
 
 		try {
 			$this->workerWork = [0, 0, 'demo-inserting']; $this->workerCheckpoint();
-			foreach (array_chunk($rows, 100) as $batch) {
+			for ($batchOffset = 0, $rowTotal = count($rows); $batchOffset < $rowTotal; $batchOffset += 100) {
+				$batch = array_slice($rows, $batchOffset, 100);
 				$diskPlan = $diskGuard->check($inserted); $this->workerCheckpoint();
 				$this->cdrdb->beginTransaction();
+				$committedBatch = [];
 				try {
-					foreach ($batch as $row) { $this->insertDemoCdrRow($row); $inserted++; }
+					foreach ($batch as $row) { $committedBatch[] = $this->insertDemoCdrRow($row); }
 					$this->cdrdb->commit();
 				} catch (\Throwable $exception) {
 					if ($this->cdrdb->inTransaction()) $this->cdrdb->rollBack();
 					throw $exception;
 				}
+				foreach ($committedBatch as $committedRow) $syntheticCalls->record($committedRow, $report);
+				$inserted += count($committedBatch);
 				$this->getSettingsRepository()->set($demoRegistryKey, ['accountcode' => $accountcode, 'calculation_id' => $this->workerId, 'started_at' => $demoRegistryStartedAt, 'updated_at' => time(), 'rows_inserted' => $inserted]);
 				$this->workerCheckpoint();
 			}
@@ -2206,6 +2301,7 @@ class Concurrencycount implements \BMO {
 			$actual = $engine_results[$demo_engines[0]];
 			$accuracy = $engine_results[$demo_engines[0]]['accuracy_status'] === 'pass';
 
+			$auditPage=$syntheticCalls->finalize();
 			$result = [
 				'mode' => 'demo', 'start' => $start, 'end' => $end,
 				'per_name' => isset($actual['per_name']) ? $actual['per_name'] : [],
@@ -2219,10 +2315,19 @@ class Concurrencycount implements \BMO {
 				'expected_peak_ranges' => isset($expected['peak_ranges']) ? $expected['peak_ranges'] : [],
 				'accuracy_status' => $accuracy ? 'pass' : 'fail',
 				'rows_processed' => $inserted,
+				'rows_generated' => count($rows),
 				'rows_inserted' => $inserted,
+				'synthetic_calls_page' => $auditPage,
+				'synthetic_calls_returned' => $syntheticCalls->count(),
+				'traffic_mix' => $syntheticCalls->trafficMix(),
+				'synthetic_traffic_engine' => $cdrgen->provenance(),
 				'demo_report' => $report,
 				'demo_size' => $size,
 				'demo_seed' => (string)$seed,
+				'demo_dataset_identity' => $generationResult['metadata']['dataset_identity'],
+				'demo_scenario' => substr($generationResult['metadata']['dataset_identity'], 0, 16),
+				'demo_token' => $token,
+				'demo_generation' => $generation,
 				'demo_run_id' => $accountcode,
 				'warning' => _('Demo mode temporarily inserted synthetic CDR rows and removed them automatically after the run.'),
 			];
@@ -2258,7 +2363,15 @@ class Concurrencycount implements \BMO {
 		$result['rows_removed'] = $cleanup['rows_removed'];
 		$result['cleanup_remaining'] = $cleanup['cleanup_remaining'];
 		$result['cleanup_status'] = ($cleanup['cleanup_remaining'] === 0) ? 'clean' : 'check';
+		$result['synthetic_call_integrity'] = $syntheticCalls->integrity($result['rows_generated'], $result['rows_inserted'], $result['rows_removed'], $result['cleanup_remaining']);
+		$retainSyntheticCalls = true;
 		return $result;
+		} finally {
+			if (!$retainSyntheticCalls) {
+				try { $syntheticCalls->discard(); }
+				catch (\Throwable $discardFailure) { /* Preserve the original Demo/cleanup exception. */ }
+			}
+		}
 	}
 
 	private function requestDemoOptions(): array {
@@ -2270,6 +2383,8 @@ class Concurrencycount implements \BMO {
 			'demo_report' => isset($_REQUEST['demo_report']) ? $_REQUEST['demo_report'] : 'extension',
 			'demo_size' => isset($_REQUEST['demo_size']) ? $_REQUEST['demo_size'] : 'light',
 			'demo_seed' => isset($_REQUEST['demo_seed']) ? $_REQUEST['demo_seed'] : 0,
+			'demo_token' => isset($_REQUEST['demo_token']) ? $_REQUEST['demo_token'] : '',
+			'demo_generation' => isset($_REQUEST['demo_generation']) ? $_REQUEST['demo_generation'] : 0,
 			'demo_rows' => isset($_REQUEST['demo_rows']) ? $_REQUEST['demo_rows'] : 0,
 			'demo_engines' => $demo_engines ?: ['original'],
 			'engine' => isset($_REQUEST['engine']) ? $_REQUEST['engine'] : 'original',
@@ -2309,8 +2424,8 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function normaliseDemoRows($rows, string $size): int {
-		$defaults = ['light' => 50, 'medium' => 1000, 'heavy' => 10000];
-		$max = ['light' => 250, 'medium' => 3000, 'heavy' => 15000];
+		$defaults = ['light' => 1000, 'medium' => 5000, 'heavy' => 20000];
+		$max = ['light' => 1000, 'medium' => 5000, 'heavy' => 20000];
 		$rows = (int)$rows;
 		if ($rows <= 0) {
 			return $defaults[$size];
@@ -2338,57 +2453,12 @@ class Concurrencycount implements \BMO {
 		return ['start' => $start, 'end' => $end];
 	}
 
-	private function buildDemoRows(string $start, string $end, string $size, int $seed, string $accountcode, string $report, string $demo_trunk = '', int $count = 0): array {
-		$counts = ['light' => 50, 'medium' => 1000, 'heavy' => 10000];
-		if ($count <= 0) {
-			$count = $counts[$size];
+	private function normaliseDemoProfileRange(string $start, string $end): array {
+		$range = $this->normaliseDemoRange($start, $end);
+		if (strtotime($range['end']) - strtotime($range['start']) !== 86400) {
+			throw new \InvalidArgumentException(_('Demo Light, Medium and Heavy profiles require an exact one-day range.'));
 		}
-		$start_ts = strtotime($start);
-		$end_ts = strtotime($end);
-		$span = max(900, $end_ts - $start_ts);
-		$min_duration = ($size === 'heavy') ? 300 : 180;
-		$max_duration = ($size === 'heavy') ? 1800 : (($size === 'medium') ? 1200 : 600);
-		$state = $seed;
-		$extensions = ['101', '102', '103', '104', '105', '106', '107', '108'];
-		$rows = [];
-
-		for ($i = 0; $i < $count; $i++) {
-			$state = $this->demoRand($state);
-			$offset_limit = max(1, $span - $min_duration);
-			$offset = $state % $offset_limit;
-			$state = $this->demoRand($state);
-			$duration = $min_duration + ($state % max(1, ($max_duration - $min_duration)));
-			if (($start_ts + $offset + $duration) > $end_ts) {
-				$duration = max(60, $end_ts - ($start_ts + $offset));
-			}
-			$state = $this->demoRand($state);
-			$ext = $extensions[$state % count($extensions)];
-			$calldate = date('Y-m-d H:i:s', $start_ts + $offset);
-			$token = substr(hash('sha1', $accountcode . ':' . $i . ':' . $state), 0, 10);
-			$is_trunk = ($report === 'trunk');
-			$channel = $is_trunk ? ('PJSIP/' . $demo_trunk . '-' . $token) : ('PJSIP/' . $ext . '-' . $token);
-
-			$rows[] = [
-				'calldate' => $calldate,
-				'duration' => $duration,
-				'channel' => $channel,
-				'dstchannel' => '',
-				'src' => $is_trunk ? ('555' . sprintf('%04d', $i)) : $ext,
-				'dst' => '555' . sprintf('%04d', $i),
-				'accountcode' => $accountcode,
-				'uniqueid' => $accountcode . '-' . $i,
-				'linkedid' => $accountcode . '-' . $i,
-			];
-		}
-
-		return $rows;
-	}
-
-	// Linear congruential generator. Deterministic and reproducible from a seed,
-	// which is the only property we need here. Do not replace with random_int()
-	// or anything cryptographic; reproducibility from a saved seed is the contract.
-	private function demoRand(int $state): int {
-		return (int)(($state * 1103515245 + 12345) & 0x7fffffff);
+		return $range;
 	}
 
 	/**
@@ -2397,28 +2467,32 @@ class Concurrencycount implements \BMO {
 	 * this function is what catches it. If you find yourself wanting to DRY
 	 * this out, stop and think about why this exists.
 	 */
-	private function expectedDemoPerName(array $rows, string $report): array {
+	private function expectedDemoPerName(array $rows, string $report, array $trunks, array $extensions): array {
+		$trunkIdentities = array_fill_keys(array_map('strval', $trunks), true);
+		$extensionIdentities = array_fill_keys(array_map('strval', $extensions), true);
+		foreach ($trunkIdentities as $trunk => $_unused) unset($extensionIdentities[$trunk]);
 		$max_concurrent = [];
 		$ongoing_calls = [];
 		foreach ($rows as $row) {
-			$name = '';
-			if ($report === 'extension') {
-				if (preg_match('|PJSIP/([0-9]+)-|', $row['channel'], $m)) {
-					$name = $m[1];
-				}
+			if (isset($row['disposition']) && $row['disposition'] !== 'ANSWERED') continue;
+			$topology = $this->expectedDemoTopology($row, $trunkIdentities, $extensionIdentities);
+			$names = [];
+			if ($report === 'trunk') {
+				foreach (['channel', 'dstchannel'] as $field) if ($topology[$field]['role'] === 'trunk') $names[] = $topology[$field]['endpoint'];
 			} else {
-				if (preg_match('|PJSIP/([^ ]+)-[0-9a-f]+$|', $row['channel'], $m)) {
-					$name = $m[1];
-				}
+				// Match established extension semantics: one extension per CDR,
+				// preferring the destination extension for internal calls.
+				if ($topology['dstchannel']['role'] === 'extension') $names[] = $topology['dstchannel']['endpoint'];
+				elseif ($topology['channel']['role'] === 'extension') $names[] = $topology['channel']['endpoint'];
 			}
-			if ($name === '') continue;
+			if (empty($names)) continue;
 			$start_ts = strtotime($row['calldate']);
 			$end_ts = $start_ts + (int)$row['duration'];
-			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				$key = $name . ',' . $ts;
-				$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
-				if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) {
-					$max_concurrent[$name] = $ongoing_calls[$key];
+			foreach ($names as $name) {
+				for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
+					$key = $name . ',' . $ts;
+					$ongoing_calls[$key] = isset($ongoing_calls[$key]) ? $ongoing_calls[$key] + 1 : 1;
+					if (!isset($max_concurrent[$name]) || $ongoing_calls[$key] > $max_concurrent[$name]) $max_concurrent[$name] = $ongoing_calls[$key];
 				}
 			}
 		}
@@ -2436,19 +2510,24 @@ class Concurrencycount implements \BMO {
 	 * this function is what catches it. If you find yourself wanting to DRY
 	 * this out, stop and think about why this exists.
 	 */
-	private function expectedDemoGroup(array $rows): array {
+	private function expectedDemoGroup(array $rows, array $trunks, array $extensions): array {
+		$trunkIdentities = array_fill_keys(array_map('strval', $trunks), true);
+		$extensionIdentities = array_fill_keys(array_map('strval', $extensions), true);
+		foreach ($trunkIdentities as $trunk => $_unused) unset($extensionIdentities[$trunk]);
 		$per_second_count = [];
 		foreach ($rows as $row) {
-			if (!preg_match('|^PJSIP/([0-9]+)-|', $row['channel'])) {
-				continue;
-			}
+			if (isset($row['disposition']) && $row['disposition'] !== 'ANSWERED') continue;
+			$legs = 0;
+			$topology = $this->expectedDemoTopology($row, $trunkIdentities, $extensionIdentities);
+			foreach (['channel', 'dstchannel'] as $field) if ($topology[$field]['role'] === 'extension') $legs++;
+			if ($legs === 0) continue;
 			$start_ts = strtotime($row['calldate']);
 			$end_ts = $start_ts + (int)$row['duration'];
 			if (($end_ts - $start_ts) > 86400) {
 				$end_ts = $start_ts + 86400;
 			}
 			for ($ts = $start_ts; $ts <= $end_ts; $ts++) {
-				$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + 1 : 1;
+				$per_second_count[$ts] = isset($per_second_count[$ts]) ? $per_second_count[$ts] + $legs : $legs;
 			}
 		}
 		$max = 0;
@@ -2463,6 +2542,20 @@ class Concurrencycount implements \BMO {
 		}
 		sort($peak_times);
 		return ['max_concurrency' => $max, 'peak_ranges' => $this->coalesceRanges($peak_times)];
+	}
+
+	private function expectedDemoEndpoint(string $channel): string {
+		return preg_match('|^PJSIP/([^/ ]+)-[0-9a-f]+$|i', $channel, $match) ? (string)$match[1] : '';
+	}
+
+	private function expectedDemoTopology(array $row, array $trunkIdentities, array $extensionIdentities): array {
+		$out = [];
+		foreach (['channel', 'dstchannel'] as $field) {
+			$endpoint = $this->expectedDemoEndpoint((string)($row[$field] ?? ''));
+			$role = isset($trunkIdentities[$endpoint]) ? 'trunk' : (isset($extensionIdentities[$endpoint]) ? 'extension' : 'unknown');
+			$out[$field] = ['endpoint' => $endpoint, 'role' => $role];
+		}
+		return $out;
 	}
 
 	private function assessDemoPerNameAccuracy(array $expected, array $actual): bool {
@@ -2504,11 +2597,12 @@ class Concurrencycount implements \BMO {
 		return $this->cdrColumnsCache;
 	}
 
-	private function insertDemoCdrRow(array $row): void {
+	private function insertDemoCdrRow(array $row): array {
 		$columns = $this->getCdrColumns();
 		$insert_columns = [];
 		$placeholders = [];
 		$params = [];
+		$inserted = [];
 
 		foreach ($columns as $col) {
 			$field = $col['Field'];
@@ -2524,41 +2618,18 @@ class Concurrencycount implements \BMO {
 			$insert_columns[] = '`' . str_replace('`', '``', $field) . '`';
 			$placeholders[] = $key;
 			$params[$key] = $value;
+			$inserted[$field] = $value;
 		}
 
 		$sql = 'INSERT INTO cdr (' . implode(',', $insert_columns) . ') VALUES (' . implode(',', $placeholders) . ')';
 		$stmt = $this->cdrdb->prepare($sql);
 		$stmt->execute($params);
+		foreach (['_direction', '_flow', '_trunk', '_handled_extension', '_extensions'] as $field) if (array_key_exists($field, $row)) $inserted[$field] = $row[$field];
+		return $inserted;
 	}
 
 	private function demoColumnValue(string $field, array $col, array $row) {
-		$values = [
-			'calldate' => $row['calldate'],
-			'clid' => '"Demo" <' . $row['src'] . '>',
-			'src' => $row['src'],
-			'dst' => $row['dst'],
-			'dcontext' => 'from-internal',
-			'channel' => $row['channel'],
-			'dstchannel' => $row['dstchannel'],
-			'lastapp' => 'Dial',
-			'lastdata' => $row['dstchannel'],
-			'duration' => (int)$row['duration'],
-			'billsec' => (int)$row['duration'],
-			'disposition' => 'ANSWERED',
-			'amaflags' => 3,
-			'accountcode' => $row['accountcode'],
-			'uniqueid' => $row['uniqueid'],
-			'linkedid' => $row['linkedid'],
-			'userfield' => 'Concurrency Count demo',
-			'cnum' => $row['src'],
-			'cnam' => 'Demo',
-			'outbound_cnum' => $row['src'],
-			'outbound_cnam' => 'Demo',
-			'sequence' => 0,
-		];
-		if (array_key_exists($field, $values)) {
-			return $values[$field];
-		}
+		if (array_key_exists($field, $row)) return $row[$field];
 		if (isset($col['Null']) && strtoupper($col['Null']) === 'YES') {
 			return null;
 		}
@@ -2941,11 +3012,37 @@ class Concurrencycount implements \BMO {
 		if ($accountcode === '') return $this->getPjsipIdentityService();
 		// Demo endpoints are tagged synthetic data and receive an isolated
 		// inventory; this does not alter or depend on FreePBX configuration.
+		$inventory = $this->demoEndpointInventory();
 		$trunks = [];
-		foreach ($this->getTrunks() as $trunk) $trunks[$trunk] = ['channelid' => $trunk];
+		foreach ($inventory['trunks'] as $trunk) $trunks[$trunk] = ['channelid' => $trunk];
 		$devices = [];
-		foreach (['101', '102', '103', '104', '105', '106', '107', '108'] as $id) $devices[$id] = ['id' => $id];
+		foreach ($inventory['extensions'] as $id) $devices[$id] = ['id' => $id];
 		return new \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService($trunks, $devices, []);
+	}
+
+	private function demoEndpointInventory(): array {
+		$configuredTrunks = array_values(array_unique(array_filter(array_map('strval', $this->getTrunks()))));
+		$trunks = $configuredTrunks ?: ['demo-carrier'];
+		$configuredTrunkMetadata = $this->getPjsipIdentityService()->configuredTrunks();
+		$generatorTrunks = [];
+		foreach ($trunks as $trunk) $generatorTrunks[] = ['channel'=>'PJSIP/'.$trunk, 'channelid'=>$trunk, 'name'=>(string)($configuredTrunkMetadata[$trunk]['name'] ?? $trunk)];
+		$extensions = [];
+		$extensionNames = [];
+		foreach (array_keys($this->getPjsipIdentityService()->configuredDevices()) as $id) {
+			$id = (string)$id;
+			if (preg_match('/^[0-9]+$/', $id) && !in_array($id, $trunks, true)) { $extensions[] = $id; $extensionNames[$id] = 'Extension '.$id; }
+		}
+		$extensions = array_values(array_unique($extensions));
+		sort($extensions, SORT_STRING);
+		if (count($extensions) < 2) {
+			foreach (['2001', '2002', '2003', '2004', '2005', '2010', '2011', '2020'] as $fallback) {
+				if (!in_array($fallback, $extensions, true) && !in_array($fallback, $trunks, true)) $extensions[] = $fallback;
+			}
+		}
+		$canonicalExtensionNames = [];
+		foreach ($extensions as $id) $canonicalExtensionNames[$id] = isset($extensionNames[$id]) ? $extensionNames[$id] : 'Extension '.$id;
+		$extensionNames = $canonicalExtensionNames;
+		return ['configured_trunks' => $configuredTrunks, 'trunks' => $trunks, 'generator_trunks'=>$generatorTrunks, 'extensions' => $extensions, 'extension_names'=>$extensionNames];
 	}
 
 	private function emptyResult(string $mode, string $start, string $end, string $msg, string $engine_id = 'original'): array {
@@ -2987,7 +3084,9 @@ class Concurrencycount implements \BMO {
 			$rows[] = ['Demo run id', isset($r['demo_run_id']) ? $r['demo_run_id'] : ''];
 			$rows[] = ['Demo report', isset($r['demo_report']) ? $r['demo_report'] : ''];
 			$rows[] = ['Demo size', isset($r['demo_size']) ? $r['demo_size'] : ''];
-			$rows[] = ['Demo seed', isset($r['demo_seed']) ? $r['demo_seed'] : ''];
+			if (!empty($r['demo_seed'])) $rows[] = ['Demo seed', $r['demo_seed']];
+			else $rows[] = ['Demo scenario', isset($r['demo_scenario']) ? $r['demo_scenario'] : ''];
+			$rows[] = ['Demo dataset identity', isset($r['demo_dataset_identity']) ? $r['demo_dataset_identity'] : ''];
 			$rows[] = ['Accuracy', isset($r['accuracy_status']) ? $r['accuracy_status'] : ''];
 			$rows[] = ['Rows inserted', isset($r['rows_inserted']) ? $r['rows_inserted'] : 0];
 			$rows[] = ['Rows removed', isset($r['rows_removed']) ? $r['rows_removed'] : 0];
@@ -3109,20 +3208,22 @@ class Concurrencycount implements \BMO {
 			$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 			$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);
 			$seed = isset($options['demo_seed']) ? (int)$options['demo_seed'] : 0;
-			if ($seed === 0) {
-				$seed = random_int(1, 0x7fffffff);
-			}
-			$range = $this->normaliseDemoRange($start, $end);
-			$demo_trunk = '';
+			$token = strtolower(trim((string)($options['demo_token'] ?? ''))); $generation = (int)($options['demo_generation'] ?? 0);
+			if (!preg_match('/^[a-f0-9]{32}$/', $token) || $generation < 1) throw new \InvalidArgumentException(_('Invalid Demo scenario identity.'));
+			$range = $this->normaliseDemoProfileRange($start, $end);
+			$inventory = $this->demoEndpointInventory();
+			$trunks = $inventory['trunks'];
+			$extensions = $inventory['extensions'];
 			if ($report === 'trunk') {
-				$trunks = $this->getTrunks();
-				if (empty($trunks)) {
-					throw new \Exception(_('Demo trunk mode requires at least one non-numeric PJSIP trunk on the PBX.'));
+				if (empty($inventory['configured_trunks'])) {
+					throw new \Exception(_('Demo trunk mode requires at least one configured PJSIP trunk on the PBX.'));
 				}
-				$demo_trunk = $trunks[0];
 			}
-			$rows = $this->buildDemoRows($range['start'], $range['end'], $size, $seed, 'CCDEMOCSV', $report, $demo_trunk, $row_count);
-			$csv = $this->demoCdrRowsToCsv($rows, $report, $size, $seed, $range['start'], $range['end']);
+			$cdrgen = new \FreePBX\modules\Concurrencycount\Services\CdrgenAdapter();
+			$generationResult = $cdrgen->generate(['profile'=>$size, 'rows'=>$row_count, 'start'=>$range['start'], 'end'=>$range['end'], 'identity'=>$token . ':' . $generation, 'accountcode'=>'CCDEMOCSV', 'extensions'=>$extensions, 'extension_names'=>$inventory['extension_names'], 'trunks'=>$inventory['generator_trunks']]);
+			$rows = $generationResult['rows'];
+			$datasetIdentity = $generationResult['metadata']['dataset_identity'];
+			$csv = $this->demoCdrRowsToCsv($rows, $report, $size, substr($datasetIdentity, 0, 16), $datasetIdentity, $range['start'], $range['end']);
 			$filename = 'concurrency-count-demo-cdr-' . $report . '-' . date('Ymd-His') . '.csv';
 
 			while (ob_get_level()) ob_end_clean();
@@ -3136,12 +3237,13 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
-	private function demoCdrRowsToCsv(array $rows, string $report, string $size, int $seed, string $start, string $end): string {
+	private function demoCdrRowsToCsv(array $rows, string $report, string $size, string $scenario, string $datasetIdentity, string $start, string $end): string {
 		$out = [];
 		$out[] = ['Concurrency Count demo CDR data'];
 		$out[] = ['Report', $report];
 		$out[] = ['Size', $size];
-		$out[] = ['Seed', $seed];
+		$out[] = ['Scenario', $scenario];
+		$out[] = ['Dataset identity', $datasetIdentity];
 		$out[] = ['From', $start];
 		$out[] = ['To', $end];
 		$out[] = [];
@@ -3235,7 +3337,8 @@ class Concurrencycount implements \BMO {
 			$lines[] = 'Demo run id:      ' . (isset($r['demo_run_id']) ? $r['demo_run_id'] : '');
 			$lines[] = 'Demo report:      ' . (isset($r['demo_report']) ? ucfirst($r['demo_report']) : '');
 			$lines[] = 'Demo size:        ' . (isset($r['demo_size']) ? $r['demo_size'] : '');
-			$lines[] = 'Demo seed:        ' . (isset($r['demo_seed']) ? $r['demo_seed'] : '');
+			$lines[] = !empty($r['demo_seed']) ? 'Demo seed:        ' . $r['demo_seed'] : 'Demo scenario:    ' . (isset($r['demo_scenario']) ? $r['demo_scenario'] : '');
+			$lines[] = 'Demo dataset identity: ' . (isset($r['demo_dataset_identity']) ? $r['demo_dataset_identity'] : '');
 			$lines[] = 'Accuracy:         ' . (isset($r['accuracy_status']) ? strtoupper($r['accuracy_status']) : '');
 			$lines[] = 'Rows inserted:    ' . (isset($r['rows_inserted']) ? $r['rows_inserted'] : 0);
 			$lines[] = 'Rows removed:     ' . (isset($r['rows_removed']) ? $r['rows_removed'] : 0);

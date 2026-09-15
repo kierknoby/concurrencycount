@@ -6,7 +6,7 @@
 		this.canvas = canvas;
 		this.context = canvas.getContext('2d');
 		this.options = options || {};
-		this.theme = this.options.theme === 'dark' ? 'dark' : 'light';
+		this.theme = ['dark', 'wall-dark', 'wall-light'].indexOf(this.options.theme) >= 0 ? this.options.theme : 'light';
 		this.points = [];
 		this.domain = null;
 		this.threshold = 0;
@@ -38,11 +38,21 @@
 	};
 
 	ConcurrencyChart.prototype.setTheme = function (theme) {
-		this.theme = theme === 'dark' ? 'dark' : 'light';
+		this.theme = ['dark', 'wall-dark', 'wall-light'].indexOf(theme) >= 0 ? theme : 'light';
 		this.resize();
 	};
 
 	ConcurrencyChart.prototype.palette = function () {
+		if (this.theme === 'wall-dark') return {
+			background: '#10251B', axis: '#52705E', grid: '#244332', label: '#C3D8C9',
+			line: '#66C98A', exceeded: '#FF8585', threshold: '#FF8585', thresholdText: '#FFB0B0',
+			tooltipBackground: '#F2F8F3', tooltipText: '#10251B'
+		};
+		if (this.theme === 'wall-light') return {
+			background: '#FFFFFF', axis: '#AAC1B0', grid: '#E2EEE5', label: '#355342',
+			line: '#237A45', exceeded: '#B83232', threshold: '#B83232', thresholdText: '#8F2525',
+			tooltipBackground: '#163C27', tooltipText: '#FFFFFF'
+		};
 		return this.theme === 'dark' ? {
 			background: '#172431', axis: '#516678', grid: '#263a4b', label: '#c7d1da',
 			line: '#62b0e8', exceeded: '#ff8585', threshold: '#ff8585', thresholdText: '#ffb0b0',

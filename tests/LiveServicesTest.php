@@ -178,6 +178,9 @@ live_assert_same(true, $defaults['recovery_enabled'], 'Recovery enabled by defau
 live_assert_same([], $defaults['hidden_trunks'], 'Hidden trunks default empty');
 live_assert_same([], $defaults['trunk_order'], 'Trunk order defaults empty before inventory reconciliation');
 live_assert_same([], $defaults['live_wall_featured_trunks'], 'Live Wall featured trunks default empty');
+live_assert_same('dark', $defaults['live_wall_theme'], 'Live Wall theme defaults to dark');
+live_assert_same('light', $thresholds->normalise(['live_wall_theme' => 'light'], [])['live_wall_theme'], 'Light Live Wall preference is persisted through settings normalisation');
+live_assert_same('dark', $thresholds->reconcileStored(['live_wall_theme' => 'invalid'], [])['live_wall_theme'], 'Invalid stored Live Wall themes reconcile safely to dark');
 $config = $thresholds->normalise([
 	'refresh_interval' => 1,
 	'alerts_enabled' => 'on',

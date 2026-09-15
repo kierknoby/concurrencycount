@@ -150,7 +150,7 @@ class Concurrencycount extends Command {
 
 		if ($results['mode'] === 'demo') {
 			$output->writeln('Demo report:    ' . ucfirst($results['demo_report']));
-			$output->writeln('Demo seed:      ' . $results['demo_seed']);
+			$output->writeln(!empty($results['demo_seed']) ? 'Demo seed:      ' . $results['demo_seed'] : 'Demo scenario:  ' . $results['demo_scenario']);
 			$output->writeln('Accuracy:       ' . strtoupper($results['accuracy_status']));
 			$output->writeln('Rows removed:   ' . $results['rows_removed']);
 			$output->writeln('Rows remaining: ' . $results['cleanup_remaining']);
@@ -488,14 +488,14 @@ class Concurrencycount extends Command {
 	private function demoPlan(int $seed, string $size): array {
 		$seed = $seed ?: time();
 		$size = in_array($size, ['light', 'medium', 'heavy'], true) ? $size : 'light';
-		$hours = ['light' => 1, 'medium' => 3, 'heavy' => 6];
+		$days = ['light' => 1, 'medium' => 1, 'heavy' => 1];
 		$dayOffset = (int)(floor($seed / 7) % 365);
 		$hour = 8 + (int)(floor($seed / 13) % 8);
 		$minute = (int)(floor($seed / 17) % 4) * 15;
 		$start = mktime($hour, $minute, 0, 1, 1 + $dayOffset, 2001);
 		return [
 			'start' => date('Y-m-d H:i:s', $start),
-			'end' => date('Y-m-d H:i:s', $start + ($hours[$size] * 3600)),
+			'end' => date('Y-m-d H:i:s', $start + ($days[$size] * 86400)),
 		];
 	}
 

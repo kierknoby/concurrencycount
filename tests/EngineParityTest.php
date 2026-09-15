@@ -42,7 +42,7 @@ namespace {
 		 * @dataProvider provideFixtures
 		 */
 		public function testRegisteredEnginesMatchExpectedExtensionPerName(array $rows): void {
-			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'extension']);
+			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'extension', [], $this->numericEndpoints($rows)]);
 			$engineRows = $this->toEngineRows($rows, 'extension');
 			$allNames = $this->callPrivateBuildAllNames('extension', $engineRows);
 			$expected['per_name'] = $this->shapeExpectedPerName($expected['per_name'], $allNames);
@@ -59,7 +59,7 @@ namespace {
 		 * @dataProvider provideTrunkFixtures
 		 */
 		public function testRegisteredEnginesMatchExpectedTrunkPerName(array $rows, array $trunks): void {
-			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'trunk']);
+			$expected = $this->callPrivate('expectedDemoPerName', [$rows, 'trunk', $trunks, $this->numericEndpoints($rows, $trunks)]);
 			$engineRows = $this->toEngineRows($rows, 'trunk');
 			$allNames = $this->callPrivateBuildAllNames('trunk', $engineRows, $trunks);
 			$expected['per_name'] = $this->shapeExpectedPerName($expected['per_name'], $allNames);
@@ -76,7 +76,7 @@ namespace {
 		 * @dataProvider provideGroupFixtures
 		 */
 		public function testRegisteredEnginesMatchExpectedGroup(array $rows): void {
-			$expected = $this->callPrivate('expectedDemoGroup', [$rows]);
+			$expected = $this->callPrivate('expectedDemoGroup', [$rows, [], $this->numericEndpoints($rows)]);
 			$engineRows = $this->toEngineRows($rows, 'extension');
 
 			foreach (Registry::getAvailableEngines() as $id => $meta) {
@@ -84,6 +84,37 @@ namespace {
 				$actual = $engine->calculateGroup($engineRows);
 				$this->assertSame($expected['max_concurrency'], $actual['max_concurrency'], $id . ' group max mismatch');
 				$this->assertSame($expected['peak_ranges'], $actual['peak_ranges'], $id . ' group peak ranges mismatch');
+			}
+		}
+
+		public function testConfiguredPrefixExtensionsAndNumericTrunkMatchExpectedOracle(): void {
+			$trunks = ['7301'];
+			$extensions = ['101', '9503'];
+			$rows = [
+				array_merge($this->row('2001-01-01 10:00:00', 60, 'PJSIP/7301-aaaaaa'), ['dstchannel'=>'PJSIP/101-bbbbbb', 'src'=>'442079460000', 'dst'=>'101']),
+				array_merge($this->row('2001-01-01 10:00:00', 60, 'PJSIP/101-cccccc'), ['dstchannel'=>'PJSIP/9503-dddddd', 'src'=>'101', 'dst'=>'9503']),
+				array_merge($this->row('2001-01-01 10:00:00', 60, 'PJSIP/101-eeeeee'), ['dstchannel'=>'PJSIP/7301-ffffff', 'src'=>'101', 'dst'=>'912345678']),
+			];
+			$identity = new \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService(['7301'=>['channelid'=>'7301']], ['101'=>['id'=>'101'], '9503'=>['id'=>'9503']], []);
+
+			foreach (['extension', 'trunk'] as $mode) {
+				$expected = $this->callPrivate('expectedDemoPerName', [$rows, $mode, $trunks, $extensions]);
+				$classified = $this->callPrivate('classifyPerNameRows', [$rows, $mode, $identity]);
+				$allNames = $this->callPrivateBuildAllNames($mode, $classified['rows'], $mode === 'trunk' ? $trunks : []);
+				$expected['per_name'] = $this->shapeExpectedPerName($expected['per_name'], $allNames);
+				foreach (Registry::getAvailableEngines() as $id => $meta) {
+					$actual = (new $meta['class']($this->engineOptions($allNames)))->calculatePerName($mode, $classified['rows']);
+					$this->assertSame($expected['per_name'], $actual['per_name'], $id . ' must classify 101/9503 as extensions and 7301 as a trunk');
+					$this->assertSame($expected['global_max'], $actual['global_max'], $id . ' must not apply an obsolete 1/9 destination-prefix exclusion');
+				}
+			}
+
+			$expectedGroup = $this->callPrivate('expectedDemoGroup', [$rows, $trunks, $extensions]);
+			$classifiedGroup = $this->callPrivate('classifyGroupRows', [$rows, $identity]);
+			foreach (Registry::getAvailableEngines() as $id => $meta) {
+				$actualGroup = (new $meta['class']($this->engineOptions([])))->calculateGroup($classifiedGroup['rows']);
+				$this->assertSame($expectedGroup['max_concurrency'], $actualGroup['max_concurrency'], $id . ' prefix topology Group maximum mismatch');
+				$this->assertSame($expectedGroup['peak_ranges'], $actualGroup['peak_ranges'], $id . ' prefix topology Group ranges mismatch');
 			}
 		}
 
@@ -207,6 +238,14 @@ namespace {
 				$shaped[$name] = isset($expected[$name]) ? $expected[$name] : 0;
 			}
 			return $shaped;
+		}
+
+		private function numericEndpoints(array $rows, array $excluded = []): array {
+			$found = [];
+			foreach ($rows as $row) foreach (['channel', 'dstchannel'] as $field) {
+				if (preg_match('|^PJSIP/([0-9]+)-|', (string)($row[$field] ?? ''), $match) && !in_array($match[1], $excluded, true)) $found[$match[1]] = true;
+			}
+			return array_keys($found);
 		}
 
 		private function engineOptions(array $allNames): array {

@@ -1,5 +1,7 @@
 # v2.2.0
 
+**NOT CURRENTLY SUITABLE FOR PRODUCTION.**
+
 ## Overview
 
 Concurrency Count helps FreePBX and PBXact administrators understand how much simultaneous calling activity their system is handling.
@@ -28,6 +30,16 @@ Historical Reports provide three different measurements:
 | **Group Concurrency** | PBX-wide simultaneous extension-side legs, independent of configured FreePBX Ring Groups. |
 
 Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
+
+### v2.2.0 highlights
+
+- Demo now uses the pinned CDRgen 1.1.0 core to generate deterministic PJSIP-only synthetic traffic, with Light, Medium and Heavy profiles of 1,000, 5,000 and 20,000 calls over exact one-day ranges.
+- Demo scenarios use cryptographically random 128-bit browser identities while retaining deterministic replay and legacy CLI `--demo-seed` compatibility.
+- Demo generation starts from authoritative FreePBX PJSIP trunk/device inventories, supplementing the extension side with isolated synthetic fallback identities only when too few configured extensions are available; accuracy checks use the exact resulting Demo inventory.
+- Completed Demo results expose generator provenance, dataset identity, traffic mix, integrity totals and authenticated paged synthetic-call audit detail.
+- Historical peak detail adds **Exclude All** and grouped **Restore Group** while retaining individual Restore and global Restore All.
+- Live Wall adds persisted Light/Dark presentation, wall-specific chart palettes and viewport/fullscreen-aware layout behaviour.
+- Existing Demo cleanup protections remain in place, including the bounded legacy MariaDB 5.5.65 InnoDB path, stale-run recovery, disk/binlog preflight and independent mandatory-cleanup allowance.
 
 ## Requirements
 
@@ -381,13 +393,16 @@ Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment
 
 ### Excluded Calls
 
-**Exclude Call** creates a reversible module-level exclusion for a safely identified logical call. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
+**Exclude Call** creates a reversible module-level exclusion for one safely identified logical call. **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence as one group. Group members remain individually inspectable and restorable; **Restore Group** restores only the group's still-excluded members, while **Restore all excluded calls** retains its global meaning. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
 
 - Asterisk `linkedid` is preferred. Every row sharing that excluded `linkedid` is removed together.
 - `uniqueid` is the fallback when `linkedid` is unavailable.
 - Similar calls with different logical identities remain independent.
-- **Exclude Call** is available only where a safe logical-call identity exists.
-- **Restore** reverses one exclusion; **Restore All** reverses all exclusions.
+- **Exclude Call** excludes one safely identified logical call and is available only where a safe logical-call identity exists.
+- **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence and records those exclusions as one group.
+- **Restore** reverses one exclusion; restoring one member of a bulk peak group does not restore the others.
+- **Restore Group** restores every still-excluded member of that peak group without affecting unrelated exclusions.
+- **Restore All** reverses all exclusions globally.
 - Demo calls cannot be persistently excluded.
 - A defensive maximum of 5,000 valid exclusions is retained.
 
@@ -440,7 +455,7 @@ Unknown saved channelids are retained but ignored while unavailable, and newly d
 
 ### Live Wall
 
-Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
+Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Its persisted Light/Dark choice applies only to Live Wall, using FreePBX-style green accents in both themes. The wall follows the visible viewport with a small inset outside browser fullscreen and reflows its panels and charts after viewport, orientation and fullscreen changes. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
 
 Live Wall launch opens **Configure Live Wall** when the saved selection is incomplete. No trunk is selected or substituted automatically, so deleting a selected trunk can require reconfiguration. Hidden featured trunks remain selected but are suppressed from presentation. Monitoring-stopped featured trunks remain valid and display current data. Saved left-to-right order remains authoritative. All configured trunks, including hidden, monitoring-stopped and unfeatured trunks, continue to contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
 
@@ -494,7 +509,7 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 ## Demo
 
-Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load, randomises a reproducible seed and historical CDR range, and can save that scenario definition for later Trunk, Extension or Group runs without storing synthetic rows. Demo Minimum concurrency defaults to 2. CLI examples are:
+Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load and uses a cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs. **Save selection** persists only the token, generation, profile, row count and one-day range so the same generation request can be restored without retaining generated CDRs. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the profiles also increase duration, overlap and burst density. Demo Minimum concurrency defaults to 2. CLI examples are:
 
 ```bash
 fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345
@@ -503,7 +518,15 @@ fwconsole concurrencycount --mode=demo --compare=original,sweep
 
 Demo uses the server-side `max_statement_time` limit for cleanup `DELETE` statements on MariaDB 10.1.1 or later. Legacy MariaDB, including 5.5.65, requires the actual CDR table to use InnoDB and uses exact-tag batches of at most 100 rows with conservative row and metadata lock waits and the same five-minute application cleanup deadline; an unknown or different storage engine fails before cleanup or synthetic writes. MySQL `max_execution_time` protects SELECT statements only, so Demo remains unavailable on supported MySQL while ordinary Historical remains available. Before stale recovery or any exact cleanup DELETE, Demo verifies from `information_schema.STATISTICS` that the CDR table has an index whose leading column is `accountcode`. This makes exact reserved-accountcode cleanup use an identifiable access path; absent, non-leading, insufficient-prefix or unavailable index metadata fails closed without changing the CDR schema or writing synthetic rows. For a new run, that access-path check precedes stale recovery; the separate disk/binlog capacity check then determines whether new rows may be inserted. Demo reads the MariaDB data directory and verifies its local backing filesystem. Its estimate uses four times the CDR table's allocated bytes per reported row for indexes, page churn and approximate table statistics and never falls below 16 KiB per requested row. When binary logging is enabled, Demo resolves `@@log_bin_basename`; the same filesystem receives another row allowance, while a separate binary-log filesystem receives its own requirement and larger-of-1-GiB-or-20% reserve. An unavailable binary-log location fails closed. Missing, remote or invalid filesystem information also fails closed. The GUI shows requested rows, estimated need, free space, reserve and safely available space before asking to run.
 
-After preflight, Demo inserts deterministic CDR rows tagged with a unique `CCDEMO*` accountcode in bounded groups with cancellation and resource checkpoints every 100 rows. It rechecks filesystem headroom between groups and aborts if remaining safety or actual growth invalidates the plan. It then uses the same five-minute progress, ETA, PBX impact, pause, reassessment and runtime framework as Historical. Cleanup runs in `finally`, deletes by the unique tag and verifies zero remaining rows after success, Stop, cancellation, runtime/resource/disk failure or ordinary exceptions. Mandatory cleanup does not reuse the calculation's terminal cancellation, runtime or memory checkpoint; it has a separate monotonic five-minute housekeeping allowance, a bounded 330-second PHP execution-time backstop, the verified exact indexed access path, bounded adaptive batches and database lock/statement protections. Its registry heartbeat remains active throughout housekeeping so concurrent recovery does not treat it as stale. Successful cleanup removes the registry afterwards; a genuine cleanup failure retains it for recovery after five minutes without a heartbeat.
+After preflight, Demo inserts deterministic CDR rows tagged with a unique `CCDEMO*` accountcode in bounded groups with cancellation and resource checkpoints every 100 rows. It rechecks filesystem headroom between groups and aborts if remaining safety or actual growth invalidates the plan. The completed result reports generated, inserted, audited, removed and remaining counts, verifies those totals against one another, and shows the generated traffic mix and synthetic-traffic-engine provenance. Only the first 100-row synthetic-call audit page is carried in the completed result; later detail pages are retrieved from a short-lived authenticated server spool in batches of at most 100. Audit rows become eligible only after their database transaction commits, and failed or cancelled runs discard their audit spool rather than retaining partial detail.
+
+Demo then uses the same five-minute progress, ETA, PBX impact, pause, reassessment and runtime framework as Historical. Cleanup runs in `finally`, deletes by the unique tag and verifies zero remaining rows after success, Stop, cancellation, runtime/resource/disk failure or ordinary exceptions. Mandatory cleanup does not reuse the calculation's terminal cancellation, runtime or memory checkpoint; it has a separate monotonic five-minute housekeeping allowance, a bounded 330-second PHP execution-time backstop, the verified exact indexed access path, bounded adaptive batches and database lock/statement protections. Its registry heartbeat remains active throughout housekeeping so concurrent recovery does not treat it as stale. Successful cleanup removes the registry afterwards; a genuine cleanup failure retains it for recovery after five minutes without a heartbeat.
+
+Concurrency Count bundles the side-effect-free CDRgen 1.1.0 generation core from exact upstream revision `e8f45d82163b081196efb82219751ce66b65cca4` under `lib/cdrgen/`. `Services/CdrgenAdapter.php` is the only integration boundary and requests PJSIP-only traffic. CDRgen generates synthetic traffic; Original and Sweep remain Concurrency Count calculation engines. The module retains ownership of inventory adaptation, CDR schema mapping, insertion, calculation, preflight and cleanup.
+
+Demo generation starts from the authoritative configured PJSIP trunk and device inventories used by the rest of Concurrency Count, supplementing the extension side with isolated synthetic fallback identities only when too few configured extensions are available to generate meaningful mixed traffic. Configured numeric trunks remain trunks even when their channelids look like extension numbers, configured extensions beginning with 1 or 9 remain extensions, and unknown numeric-looking endpoints are not promoted by number shape alone. The expected-value oracle uses the exact Demo inventory supplied to generation and derives topology independently from observable `channel` and `dstchannel` legs; it does not trust CDRgen's generated direction or helper metadata when checking engine accuracy.
+
+To upgrade CDRgen, select and review an upstream release, replace the bundled core, update its import revision and hashes, run upstream and adapter compatibility tests plus the full regression suite, inspect the complete diff, and smoke-test representative PBXs before release.
 
 Demo is a capacity assessment of this Historical/CDR processing workload on this PBX. Its summary includes only measurements obtained reliably. It does not test maximum simultaneous voice-call capacity.
 
@@ -549,16 +572,23 @@ This is a pre-production checklist, not a claim that these checks have been comp
 - Stop while running and paused; refresh and close the browser while paused; confirm ownership lease cleanup and that no partial result replaces a completed result.
 - Exercise Asterisk restart and unrelated system activity during calculation where applicable, plus the PHP memory guard.
 - Run safe and unsafe Demo preflights. Confirm unsafe preflight inserts zero rows, including with the database filesystem nearly full in a controlled test environment.
-- Cancel and abandon Demo during insertion and calculation, and confirm verified zero `CCDEMO*` rows. Run a large Demo workload and inspect the capacity-assessment summary.
+- On legacy MariaDB 5.5.65 with an InnoDB CDR table and suitable `accountcode` index, run Demo through generation, calculation and cleanup; confirm bounded cleanup completes with zero `CCDEMO*` rows and no unsupported `@@log_bin_basename` access when binary logging does not require it.
+- Run Light, Medium and Heavy Demo profiles and confirm they request exactly 1,000, 5,000 and 20,000 calls over one day. Save and restore a scenario, rerun it, and confirm its scenario/dataset identity remains deterministic.
+- Run a Medium or Heavy GUI Demo to completion, inspect traffic mix and integrity totals, open the synthetic-call audit, fetch at least page 2, and confirm each audit page contains at most 100 calls.
+- Cancel and abandon Demo during insertion and calculation, and confirm verified zero `CCDEMO*` rows and no retained partial audit spool. Run a large Demo workload and inspect the capacity-assessment summary.
+- Run CLI Demo twice with the same explicit `--demo-seed` and confirm deterministic scenario generation remains compatible with the legacy CLI option.
 - Test a host where one or more procfs metrics are unavailable and confirm omitted values do not appear as zero or stop the calculation.
 - A normal outbound extension call.
 - A numeric configured PJSIP trunk and alphanumeric configured PJSIP device.
+- Configured extensions beginning with 1 and 9, including inbound, outbound and internal traffic, and confirm number shape does not change their authoritative role.
 - Existing or synthetic CDRs with dialled `dst` values 999, 911, 111 and another 1XX; do not place unsafe calls merely to create data.
 - An unknown/deleted endpoint; Treat as Trunk, Treat as Extension, Ignore, reset one and reset all.
 - Authoritative configuration superseding an override, and a trunk/device collision remaining a conflict.
 - Peak 0, peak 1 Activity only and peak 2+ concurrency in all three modes.
 - Activity-only Trunk occurrences, lazy detail, CDR Reports and Exclude Call.
-- Exclude, Restore and Restore All, including multiple rows sharing one `linkedid` and an independent similar call.
+- Exclude one call and Restore it, including multiple rows sharing one `linkedid` and an independent similar call.
+- On a displayed Trunk peak, use **Exclude All**, confirm every eligible contributing logical call is grouped and the report regenerates, restore one member individually, then use **Restore Group** and confirm only the remaining members of that group return.
+- Confirm stale Exclude All state is rejected if the global exclusion configuration changes before submission, and **Restore All** retains its global meaning.
 - Source CDR removal after exclusion, retaining summary with relevance unavailable.
 - Multiple Historic Report tabs, stable names/IDs, relative and Custom restoration, and lazy regeneration.
 - Exclusion/classification changes causing recalculation and the expected presentation transition.
@@ -586,6 +616,8 @@ This is a pre-production checklist, not a claim that these checks have been comp
 
 - Desktop, tablet and approximately 320px layouts.
 - Keyboard operation and visible focus for tabs, date controls, Activity only, occurrences, call actions, trunk ordering, modals and Live Wall exit.
+- Switch Live Wall between Light and Dark and confirm the preference survives reload without affecting the normal FreePBX/PBXact theme.
+- Exercise Live Wall outside browser fullscreen, in browser fullscreen, after Esc, after resize and after orientation/viewport changes; confirm the normal inset remains visible outside fullscreen, fullscreen uses the complete viewport, and charts/panels reflow without clipping.
 - Screen-reader names and expanded state for disclosures.
 
 ## Tests
@@ -596,42 +628,50 @@ Standalone tests and contracts include:
 php tests/AlertMonitorCoordinatorTest.php
 php tests/AlertOutboxServiceTest.php
 php tests/AmiChannelSourceTest.php
+php tests/CdrgenAdapterTest.php
+php tests/CdrgenBundleIntegrityTest.php
 php tests/CliCancellationControlTest.php
-php tests/DemoDiskGuardTest.php
 php tests/DemoCleanupServiceTest.php
+php tests/DemoDiskGuardTest.php
+php tests/DemoExpectedTrafficTest.php
+php tests/DemoSyntheticCallCollectionTest.php
 php tests/DemoTerminalCleanupTest.php
 php tests/EngineParityTest.php
 php tests/EngineRuntimeCheckpointTest.php
 php tests/FreepbxEntityResolverTest.php
-php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalAssessmentTest.php
+php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalCallExclusionServiceTest.php
 php tests/HistoricalCdrAcquisitionTest.php
 php tests/HistoricalDatabaseCapabilitiesTest.php
 php tests/HistoricalEndpointFilterServiceTest.php
+php tests/HistoricalFloorOutputTest.php
 php tests/HistoricalImpactAssessmentTest.php
 php tests/HistoricalMemoryGuardTest.php
 php tests/HistoricalNoControllerTest.php
 php tests/HistoricalReportsServiceTest.php
-php tests/HistoricalRuntimeEstimatorTest.php
 php tests/HistoricalResultFloorTest.php
-php tests/HistoricalFloorOutputTest.php
+php tests/HistoricalRuntimeEstimatorTest.php
 php tests/HistoricalTelemetryCadenceTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
+php tests/OriginalMemoryBenchmarkTest.php
+php tests/OriginalWindowingTest.php
 php tests/PeakDetailAnalyserTest.php
 php tests/PjsipIdentityServiceTest.php
-php tests/OriginalWindowingTest.php
-php tests/OriginalMemoryBenchmarkTest.php
 php tests/SettingsRepositoryTest.php
 php tests/SystemResourceTelemetryTest.php
 php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
+node tests/ConcurrencyChartLifecycleTest.js
 node tests/DateRangeTest.js
+node tests/DemoScenarioTest.js
 node tests/HistoricalRunStateTest.js
 node tests/TelemetryFormatTest.js
 ```
+
+The release suite also runs any additional PHP and JavaScript test files present under `tests/`; the list above highlights the standalone contracts and the principal regression suites documented for this release.
 
 Source checks include:
 
@@ -640,6 +680,7 @@ node --check assets/js/concurrencycount.js
 node --check assets/js/live-view.js
 node --check assets/js/date-range.js
 node --check assets/js/concurrency-charts.js
+node --check assets/js/demo-scenario.js
 node --check assets/js/historical-run-state.js
 node --check assets/js/telemetry-format.js
 find . -path './.git' -prune -o -type f -name '*.php' -print | while IFS= read -r file; do php -l "$file"; done
@@ -689,7 +730,7 @@ AI assistance used for code, review, testing or documentation must be disclosed 
 Assisted-by: AGENT_NAME:MODEL_VERSION
 ```
 
-For example: `Assisted-by: OpenAI-Codex:gpt-5.6-sol`
+For example: `Assisted-by: Codex:gpt-5.6-sol`
 
 The human contributor remains solely responsible. AI tools must not be listed as co-authors.
 
