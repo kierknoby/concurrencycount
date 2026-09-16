@@ -29,27 +29,6 @@
 		return plan;
 	}
 	function equal(left, right) { return !!left && !!right && ['token', 'generation', 'seed', 'size', 'rows', 'start', 'end'].every(function (key) { return String(left[key]) === String(right[key]); }); }
-	function loadState(load) {
-		load = Object.prototype.hasOwnProperty.call(LOADS, load) ? load : 'medium';
-		var state = {};
-		Object.keys(LOADS).forEach(function (name) { state[name] = {checked: name === load, active: name === load, ariaPressed: name === load ? 'true' : 'false'}; });
-		return state;
-	}
-	function renderLoadButtons(buttons, load) {
-		var state = loadState(load), selected = Object.keys(state).filter(function (name) { return state[name].checked; })[0];
-		buttons = Array.prototype.slice.call(buttons || []);
-		buttons.forEach(function (button) {
-			button.classList.remove('active', 'cc-demo-load-selected', 'cc-demo-load-unselected', 'btn-primary', 'btn-success', 'selected');
-			button.classList.add('cc-demo-load-unselected');
-			button.setAttribute('aria-pressed', 'false');
-		});
-		var selectedButton = buttons.filter(function (button) { return button.getAttribute('data-load') === selected; })[0];
-		if (!selectedButton) throw new Error('The selected Demo load button is unavailable.');
-		selectedButton.classList.remove('cc-demo-load-unselected');
-		selectedButton.classList.add('cc-demo-load-selected', 'active');
-		selectedButton.setAttribute('aria-pressed', 'true');
-		return selected;
-	}
 	function runParameters(plan, report, engines, minimumConcurrency) {
 		return {demo_report: report, demo_size: plan.size, demo_rows: String(plan.rows), demo_token: plan.token, demo_generation: String(plan.generation), demo_engines: engines.join(','), minimum_concurrency: String(minimumConcurrency)};
 	}
@@ -70,5 +49,5 @@
 		pageNumber = Math.max(1, Math.min(pages, Number(pageNumber) || 1));
 		return {items: items.slice((pageNumber - 1) * pageSize, pageNumber * pageSize), page: pageNumber, pages: pages, total: items.length};
 	}
-	return {build: build, restore: restore, equal: equal, fingerprint: fingerprint, loadState: loadState, renderLoadButtons: renderLoadButtons, page: page, preflightGuard: preflightGuard, randomiser: randomiser, runParameters: runParameters, loads: LOADS};
+	return {build: build, restore: restore, equal: equal, fingerprint: fingerprint, page: page, preflightGuard: preflightGuard, randomiser: randomiser, runParameters: runParameters, loads: LOADS};
 }));

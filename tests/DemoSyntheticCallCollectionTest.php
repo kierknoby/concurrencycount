@@ -28,7 +28,7 @@ try{
 	$floored=(new HistoricalResultFloor())->apply(['mode'=>'demo','global_max'=>5,'synthetic_calls_page'=>$first],6);synthetic_assert(count($floored['synthetic_calls_page']['items'])===100,'Minimum concurrency must not filter audit pages');
 	if (session_status() !== PHP_SESSION_ACTIVE) { session_id('ccdemoreviewtest'); session_start(); }
 	$endpointOwner=hash('sha256','concurrencycount-gui:'.session_id());$endpointCollection=new DemoSyntheticCallCollection($endpointOwner);$endpointCollection->record(synthetic_row(0),'extension');$completedPage=$endpointCollection->finalize();
-	$_REQUEST=['token'=>$completedPage['token'],'page'=>1];$endpointModule=(new ReflectionClass(\FreePBX\modules\Concurrencycount::class))->newInstanceWithoutConstructor();$endpointMethod=new ReflectionMethod($endpointModule,'handleDemoCallPage');$endpointMethod->setAccessible(true);$endpointResponse=$endpointMethod->invoke($endpointModule);
+	$_REQUEST=['audit_token'=>$completedPage['token'],'page'=>1];$endpointModule=(new ReflectionClass(\FreePBX\modules\Concurrencycount::class))->newInstanceWithoutConstructor();$endpointMethod=new ReflectionMethod($endpointModule,'handleDemoCallPage');$endpointMethod->setAccessible(true);$endpointResponse=$endpointMethod->invoke($endpointModule);
 	synthetic_assert($endpointResponse['status']===true&&$endpointResponse['audit']['total']===1&&$endpointResponse['audit']['items'][0]['accountcode']!=='','The completed-run review token must remain reachable through handleDemoCallPage');$endpointCollection->discard();
 	$heavy->discard();synthetic_assert(count(glob($directory.'/*'))===0,'Discard must remove transient paging state');
 }finally{foreach((array)glob($directory.'/*') as $file)@unlink($file);@rmdir($directory);}

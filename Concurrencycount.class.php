@@ -2223,7 +2223,7 @@ class Concurrencycount implements \BMO {
 		try {
 			$page = filter_var($_REQUEST['page'] ?? 1, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
 			if ($page === false) throw new \InvalidArgumentException(_('Invalid Demo audit page.'));
-			$result = \FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection::fetchPage((string)($_REQUEST['token'] ?? ''), $this->guiCalculationOwner(), (int)$page);
+			$result = \FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection::fetchPage((string)($_REQUEST['audit_token'] ?? ''), $this->guiCalculationOwner(), (int)$page);
 			return ['status'=>true, 'audit'=>$result];
 		} catch (\Throwable $exception) { return ['status'=>false, 'message'=>$exception->getMessage()]; }
 	}

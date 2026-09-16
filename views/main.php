@@ -283,9 +283,11 @@ $_ccAssetVer = max(
 				</div>
 				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
 				<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
-					<div class="btn-group" id="cc-demo-loads">
-					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><button type="button" class="btn cc-demo-load <?php echo $value === 'medium' ? 'cc-demo-load-selected active' : 'cc-demo-load-unselected'; ?>" data-load="<?php echo $value; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><?php echo $label; ?></button><?php endforeach; ?>
-					</div>
+					<select id="cc-demo-load" class="form-control" style="width:auto;min-width:140px;">
+	<option value="light"><?php echo _('Light'); ?></option>
+	<option value="medium" selected><?php echo _('Medium'); ?></option>
+	<option value="heavy"><?php echo _('Heavy'); ?></option>
+</select>
 					<button type="button" class="btn btn-default cc-demo-randomise" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button>
 				</div><span class="help-block" id="cc-demo-selection-status"></span></div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>

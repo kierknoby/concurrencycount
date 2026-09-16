@@ -206,8 +206,10 @@ window._ccLoaded = true;
 	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
 	function selectedDemoLoad() { return demoSelectedLoad; }
 	function renderDemoLoadSelection(load) {
-		demoSelectedLoad = window.CCDemoScenario.renderLoadButtons(document.querySelectorAll('.cc-demo-load'), load);
+		demoSelectedLoad = String(load || 'medium');
+		$('#cc-demo-load').val(demoSelectedLoad);
 	}
+
 	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
 	function renderDemoPreflight(state, plan) {
 		plan = plan || {};
@@ -984,7 +986,7 @@ window._ccLoaded = true;
 		container.find('.cc-demo-calls-page').text('Page ' + page.page + ' of ' + page.pages + ' · ' + page.total + ' calls');
 		function fetchPage(number) {
 			var token=page.token; container.find('.cc-demo-calls-previous,.cc-demo-calls-next').prop('disabled',true);
-			ajax({command:'democallpage',token:token,page:number}).done(function(response){
+			ajax({command:'democallpage',audit_token:token,page:number}).done(function(response){
 				if (container.data('audit-token') !== token) return;
 				if (!response.status || !response.audit) { container.find('.cc-demo-calls-page').text(response.message || 'Unable to load this page.'); return; }
 				renderDemoSyntheticCallsPage(container,response.audit);
@@ -2377,10 +2379,12 @@ window._ccLoaded = true;
 			runDemo($(this).data('report'));
 		});
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
-		$('.cc-demo-load').off('click').on('click', function () {
-			var load = $(this).data('load'); renderDemoLoadSelection(load);
+		$('#cc-demo-load').off('change').on('change', function () {
+			var load = $(this).val();
+			renderDemoLoadSelection(load);
 			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load), true);
 		});
+
 		$('#cc-wizard-next').off('click').on('click', submitStep);
 		$('#cc-report-filter').off('change').on('change', function () {
 			if (selectedMode() !== 'group') wizardEndpointSelections[selectedMode()] = $(this).val() || '';

@@ -152,7 +152,7 @@ admin_contract_assert(strpos($demoSource, 'if (!$retainSyntheticCalls)') !== fal
 $guiOwnerAssignment = strpos($class, '$this->workerControl = $control; $this->workerId = $calculationId; $this->workerOwner = $owner;');
 $guiOwnerSource = strpos($class, '$owner = $this->guiCalculationOwner();');
 $spoolOwner = strpos($demoSource, 'DemoSyntheticCallCollection($this->workerControl!==null?$this->workerOwner:\'\')');
-$pageOwner = strpos($class, 'DemoSyntheticCallCollection::fetchPage((string)($_REQUEST[\'token\'] ?? \'\'), $this->guiCalculationOwner()');
+$pageOwner = strpos($class, 'DemoSyntheticCallCollection::fetchPage((string)($_REQUEST[\'audit_token\'] ?? \'\'), $this->guiCalculationOwner()');
 admin_contract_assert($guiOwnerSource !== false && $guiOwnerAssignment !== false && $guiOwnerAssignment > $guiOwnerSource && $spoolOwner !== false && $pageOwner !== false, 'GUI Demo spool creation and later paging must use the same authenticated guiCalculationOwner value');
 admin_contract_assert(strpos($demoSource, 'array_slice($rows, $batchOffset, 100)') !== false && strpos($demoSource, 'array_chunk($rows, 100)') === false, 'Heavy Demo insertion must materialise only its current bounded 100-row batch');
 admin_contract_assert(strpos($demoSource, '$inventory = $this->demoEndpointInventory()') !== false && strpos($demoSource, '$extensions = $inventory[\'extensions\']') !== false, 'Demo generation must receive its defined authoritative endpoint inventory');
@@ -512,10 +512,30 @@ $landingStart = strpos($view, 'id="cc-report-landing"');
 $activeStart = strpos($view, 'id="cc-report-active"');
 admin_contract_assert($landingStart !== false && $activeStart > $landingStart && strpos(substr($view, $landingStart, $activeStart - $landingStart), 'id="cc-demo-launch"') !== false, 'Run Demo must remain available from the Historical landing');
 admin_contract_assert(strpos($javascript, ".cc-demo-run-mode').off('click').on('click'") !== false && strpos($javascript, "runDemo(\$(this).data('report'))") !== false, 'Demo mode buttons must invoke the transient runDemo path');
-admin_contract_assert(strpos($view, 'class="btn cc-demo-load') !== false && strpos($view, 'name="cc-demo-load"') === false && strpos($view, "'medium' ? 'cc-demo-load-selected active'") !== false && strpos($view, 'aria-pressed="<?php echo') !== false && strpos($view, 'cc-demo-load-row') !== false && strpos($view, 'id="cc-demo-randomise"') !== false, 'Demo must expose an unmistakable Medium default and keep Randomise in the wrapping load row');
-admin_contract_assert(strpos($css, '.cc-demo-load.cc-demo-load-selected') !== false && strpos($css, '.cc-demo-load.cc-demo-load-unselected') !== false && strpos($css, 'background:#176f3b !important') !== false && strpos($css, 'background:#fff !important') !== false, 'Demo load state must use host-theme-resistant scoped selected/unselected styling');
-admin_contract_assert(strpos($demoScenarioJavascript, "classList.remove('active', 'cc-demo-load-selected', 'cc-demo-load-unselected', 'btn-primary', 'btn-success', 'selected')") !== false && strpos($demoScenarioJavascript, "classList.add('cc-demo-load-unselected')") !== false && strpos($demoScenarioJavascript, "selectedButton.classList.remove('cc-demo-load-unselected')") !== false && strpos($demoScenarioJavascript, "selectedButton.classList.add('cc-demo-load-selected', 'active')") !== false, 'Demo DOM renderer must reset every legacy state, neutralise all buttons, then select exactly one');
-admin_contract_assert(strpos($javascript, 'function renderDemoLoadSelection(load)') !== false && strpos($javascript, "CCDemoScenario.renderLoadButtons(document.querySelectorAll('.cc-demo-load'), load)") !== false && strpos($javascript, 'demoPlan.token,generation:demoPlan.generation') !== false, 'Demo load buttons must use the deterministic DOM reset-and-reapply renderer while retaining scenario identity');
+admin_contract_assert(
+	strpos($view, '<select id="cc-demo-load"') !== false &&
+	strpos($view, '<option value="medium" selected>') !== false &&
+	strpos($view, 'id="cc-demo-randomise"') !== false,
+	'Demo must expose a native load dropdown with deterministic Medium default and Randomise control'
+);
+admin_contract_assert(
+	strpos($javascript, 'function renderDemoLoadSelection(load)') !== false &&
+	strpos($javascript, "$('#cc-demo-load').val(demoSelectedLoad)") !== false &&
+	strpos($javascript, "$('#cc-demo-load').off('change').on('change'") !== false &&
+	strpos($javascript, 'demoPlan.token,generation:demoPlan.generation') !== false,
+	'Demo load dropdown must be the single visual state control while retaining scenario identity'
+);
+admin_contract_assert(
+	strpos($view, 'class="btn cc-demo-load') === false &&
+	strpos($demoScenarioJavascript, 'function loadState') === false &&
+	strpos($demoScenarioJavascript, 'renderLoadButtons') === false,
+	'Demo load dropdown must not retain the obsolete multi-button state implementation'
+);
+admin_contract_assert(
+	strpos($class, "\$_REQUEST['audit_token']") !== false &&
+	strpos($javascript, "command:'democallpage',audit_token:token,page:number") !== false,
+	'Demo audit pagination must use a parameter distinct from the shared AJAX CSRF token'
+);
 admin_contract_assert(strpos($view, 'cc-demo-entropy') === false && strpos($javascript, 'stirDemoSeed') === false, 'Mouse movement must not remain a competing Demo randomisation mechanism');
 admin_contract_assert(strpos($javascript, 'getdemoscenario') === false && strpos($javascript, 'savedemoscenario') === false && strpos($class, 'DEMO_SCENARIO_KEY') === false && strpos($view, 'id="cc-demo-save"') === false, 'GUI Demo scenarios must remain ephemeral and expose no save or restore path');
 admin_contract_assert(strpos($javascript, "showDemoError('Demo preflight request failed. Check the PBX connection and try again.')") !== false && strpos($view, 'id="cc-demo-error"') !== false, 'Demo preflight transport failures must be visible inside the open modal');
