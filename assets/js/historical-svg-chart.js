@@ -184,7 +184,7 @@
 	}
 	function initialSelection(names) { return names.slice(); }
 	function toggleSelection(selected, name) { var next = selected.slice(), index = next.indexOf(name); if (index >= 0) next.splice(index, 1); else next.push(name); return next; }
-	function selectionPresentation(names, selected) { var series = {}, all = names.length > 0 && selected.length === names.length, none = selected.length === 0; names.forEach(function (name) { var active = selected.indexOf(name) >= 0; series[name] = {selected: active, buttonClass: active ? 'btn-primary' : 'btn-default', ariaPressed: active ? 'true' : 'false'}; }); return {selectAllActive: all, unselectAllActive: none, series: series}; }
+	function selectionPresentation(names, selected) { var series = {}, all = names.length > 0 && selected.length === names.length, none = selected.length === 0; names.forEach(function (name) { var active = selected.indexOf(name) >= 0; series[name] = {selected: active, buttonClass: active ? 'cc-series-active' : 'cc-series-neutral', ariaPressed: active ? 'true' : 'false'}; }); return {selectAllActive: all, unselectAllActive: none, selectAllClass: all ? 'cc-series-active' : 'cc-series-neutral', unselectAllClass: none ? 'cc-series-active' : 'cc-series-neutral', series: series}; }
 	function isCurrentResult(current, requested) { return current === requested; }
 	function describe(chart) { return !chart.series.length ? 'Concurrency chart with no selected series' : 'Concurrency chart with ' + chart.series.length + ' selected series and peak ' + chart.exactPeak; }
 	function HistoricalSvgChart(image, overlay, tooltip, options) {

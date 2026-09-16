@@ -940,8 +940,8 @@ window._ccLiveLoaded = true;
 		var names = Object.keys(historicalSeries.series || {});
 		if (!names.length) return false;
 		historicalSelectedSeries = window.HistoricalSvgChart.selection.initial(names, historicalSeries.series);
-		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
-		$('#cc-historical-series').html('<button type="button" class="btn btn-default btn-sm cc-series-select-all" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-default btn-sm cc-series-unselect-all" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
+		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-sm cc-series-choice cc-series-neutral" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
+		$('#cc-historical-series').html('<button type="button" class="btn btn-sm cc-series-select-all cc-series-neutral" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-sm cc-series-unselect-all cc-series-neutral" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
 		$('#cc-historical-series .cc-series-choice').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.toggle(historicalSelectedSeries, String($(this).attr('data-series'))); redrawHistoricalSelection(); });
 		$('#cc-historical-series .cc-series-select-all').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.all(names); redrawHistoricalSelection(); });
 		$('#cc-historical-series .cc-series-unselect-all').on('click', function () { historicalSelectedSeries = []; redrawHistoricalSelection(); });
@@ -961,11 +961,11 @@ window._ccLiveLoaded = true;
 		var names = Object.keys(historicalSeries.series || {});
 		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
 		var buttonState = window.HistoricalSvgChart.selection.presentation(names, historicalSelectedSeries);
-		$('#cc-historical-series .cc-series-select-all').toggleClass('btn-primary active', buttonState.selectAllActive).toggleClass('btn-default', !buttonState.selectAllActive).attr('aria-pressed', buttonState.selectAllActive ? 'true' : 'false');
-		$('#cc-historical-series .cc-series-unselect-all').toggleClass('btn-primary active', buttonState.unselectAllActive).toggleClass('btn-default', !buttonState.unselectAllActive).attr('aria-pressed', buttonState.unselectAllActive ? 'true' : 'false');
+		$('#cc-historical-series .cc-series-select-all').toggleClass('cc-series-active active', buttonState.selectAllActive).toggleClass('cc-series-neutral', !buttonState.selectAllActive).attr('aria-pressed', buttonState.selectAllActive ? 'true' : 'false');
+		$('#cc-historical-series .cc-series-unselect-all').toggleClass('cc-series-active active', buttonState.unselectAllActive).toggleClass('cc-series-neutral', !buttonState.unselectAllActive).attr('aria-pressed', buttonState.unselectAllActive ? 'true' : 'false');
 		$('#cc-historical-series .cc-series-choice').each(function () {
 			var state = buttonState.series[String($(this).attr('data-series'))];
-			$(this).toggleClass('btn-primary', state.selected).toggleClass('btn-default', !state.selected).attr('aria-pressed', state.ariaPressed);
+			$(this).toggleClass('cc-series-active active', state.selected).toggleClass('cc-series-neutral', !state.selected).attr('aria-pressed', state.ariaPressed);
 		});
 		if (!historicalSelectedSeries.length) {
 			if (historicalChart) { historicalChart.destroy(); historicalChart = null; }

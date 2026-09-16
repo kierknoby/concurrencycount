@@ -206,12 +206,7 @@ window._ccLoaded = true;
 	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
 	function selectedDemoLoad() { return demoSelectedLoad; }
 	function renderDemoLoadSelection(load) {
-		var state = window.CCDemoScenario.loadState(load);
-		demoSelectedLoad = Object.keys(state).filter(function (name) { return state[name].checked; })[0];
-		$('.cc-demo-load').each(function () {
-			var item = state[$(this).data('load')];
-			$(this).toggleClass('active cc-demo-load-selected', item.active).toggleClass('cc-demo-load-unselected', !item.active).attr('aria-pressed', item.ariaPressed);
-		});
+		demoSelectedLoad = window.CCDemoScenario.renderLoadButtons(document.querySelectorAll('.cc-demo-load'), load);
 	}
 	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
 	function renderDemoPreflight(state, plan) {
@@ -1109,7 +1104,7 @@ window._ccLoaded = true;
 		var html = sortedReports().map(function (report) {
 			var selected = report.id === activeReportId;
 			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '" title="' + escapeHtml(report.name) + '">' +
-				'<button type="button" class="cc-report-tab-handle" draggable="true" data-report-id="' + escapeHtml(report.id) + '" aria-label="Reorder ' + escapeHtml(report.name) + '" aria-pressed="false"><i class="fa fa-grip-vertical" aria-hidden="true"></i></button>' +
+				'<button type="button" class="cc-report-tab-handle" draggable="true" data-report-id="' + escapeHtml(report.id) + '" aria-label="Reorder ' + escapeHtml(report.name) + '" aria-pressed="false"><span class="cc-report-tab-grip" aria-hidden="true">&#8942;&#8942;</span></button>' +
 				'<button type="button" class="cc-report-tab-select" data-target="' + escapeHtml(report.id) + '"><span>' + escapeHtml(report.name) + '</span>' + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
 				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.name) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
 				'</div>';
