@@ -49,7 +49,7 @@ window._ccLoaded = true;
 	var demoPlan = null;
 	var demoSelectedLoad = 'medium';
 	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
-	var demoPreflightRequest = null;
+	var demoPreflightTimer = null;
 	var demoPreflightGuard = window.CCDemoScenario.preflightGuard();
 	var guiRange = null;
 	var modeDescriptions = {
@@ -221,13 +221,13 @@ window._ccLoaded = true;
 		$('#cc-demo-preflight-safety').text(state).removeClass('text-success text-danger text-info').addClass(state === 'Good' ? 'text-success' : (state === 'Checking...' ? 'text-info' : 'text-danger'));
 	}
 	function requestDemoPreflight(plan, onSuccess) {
+		if (demoPreflightTimer) { clearTimeout(demoPreflightTimer); demoPreflightTimer = null; }
 		var key = demoPreflightKey(plan), token = demoPreflightGuard.begin(key);
-		if (demoPreflightRequest && demoPreflightRequest.readyState !== 4) demoPreflightRequest.abort();
 		$('.cc-demo-run-mode').prop('disabled', true);
 		$('#cc-demo-error').hide().text('');
 		renderDemoPreflight('Checking...', {rows: plan.rows});
-		demoPreflightRequest = ajax({command: 'demopreflight', demo_size: plan.size, demo_rows: String(plan.rows)}).done(function (response) {
-			if (!demoPreflightGuard.accepts(token, key)) return;
+		ajax({command: 'demopreflight', demo_size: plan.size, demo_rows: String(plan.rows)}).done(function (response) {
+			if (!demoPreflightGuard.accepts(token, key) || !demoPlan || demoPreflightKey(demoPlan) !== key) return;
 			if (!response.status || !response.preflight) {
 				renderDemoPreflight('Failed', {rows: plan.rows}); showDemoError(response.message || 'Demo cannot start safely.'); return;
 			}
@@ -235,16 +235,33 @@ window._ccLoaded = true;
 			$('.cc-demo-run-mode').prop('disabled', false);
 			if (onSuccess) onSuccess(response.preflight);
 		}).fail(function (xhr, status) {
-			if (status === 'abort' || !demoPreflightGuard.accepts(token, key)) return;
+			if (status === 'abort' || !demoPreflightGuard.accepts(token, key) || !demoPlan || demoPreflightKey(demoPlan) !== key) return;
 			renderDemoPreflight('Failed', {rows: plan.rows}); showDemoError('Demo preflight request failed. Check the PBX connection and try again.');
 		});
 	}
+    function scheduleDemoPreflight(plan) {
+        var scheduledPlan = $.extend({}, plan);
+
+        if (demoPreflightTimer) clearTimeout(demoPreflightTimer);
+
+        $('.cc-demo-run-mode').prop('disabled', true);
+        $('#cc-demo-error').hide().text('');
+        renderDemoPreflight('Checking...', {rows: scheduledPlan.rows});
+
+        demoPreflightTimer = setTimeout(function () {
+            demoPreflightTimer = null;
+
+            if (!demoPlan || !window.CCDemoScenario.equal(demoPlan, scheduledPlan)) return;
+
+            requestDemoPreflight(scheduledPlan);
+        }, 250);
+    }
 	function applyDemoPlan(plan, refreshPreflight) {
 		demoPlan = $.extend({}, plan); demoSeed = Number(demoPlan.seed) >>> 0;
 		renderDemoLoadSelection(demoPlan.size);
 		renderDemoPlan();
 		updateDemoSelectionStatus();
-		if (refreshPreflight) requestDemoPreflight($.extend({}, demoPlan));
+		if (refreshPreflight) scheduleDemoPreflight($.extend({}, demoPlan));
 	}
 	function updateDemoSelectionStatus() {
 		var profile = window.CCDemoScenario.loads[demoPlan.size];

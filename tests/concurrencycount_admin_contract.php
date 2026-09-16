@@ -526,6 +526,15 @@ admin_contract_assert(
 	'Demo load dropdown must be the single visual state control while retaining scenario identity'
 );
 admin_contract_assert(
+	strpos($javascript, 'function scheduleDemoPreflight(plan)') !== false &&
+	strpos($javascript, 'setTimeout(function ()') !== false &&
+	strpos($javascript, '}, 250)') !== false &&
+	strpos($javascript, 'scheduleDemoPreflight($.extend({}, demoPlan))') !== false &&
+	strpos($javascript, 'demoPreflightRequest.abort()') === false &&
+	strpos($javascript, 'demoPreflightKey(demoPlan) !== key') !== false,
+	'Rapid Demo scenario changes must debounce preflight AJAX and reject stale responses without abort-spamming FreePBX'
+);
+admin_contract_assert(
 	strpos($view, 'class="btn cc-demo-load') === false &&
 	strpos($demoScenarioJavascript, 'function loadState') === false &&
 	strpos($demoScenarioJavascript, 'renderLoadButtons') === false,
