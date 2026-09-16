@@ -970,6 +970,9 @@ window._ccLoaded = true;
 			var demoUnit = r.demo_report === 'trunk' ? 'trunk-leg peak' : 'assigned-CDR peak';
 			var expected = r.expected_per_name || {};
 			html += '<h4>' + escapeHtml(label) + ' accuracy</h4>';
+			if (r.demo_report === 'extension') {
+				html += '<div class="alert alert-warning"><strong>About Extension Demo peaks:</strong> Assigned-CDR peaks are overlapping synthetic CDR records attributed to each extension. They are designed to stress Historical calculation and do not represent the number of simultaneous physical calls an extension can handle.</div>';
+			}
 			html += '<div class="cc-table-scroll"><table class="table table-striped"><thead><tr><th>' + escapeHtml(label) + '</th><th>Expected ' + escapeHtml(demoUnit) + '</th><th>Actual ' + escapeHtml(demoUnit) + '</th></tr></thead><tbody>';
 			Object.keys(expected).forEach(function (n) {
 				html += '<tr>' +

@@ -535,6 +535,12 @@ admin_contract_assert(
 	'Rapid Demo scenario changes must debounce preflight AJAX and reject stale responses without abort-spamming FreePBX'
 );
 admin_contract_assert(
+	strpos($javascript, "if (r.demo_report === 'extension')") !== false &&
+	strpos($javascript, 'About Extension Demo peaks:') !== false &&
+	strpos($javascript, 'do not represent the number of simultaneous physical calls an extension can handle') !== false,
+	'Extension Demo output must explain that assigned-CDR peaks are synthetic Historical workload values rather than endpoint call capacity'
+);
+admin_contract_assert(
 	strpos($view, 'class="btn cc-demo-load') === false &&
 	strpos($demoScenarioJavascript, 'function loadState') === false &&
 	strpos($demoScenarioJavascript, 'renderLoadButtons') === false,
