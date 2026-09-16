@@ -183,7 +183,10 @@ foreach (['Trunk Concurrency', 'Extension Concurrency', 'Group Concurrency'] as 
 }
 admin_contract_assert(strpos($view, 'Overall Extension Concurrency') === false, 'Historical Group mode must no longer be labelled Overall Extension Concurrency');
 admin_contract_assert(strpos($liveJavascript, "scopeRow('overall', 'Overall Live Concurrency', settings.overall)") !== false, 'Live threshold settings must label the overall scope as Overall Live Concurrency, not the historical Group label');
-admin_contract_assert(strpos($thresholdService, "'Overall Live Concurrency' : substr") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($thresholdService, "'Scope: Overall Live Concurrency'") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($liveJavascript, 'Production: no alert delivery attempted yet.') === false && strpos($liveJavascript, 'Production: last alert accepted for delivery.') === false, 'Live Settings must not show persistent alert-delivery history');
+admin_contract_assert(strpos($liveJavascript, 'function testAlertEmail()') !== false && strpos($liveJavascript, 'Sending test email...') !== false, 'Test email must retain transient send feedback');
+admin_contract_assert(strpos($css, '#cc-alert-email-status:empty { display:none; }') !== false, 'Empty Test email feedback must not consume Live Settings space');
 admin_contract_assert(strpos($liveJavascript, 'Overall Extension Concurrency') === false && strpos($thresholdService, 'Overall Extension Concurrency') === false, 'No Live View reference may use the stale Overall Extension Concurrency wording');
 admin_contract_assert(substr_count($view, 'type="radio" name="cc-wizard-mode"') === 3, 'Reporting modes must use three native radio controls');
 admin_contract_assert(preg_match('/id="cc-mode-trunk"[^>]+value="trunk"[^>]+checked/', $view) === 1, 'Trunk must remain the default GUI mode');

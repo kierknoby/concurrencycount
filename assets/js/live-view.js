@@ -809,10 +809,6 @@ window._ccLiveLoaded = true;
 			var detail = monitor.status === 'online' && monitor.pid ? 'Online (PID ' + monitor.pid + ')' : statusLabel(monitor.status);
 			if (monitor.mailer_status && monitor.mailer_status !== 'online') detail += '; mail worker ' + monitor.mailer_status;
 			$('#cc-monitor-status').text(detail);
-			var delivery = monitor.alert_delivery || {};
-			var testDelivery = monitor.alert_test_delivery || {}, deliveryText = delivery.attempted_at ? (delivery.ok ? 'Production: last alert accepted for delivery.' : 'Production failure: ' + (delivery.message || 'Unknown error.')) : 'Production: no alert delivery attempted yet.';
-			if (testDelivery.attempted_at) deliveryText += ' Test: ' + (testDelivery.ok ? 'accepted for delivery.' : 'failed: ' + (testDelivery.message || 'Unknown error.'));
-			$('#cc-alert-email-status').text(deliveryText).toggleClass('text-danger', delivery.attempted_at && !delivery.ok).toggleClass('text-success', !!delivery.ok && !(testDelivery.attempted_at && !testDelivery.ok));
 		}).fail(function () { $('#cc-monitor-status').text('Unavailable'); });
 	}
 

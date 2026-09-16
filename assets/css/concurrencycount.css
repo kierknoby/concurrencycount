@@ -405,7 +405,8 @@ body:has(.concurrencycount) #page_body {
 	margin-right: auto;
 }
 
-.concurrencycount .cc-alert-checkboxes .checkbox label span { position: relative; top: 2px; }
+.concurrencycount .cc-alert-checkboxes .checkbox label span { position: relative; top: 15px; }
+.concurrencycount #cc-alert-email-status:empty { display:none; }
 .concurrencycount .cc-btn-close-light { background:#f8d7da; border-color:#e7aeb3; color:#842029; }
 @media (min-width: 992px) {
 	.concurrencycount .cc-excluded-calls-dialog { width: min(96vw, 1320px); }

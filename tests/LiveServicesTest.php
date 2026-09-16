@@ -307,7 +307,7 @@ live_assert_same(4, $recovery['event']['peak'], 'Recovery includes alert peak');
 live_assert_same(60, $recovery['event']['timestamp'] - $recovery['event']['since'], 'Recovery includes duration');
 live_assert_same('normal', $recovery['state']['status'], 'Recovery resets state');
 $alertMessage = $thresholds->buildNotification(array_merge($first['event'], ['direction_counts' => ['inbound' => 1, 'outbound' => 1, 'unknown' => 0]]), 'MY-PBX');
-live_assert_same(true, strpos($alertMessage['subject'], 'threshold exceeded on MY-PBX') !== false, 'Alert subject includes system identifier');
+live_assert_same('Concurrency Count alert - MY-PBX', $alertMessage['subject'], 'Alert subject includes system identifier');
 live_assert_same(true, strpos($alertMessage['body'], 'Threshold: 2') !== false && strpos($alertMessage['body'], 'Inbound: 1') !== false, 'Alert body includes threshold and direction split');
 $recoveryMessage = $thresholds->buildNotification($recovery['event'], 'MY-PBX');
 live_assert_same(true, strpos($recoveryMessage['body'], 'Duration above threshold: 60 seconds') !== false, 'Recovery body includes duration');

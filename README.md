@@ -55,7 +55,7 @@ Concurrency Count does not alter SIP configuration or source CDR records during 
 - Alert delivery now leases outbox events before sending and returns failed attempts to a deterministic retry state with bounded exponential backoff and retained diagnostics.
 - The restricted mail-worker bootstrap includes FreePBX Core so current configured trunk information can be resolved when preparing notifications.
 - Live settings adds **Test email**. Test and production delivery use the same live-settings reload and message-preparation path; Test email supplies an explicit recipient override.
-- Production delivery status and Test email feedback remain separate, and failed `CI_Email` sends expose bounded diagnostics instead of a generic failure only.
+- Test email feedback is shown only for an explicit **Test email** action, while production delivery and retry diagnostics remain internal; failed `CI_Email` sends retain bounded diagnostics for troubleshooting.
 - The FreePBX Advanced Settings **Email "From:" Address** is validated before delivery and is used consistently for From, Reply-To and Return-Path handling where supported.
 
 **Live Wall**
@@ -533,7 +533,7 @@ PM2 supervises this worker and a separate mail worker. Lifecycle hooks start, st
 
 Threshold comparison is `current >= threshold`; zero disables it. Master alerts, per-scope alerts, threshold enablement and recovery preference are distinct. Alert state and a stable outbox entry are persisted atomically before delivery, suppressing repeats through one episode and worker restart while retaining its peak. Stable event IDs prevent duplicate queue records. Before a send, the mail worker leases the ready event; a failed send is returned to a deterministic retry state with the error, attempt time and bounded exponential backoff retained.
 
-Live settings provides **Test email** beside the configured Alert email. Test and production delivery both reload and validate current Live settings and use the same threshold-message preparation path; Test email supplies an explicit recipient override while using a synthetic test event. Test feedback is shown separately from persisted production-delivery status. The sender comes from FreePBX Advanced Settings **Email "From:" Address**; a missing or invalid value stops delivery clearly. The same validated address is used for Reply-To and, where the installed `CI_Email` API supports it, Return-Path. Failed `CI_Email` sends retain bounded diagnostics for troubleshooting.
+Live settings provides **Test email** beside the configured Alert email. Test and production delivery both reload and validate current Live settings and use the same message-preparation path; Test email supplies an explicit recipient override. Live settings shows transient Test email feedback only; production delivery and retry diagnostics remain persisted internally rather than being shown as permanent status text. Alert, recovery and Test messages use concise plain-text copy and do not expose internal module paths or local-mailer acceptance wording. The sender comes from FreePBX Advanced Settings **Email "From:" Address**; a missing or invalid value stops delivery clearly. The same validated address is used for Reply-To and, where the installed `CI_Email` API supports it, Return-Path. Failed `CI_Email` sends retain bounded diagnostics for troubleshooting.
 
 Delivery is **at least once**. Failure after mail acceptance but before outbox removal can duplicate an email, although the episode is not forgotten. There is no hidden hysteresis: falling below completes an episode and a later crossing begins another.
 
@@ -672,7 +672,7 @@ This is a pre-production checklist, not a claim that these checks have been comp
 - Compare GUI state with `fwconsole concurrencycount --live --json`.
 - Verify bounded browser history, stale timestamps, hidden-tab pause and clean resume.
 - Validate 1-second polling under varied load; retain only if PBX and browser load is acceptable.
-- Verify mail content and acceptance without treating acceptance as proof of external delivery. Exercise **Test email**, production alert delivery, a missing/invalid FreePBX Email "From:" Address and a forced send failure; confirm Test feedback and production diagnostics remain separate and failed production events become retryable.
+- Verify mail content and acceptance without treating acceptance as proof of external delivery. Exercise **Test email**, production alert delivery, a missing/invalid FreePBX Email "From:" Address and a forced send failure; confirm Test feedback appears only after **Test email**, no persistent production-delivery status is shown in Live settings, and failed production events become retryable.
 
 ### Browser and accessibility
 
@@ -726,6 +726,7 @@ php tests/PeakDetailAnalyserTest.php
 php tests/PjsipIdentityServiceTest.php
 php tests/SettingsRepositoryTest.php
 php tests/SystemResourceTelemetryTest.php
+php tests/ThresholdNotificationCopyTest.php
 php tests/TrunkPeakEvidenceTest.php
 php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
