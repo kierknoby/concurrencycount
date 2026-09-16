@@ -664,6 +664,22 @@ admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen ===
 admin_contract_assert(strpos($view, 'id="cc-live-wall-fullscreen"') !== false && strpos($view, 'fa fa-expand') !== false, 'Live Wall Full Screen presentation control missing');
 admin_contract_assert(strpos($liveJavascript, "document.fullscreenElement === wall") !== false && strpos($liveJavascript, 'syncLiveWallFullscreenState') !== false, 'Full Screen control must derive visibility from the existing fullscreen lifecycle');
 admin_contract_assert(strpos($liveJavascript, "$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen)") !== false, 'Full Screen control must request browser fullscreen independently');
+admin_contract_assert(
+	strpos($view, 'id="cc-live-wall-windowed"') !== false &&
+	strpos($liveJavascript, "$('#cc-live-wall-windowed').off('click.ccLive').on('click.ccLive', exitLiveWallFullscreen)") !== false &&
+	strpos($liveJavascript, 'function exitLiveWallFullscreen()') !== false,
+	'Live Wall must provide an explicit Windowed transition without closing the Wall'
+);
+admin_contract_assert(
+	strpos($view, 'cc-live-wall-desktop-only') !== false &&
+	strpos($css, '@media (max-width: 767px)') !== false &&
+	strpos($liveJavascript, 'function liveWallSupportedViewport()') !== false &&
+	strpos($liveJavascript, 'supportsViewport(window.innerWidth)') !== false &&
+	strpos($liveJavascript, 'function showLiveWallConfiguration()') !== false &&
+	strpos($liveJavascript, "function initialiseLiveWallConfiguration(continueAfterSave) {\n\t\tif (!liveWallSupportedViewport()) return;") !== false &&
+	substr_count($liveJavascript, "$('#cc-live-wall-config-modal').modal('show')") === 1,
+	'Live Wall launch and configuration must be hidden and functionally unavailable on mobile widths'
+);
 admin_contract_assert(strpos($wallTransitionCode, 'requestLiveWallFullscreen()') !== false && strpos($wallTransitionCode, 'exitLiveWall') !== false && strpos($wallTransitionCode, 'document.exitFullscreen()') !== false, 'Live Wall fullscreen request and Exit Live Wall behavior must remain independent');
 admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
 $wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));

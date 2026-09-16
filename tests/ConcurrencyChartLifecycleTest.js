@@ -59,6 +59,7 @@ const helperWindow = {_ccLiveLoaded: true, setTimeout: function () {}};
 vm.runInNewContext(fs.readFileSync(__dirname + '/../assets/js/live-view.js', 'utf8'), {window: helperWindow});
 const fullscreen = helperWindow.CCLiveWallFullscreen;
 const presentation = helperWindow.CCLiveWallPresentation;
+assert(!presentation.supportsViewport(767) && presentation.supportsViewport(768), 'Live Wall must be unavailable below the desktop/tablet breakpoint');
 assert(presentation.layout(400, false).inset >= 6 && presentation.layout(400, false).height <= 388, 'Short viewports retain a visible inset and bounded wall height');
 assert(presentation.layout(900, false).inset > 0 && presentation.layout(900, false).height < 900, 'Normal viewports keep all four wall edges visible');
 assert(presentation.layout(650, false).density < 1 && presentation.layout(900, false).density === 1, 'Live Wall compresses normal desktop content for shorter viewports');

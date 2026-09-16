@@ -46,6 +46,7 @@
 		}
 	};
 	root.CCLiveWallPresentation = {
+		supportsViewport: function (viewportWidth) { return Number(viewportWidth) >= 768; },
 		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
 		layout: function (viewportHeight, fullscreen, overrides) {
 			var height = Math.max(0, Number(viewportHeight) || 0);
@@ -117,6 +118,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', launchLiveWall);
 		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', function () { openLiveWallConfiguration(false); });
 		$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen);
+		$('#cc-live-wall-windowed').off('click.ccLive').on('click.ccLive', exitLiveWallFullscreen);
 		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
 		$('.cc-wall-theme-option').off('click.ccLive').on('click.ccLive', function () {
 			applyLiveWallTheme($(this).data('theme'), false);
@@ -414,19 +416,31 @@ window._ccLiveLoaded = true;
 	}
 
 	function initialiseLiveWallConfiguration(continueAfterSave) {
+		if (!liveWallSupportedViewport()) return;
 		continueToLiveWallAfterSave = !!continueAfterSave;
 		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
 		featuredDraft = selection.valid.slice();
 		$('#cc-wall-featured-error').hide();
 		renderLiveWallConfiguration();
+		showLiveWallConfiguration();
+	}
+
+	function showLiveWallConfiguration() {
+		if (!liveWallSupportedViewport()) return;
 		$('#cc-live-wall-config-modal').modal('show');
 	}
 
+	function liveWallSupportedViewport() {
+		return window.CCLiveWallPresentation.supportsViewport(window.innerWidth);
+	}
+
 	function openLiveWallConfiguration(continueAfterSave) {
+		if (!liveWallSupportedViewport()) return;
 		refreshLiveWallSettings(function () { initialiseLiveWallConfiguration(continueAfterSave); });
 	}
 
 	function launchLiveWall() {
+		if (!liveWallSupportedViewport()) return;
 		if (!settings) { openLiveWallConfiguration(true); return; }
 		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
 		window.CCLiveWallLaunch.start(selection, {
@@ -544,7 +558,7 @@ window._ccLiveLoaded = true;
 		}, function (message) {
 			button.prop('disabled', false);
 			$('#cc-wall-featured-error').text(message || 'Unable to load configured trunks.').show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		});
 	}
 
@@ -555,15 +569,16 @@ window._ccLiveLoaded = true;
 			featuredDraft = selection.valid.slice();
 			renderLiveWallConfiguration();
 			$('#cc-wall-featured-error').text(message).show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		}, function () {
 			$('#cc-wall-featured-save').prop('disabled', false);
 			$('#cc-wall-featured-error').text(message).show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		});
 	}
 
 	function enterLiveWall(requestBrowserFullscreen) {
+		if (!liveWallSupportedViewport()) return;
 		wallActive = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
 		$('body').addClass('cc-wall-active');
@@ -576,15 +591,27 @@ window._ccLiveLoaded = true;
 	}
 
 	function requestLiveWallFullscreen() {
+		if (!liveWallSupportedViewport()) return;
 		var wall = document.getElementById('cc-live-wall');
 		window.CCLiveWallFullscreen.request(wall, syncLiveWallFullscreenState);
+	}
+
+	function exitLiveWallFullscreen() {
+		var wall = document.getElementById('cc-live-wall');
+		if (document.fullscreenElement !== wall || typeof document.exitFullscreen !== 'function') {
+			syncLiveWallFullscreenState();
+			return;
+		}
+		var result = document.exitFullscreen();
+		if (result && typeof result.catch === 'function') result.catch(syncLiveWallFullscreenState);
 	}
 
 	function syncLiveWallFullscreenState() {
 		var wall = document.getElementById('cc-live-wall');
 		var isWallFullscreen = document.fullscreenElement === wall;
 		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', isWallFullscreen);
-		$('#cc-live-wall-fullscreen').toggle(window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		$('#cc-live-wall-fullscreen').toggle(liveWallSupportedViewport() && window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		$('#cc-live-wall-windowed').toggle(liveWallSupportedViewport() && wallActive && isWallFullscreen);
 		syncLiveWallViewport();
 	}
 
@@ -595,6 +622,11 @@ window._ccLiveLoaded = true;
 	}
 
 	function onWallViewportChange() {
+		if (!liveWallSupportedViewport()) {
+			$('#cc-live-wall-config-modal').modal('hide');
+			if (wallActive) exitLiveWall();
+			return;
+		}
 		if (!wallActive) return;
 		syncLiveWallViewport();
 		scheduleChartResize(resizeWallCharts);
