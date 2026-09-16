@@ -405,6 +405,13 @@ body:has(.concurrencycount) #page_body {
 	margin-right: auto;
 }
 
+.concurrencycount .cc-alert-checkboxes .checkbox label span { position: relative; top: 2px; }
+.concurrencycount .cc-btn-close-light { background:#f8d7da; border-color:#e7aeb3; color:#842029; }
+@media (min-width: 992px) {
+	.concurrencycount .cc-excluded-calls-dialog { width: min(96vw, 1320px); }
+	.concurrencycount .cc-excluded-calls-dialog .cc-table-scroll { overflow-x: visible; }
+}
+
 .concurrencycount .cc-entity-link {
 	font-weight: 600;
 }
@@ -949,6 +956,7 @@ body:has(.concurrencycount) #page_body {
 
 .cc-live-wall {
 	--cc-wall-inset:clamp(6px,1.2vmin,16px); --cc-wall-height:calc(100vh - (2 * var(--cc-wall-inset)));
+	--cc-wall-density:1;
 	--cc-wall-bg:#F0F6F1; --cc-wall-panel:#FFFFFF; --cc-wall-border:#9AB5A1; --cc-wall-text:#183B25;
 	--cc-wall-muted:#4D6856; --cc-wall-accent:#237A45; --cc-wall-accent-hover:#195E34; --cc-wall-grid:#DDE9E0;
 	position:fixed; top:var(--cc-wall-inset); right:var(--cc-wall-inset); bottom:auto; left:var(--cc-wall-inset);
@@ -959,13 +967,13 @@ body:has(.concurrencycount) #page_body {
 body.cc-wall-active .cc-live-wall { display:flex !important; flex-direction:column; }
 .cc-live-wall.cc-browser-fullscreen { --cc-wall-inset:0px; width:100%; max-width:100%; height:100vh; height:100dvh; max-height:100%; }
 body.cc-wall-active { overflow:hidden; }
-.cc-wall-header { display:flex; justify-content:space-between; align-items:center; gap:20px; min-height:56px; margin-bottom:12px; }
+.cc-wall-header { display:flex; justify-content:space-between; align-items:center; gap:calc(20px * var(--cc-wall-density)); min-height:calc(56px * var(--cc-wall-density)); margin-bottom:calc(12px * var(--cc-wall-density)); }
 .cc-wall-header h1 { margin:2px 0 0; color:var(--cc-wall-text); font-size:clamp(28px,2.5vw,46px); }
 .cc-wall-header-meta { display:flex; align-items:center; gap:18px; flex-wrap:wrap; justify-content:flex-end; }
 #cc-wall-content { flex:1 1 auto; height:auto; min-height:0; grid-template-rows:minmax(180px,44%) auto minmax(0,1fr); overflow:hidden; }
 .cc-wall-overall { display:grid; grid-row:1; grid-template-columns:minmax(220px,.58fr) minmax(300px,1.42fr); gap:clamp(18px,2.5vw,42px); align-items:center; min-height:0; padding:clamp(12px,1.5vmin,24px); border:2px solid var(--cc-wall-border); border-radius:10px; background:var(--cc-wall-panel); margin-bottom:12px; }
 .cc-wall-overall > div { display:flex; flex-direction:column; gap:5px; }
-.cc-wall-overall canvas { width:100%; height:clamp(180px,24vh,250px); max-height:100%; }
+.cc-wall-overall canvas { width:100%; height:clamp(120px,calc(24vh * var(--cc-wall-density)),250px); max-height:100%; }
 #cc-wall-overall-value { font-size:clamp(64px,7vw,120px); line-height:.88; }
 #cc-wall-overall-status, #cc-wall-overall-threshold, #cc-wall-overall-peak { font-size:clamp(16px,1.25vw,24px); }
 .cc-wall-featured-note { grid-row:2; margin:0 0 10px; color:var(--cc-wall-muted); font-size:clamp(14px,1vw,18px); }
@@ -977,7 +985,9 @@ body.cc-wall-active { overflow:hidden; }
 .cc-wall-trunk h2 { margin:0; color:var(--cc-wall-text); overflow-wrap:anywhere; font-size:clamp(19px,1.7vw,30px); }
 .cc-wall-trunk-value { font-size:clamp(46px,4.5vw,82px); line-height:.85; grid-column:2; grid-row:1 / span 4; }
 .cc-wall-trunk span { font-size:clamp(13px,.95vw,18px); }
-.cc-wall-trunk canvas { grid-column:1/-1; width:100%; height:clamp(100px,15vh,155px); max-width:100%; max-height:100%; align-self:end; }
+.cc-wall-trunk canvas { grid-column:1/-1; width:100%; height:clamp(70px,calc(15vh * var(--cc-wall-density)),155px); max-width:100%; max-height:100%; align-self:end; }
+
+.concurrencycount .cc-report-tab-move { border:0; background:transparent; padding:2px 3px; color:#52606b; }
 .cc-wall-trunk[data-status="exceeded"], .cc-wall-overall[data-status="exceeded"] { border-color:#ff6b6b; }
 .cc-wall-trunk[data-status="approaching"], .cc-wall-overall[data-status="approaching"] { border-color:#ffd166; }
 .cc-wall-trunk[data-status="stale"], .cc-wall-overall[data-status="stale"] { border-color:#aab3bb; opacity:.8; }

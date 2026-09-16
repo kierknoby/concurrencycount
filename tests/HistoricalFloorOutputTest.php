@@ -34,6 +34,9 @@ floor_output_assert(strpos($email, 'Global maximum: 3') !== false, 'Email must r
 floor_output_assert(strpos($email, 'No periods reached the minimum concurrency of 4 during the selected date range.') !== false, 'Email must explain a completed zero-detail floor result');
 floor_output_assert(strpos($email, "\n201") === false && strpos($email, "\n202") === false, 'Email must exclude detail below the floor');
 
+$trunkCsv = $cc->resultsToCsv(['mode'=>'trunk','start'=>$base['start'],'end'=>$base['end'],'rows_processed'=>2,'per_name'=>['carrier'=>3],'global_max'=>3,'peak_evidence'=>['carrier'=>[['from'=>'2026-01-01 10:00:00','to'=>'2026-01-01 10:00:05','peak'=>3,'calls'=>[['calldate'=>'2026-01-01 09:59:50','caller_id'=>'Alice <101>','source'=>'101','destination'=>'5551000','trunk_channel'=>'PJSIP/carrier-a1','direction'=>'outbound','duration'=>30,'linkedid'=>'linked-1','uniqueid'=>'unique-1','call_identity'=>'logical-1','path'=>[['label'=>'Extension 101']]]]]]]]);
+foreach (['Peak occurrence evidence','carrier','Alice <101>','5551000','outbound','linked-1','logical-1'] as $evidence) floor_output_assert(strpos($trunkCsv, $evidence) !== false, 'Trunk CSV evidence missing: ' . $evidence);
+
 $realEmpty = $service->apply([
 	'mode' => 'extension', 'start' => $base['start'], 'end' => $base['end'], 'rows_processed' => 0,
 	'warning' => 'No data.', 'global_max' => 0, 'per_name' => [], 'empty_message' => 'No eligible Historical data existed.',

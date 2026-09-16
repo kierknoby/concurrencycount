@@ -20,7 +20,7 @@ class HistoricalReportsService {
 	const MAXIMUM_RUNTIME_MINUTES = 1440;
 
 	public function defaults(): array {
-		return ['version' => 1, 'active_id' => null, 'reports' => []];
+		return ['version' => 2, 'active_id' => null, 'order' => [], 'reports' => []];
 	}
 
 	/**
@@ -52,13 +52,17 @@ class HistoricalReportsService {
 			]);
 		}
 		$activeId = isset($stored['active_id']) && is_string($stored['active_id']) && isset($reports[$stored['active_id']]) ? $stored['active_id'] : null;
-		return ['version' => 1, 'active_id' => $activeId, 'reports' => $reports];
+		$order = [];
+		foreach ((isset($stored['order']) && is_array($stored['order']) ? $stored['order'] : []) as $id) if (is_string($id) && isset($reports[$id]) && !in_array($id, $order, true)) $order[] = $id;
+		$remaining = array_values($reports); usort($remaining, function ($a, $b) { return $a['number'] <=> $b['number']; });
+		foreach ($remaining as $report) if (!in_array($report['id'], $order, true)) $order[] = $report['id'];
+		return ['version' => 2, 'active_id' => $activeId, 'order' => $order, 'reports' => $reports];
 	}
 
 	/** List reports in visible slot order (1..5), not insertion order. */
 	public function listReports(array $stored): array {
-		$reports = array_values($stored['reports']);
-		usort($reports, function ($a, $b) { return $a['number'] <=> $b['number']; });
+		$reports = [];
+		foreach (($stored['order'] ?? []) as $id) if (isset($stored['reports'][$id])) $reports[] = $stored['reports'][$id];
 		return $reports;
 	}
 
@@ -107,6 +111,7 @@ class HistoricalReportsService {
 			'updated_at' => $now,
 		]);
 		$stored['reports'][$id] = $report;
+		$stored['order'][] = $id;
 		$stored['active_id'] = $id;
 		return [$stored, $report];
 	}
@@ -122,6 +127,7 @@ class HistoricalReportsService {
 
 	public function closeReport(array $stored, string $id): array {
 		unset($stored['reports'][$id]);
+		$stored['order'] = array_values(array_filter($stored['order'] ?? [], function ($candidate) use ($id) { return $candidate !== $id; }));
 		if ($stored['active_id'] === $id) $stored['active_id'] = null;
 		return $stored;
 	}
@@ -131,6 +137,14 @@ class HistoricalReportsService {
 			throw new \InvalidArgumentException(_('Historical report tab no longer exists.'));
 		}
 		$stored['active_id'] = $id;
+		return $stored;
+	}
+
+	public function reorder(array $stored, array $ids): array {
+		$expected = array_keys($stored['reports']);
+		if (count($ids) !== count($expected) || count(array_unique($ids)) !== count($ids)) throw new \InvalidArgumentException(_('Invalid historical report order.'));
+		foreach ($ids as $id) if (!is_string($id) || !isset($stored['reports'][$id])) throw new \InvalidArgumentException(_('Invalid historical report order.'));
+		$stored['order'] = array_values($ids);
 		return $stored;
 	}
 

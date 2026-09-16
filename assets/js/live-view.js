@@ -50,7 +50,7 @@
 		layout: function (viewportHeight, fullscreen) {
 			var height = Math.max(0, Number(viewportHeight) || 0);
 			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
-			return {inset: inset, height: Math.max(0, height - (inset * 2))};
+			return {inset: inset, height: Math.max(0, height - (inset * 2)), density: Math.max(0.68, Math.min(1, height / 900))};
 		}
 	};
 
@@ -120,10 +120,12 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
+		$('#cc-test-alert-email').off('click.ccLive').on('click.ccLive', testAlertEmail);
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
 		$(window).off('resize.ccLive orientationchange.ccLive').on('resize.ccLive orientationchange.ccLive', onWallViewportChange);
+		if (window.visualViewport) $(window.visualViewport).off('resize.ccLive scroll.ccLive').on('resize.ccLive scroll.ccLive', onWallViewportChange);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 		$('#cc-historical-graph').off('click.ccHistoricalExport', '.cc-historical-export-format').on('click.ccHistoricalExport', '.cc-historical-export-format', function (event) { event.preventDefault(); exportHistoricalGraph($(this).data('format')); });
@@ -584,7 +586,7 @@ window._ccLiveLoaded = true;
 	function syncLiveWallViewport() {
 		var viewportHeight = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
 		var state = window.CCLiveWallPresentation.layout(viewportHeight, document.fullscreenElement === document.getElementById('cc-live-wall'));
-		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px'});
+		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px', '--cc-wall-density': state.density});
 	}
 
 	function onWallViewportChange() {
@@ -766,6 +768,10 @@ window._ccLiveLoaded = true;
 			var detail = monitor.status === 'online' && monitor.pid ? 'Online (PID ' + monitor.pid + ')' : statusLabel(monitor.status);
 			if (monitor.mailer_status && monitor.mailer_status !== 'online') detail += '; mail worker ' + monitor.mailer_status;
 			$('#cc-monitor-status').text(detail);
+			var delivery = monitor.alert_delivery || {};
+			var testDelivery = monitor.alert_test_delivery || {}, deliveryText = delivery.attempted_at ? (delivery.ok ? 'Production: last alert accepted for delivery.' : 'Production failure: ' + (delivery.message || 'Unknown error.')) : 'Production: no alert delivery attempted yet.';
+			if (testDelivery.attempted_at) deliveryText += ' Test: ' + (testDelivery.ok ? 'accepted for delivery.' : 'failed: ' + (testDelivery.message || 'Unknown error.'));
+			$('#cc-alert-email-status').text(deliveryText).toggleClass('text-danger', delivery.attempted_at && !delivery.ok).toggleClass('text-success', !!delivery.ok && !(testDelivery.attempted_at && !testDelivery.ok));
 		}).fail(function () { $('#cc-monitor-status').text('Unavailable'); });
 	}
 
@@ -780,6 +786,14 @@ window._ccLiveLoaded = true;
 			var monitor = response.monitor;
 			$('#cc-monitor-status').text(monitor.status === 'online' ? 'Online (PID ' + monitor.pid + ')' : statusLabel(monitor.status));
 		}).fail(function () { $('#cc-monitor-status').text('Restart failed'); }).always(function () { button.prop('disabled', false); });
+	}
+
+	function testAlertEmail() {
+		var button = $('#cc-test-alert-email').prop('disabled', true), recipient = $('#cc-setting-email').val().trim();
+		$('#cc-alert-email-status').removeClass('text-danger text-success').text('Sending test email...');
+		ajax({command:'testalertemail', recipient:recipient}).done(function(response) {
+			$('#cc-alert-email-status').text(response.message || (response.status ? 'Test alert email sent successfully.' : 'Test email failed.')).toggleClass('text-success', !!response.status).toggleClass('text-danger', !response.status);
+		}).fail(function(){ $('#cc-alert-email-status').addClass('text-danger').text('Test email request failed.'); }).always(function(){ button.prop('disabled', false); });
 	}
 
 	function scopeRow(scope, label, config) {
@@ -942,7 +956,8 @@ window._ccLiveLoaded = true;
 		var names = Object.keys(historicalSeries.series || {});
 		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
 		var buttonState = window.HistoricalSvgChart.selection.presentation(names, historicalSelectedSeries);
-		$('#cc-historical-series .cc-series-select-all, #cc-historical-series .cc-series-unselect-all').removeClass('btn-primary active').addClass(buttonState.bulkClass).removeAttr('aria-pressed');
+		$('#cc-historical-series .cc-series-select-all').toggleClass('btn-primary active', buttonState.selectAllActive).toggleClass('btn-default', !buttonState.selectAllActive).attr('aria-pressed', buttonState.selectAllActive ? 'true' : 'false');
+		$('#cc-historical-series .cc-series-unselect-all').toggleClass('btn-primary active', buttonState.unselectAllActive).toggleClass('btn-default', !buttonState.unselectAllActive).attr('aria-pressed', buttonState.unselectAllActive ? 'true' : 'false');
 		$('#cc-historical-series .cc-series-choice').each(function () {
 			var state = buttonState.series[String($(this).attr('data-series'))];
 			$(this).toggleClass('btn-primary', state.selected).toggleClass('btn-default', !state.selected).attr('aria-pressed', state.ariaPressed);

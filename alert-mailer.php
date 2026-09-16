@@ -6,6 +6,7 @@ $bootstrap_settings['skip_astman'] = true;
 $restrict_mods = [
 	'concurrencycount' => true,
 	'framework' => true,
+	'core' => true,
 	'pm2' => true,
 ];
 require '/etc/freepbx.conf';

@@ -50,9 +50,9 @@ class Concurrencycount implements \BMO {
 	const DEMO_CLEANUP_MAX_RUNTIME = 300;
 	const DEMO_CLEANUP_PHP_MARGIN = 30;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.2.0';
+	const VERSION = '2.2.1';
 	const MAX_ATTEMPTS = 3;
-	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'getdemoscenario', 'savedemoscenario', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
+	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'testalertemail', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'reorderhistoricalreports', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
 	const SETTINGS_KEY = 'live_settings';
 	const ALERT_STATE_KEY = 'alert_state';
@@ -62,7 +62,8 @@ class Concurrencycount implements \BMO {
 	const PJSIP_IDENTITY_OVERRIDES_KEY = 'pjsip_identity_overrides';
 	const HISTORICAL_CALL_EXCLUSIONS_KEY = 'historical_call_exclusions';
 	const DEMO_RUN_KEY_PREFIX = 'demo_run:';
-	const DEMO_SCENARIO_KEY = 'demo_saved_scenario';
+	const ALERT_DELIVERY_STATUS_KEY = 'alert_delivery_status';
+	const ALERT_TEST_STATUS_KEY = 'alert_test_status';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
@@ -186,6 +187,8 @@ class Concurrencycount implements \BMO {
 			if (empty($current)) return ['available' => true, 'status' => 'stopped', 'pid' => 0];
 			$mailer = $this->FreePBX->Pm2->getStatus(self::MAIL_PROCESS_NAME);
 			$heartbeat = $this->getSettingsRepository()->get(self::MONITOR_HEARTBEAT_KEY, []);
+			$delivery = $this->getSettingsRepository()->get(self::ALERT_DELIVERY_STATUS_KEY, []);
+			$testDelivery = $this->getSettingsRepository()->get(self::ALERT_TEST_STATUS_KEY, []);
 			$lastSuccess = is_array($heartbeat) && isset($heartbeat['last_successful_snapshot_at']) ? (int)$heartbeat['last_successful_snapshot_at'] : 0;
 			$pm2Status = isset($current['pm2_env']['status']) ? (string)$current['pm2_env']['status'] : 'unknown';
 			$mailerStatus = !empty($mailer) && isset($mailer['pm2_env']['status']) ? (string)$mailer['pm2_env']['status'] : 'stopped';
@@ -202,6 +205,8 @@ class Concurrencycount implements \BMO {
 				'last_successful_snapshot_at' => $lastSuccess,
 				'ami_status' => is_array($heartbeat) && isset($heartbeat['ami_status']) ? (string)$heartbeat['ami_status'] : 'unknown',
 				'last_error' => is_array($heartbeat) && isset($heartbeat['last_error']) ? (string)$heartbeat['last_error'] : '',
+				'alert_delivery' => is_array($delivery) ? $delivery : [],
+				'alert_test_delivery' => is_array($testDelivery) ? $testDelivery : [],
 			];
 		} catch (\Throwable $exception) {
 			return ['available' => false, 'status' => 'failed', 'message' => $exception->getMessage()];
@@ -285,10 +290,6 @@ class Concurrencycount implements \BMO {
 			switch ($command) {
 				case 'demopreflight':
 					return $this->handleDemoPreflight();
-			case 'getdemoscenario':
-				return ['status'=>true,'scenario'=>$this->getSavedDemoScenario()];
-			case 'savedemoscenario':
-				return $this->handleSaveDemoScenario();
 			case 'democallpage':
 				return $this->handleDemoCallPage();
 			case 'calculationdecision':
@@ -313,6 +314,8 @@ class Concurrencycount implements \BMO {
 				return ['status' => true, 'settings' => $this->getLiveSettings()];
 			case 'savesettings':
 				return $this->handleSaveSettings();
+			case 'testalertemail':
+				return $this->handleTestAlertEmail();
 			case 'monitorstatus':
 				return ['status' => true, 'monitor' => $this->getAlertMonitorStatus()];
 			case 'restartmonitor':
@@ -335,6 +338,8 @@ class Concurrencycount implements \BMO {
 				return $this->handleCloseHistoricalReport();
 			case 'activatehistoricalreport':
 				return $this->handleActivateHistoricalReport();
+			case 'reorderhistoricalreports':
+				return $this->handleReorderHistoricalReports();
 			case 'getidentityclassifications':
 				return ['status' => true, 'classifications' => $this->getIdentityClassifications()];
 			case 'saveidentityclassification':
@@ -918,6 +923,20 @@ class Concurrencycount implements \BMO {
 		return $this->setActiveHistoricalReport($id);
 	}
 
+	private function handleReorderHistoricalReports(): array {
+		$ids = json_decode((string)($_REQUEST['ids'] ?? ''), true);
+		if (!is_array($ids)) return ['status'=>false, 'message'=>_('Invalid historical report order.')];
+		return $this->withHistoricalReportsLock(function () use ($ids) {
+			$service = new \FreePBX\modules\Concurrencycount\Services\HistoricalReportsService();
+			$repository = $this->getSettingsRepository();
+			$stored = $service->reconcileStored($repository->get(self::HISTORICAL_REPORTS_KEY, $service->defaults()));
+			try { $stored = $service->reorder($stored, $ids); }
+			catch (\InvalidArgumentException $exception) { return ['status'=>false, 'message'=>$exception->getMessage()]; }
+			$repository->set(self::HISTORICAL_REPORTS_KEY, $stored);
+			return ['status'=>true, 'reports'=>$service->listReports($stored), 'active_id'=>$stored['active_id']];
+		});
+	}
+
 	private function readHistoricalReportRequest(): array {
 		return [
 			'name' => isset($_REQUEST['name']) ? (string)$_REQUEST['name'] : '',
@@ -1032,15 +1051,17 @@ class Concurrencycount implements \BMO {
 			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
 			$ready = $outboxService->nextReady($outbox, $now);
 			if ($ready === null) return ['processed' => false, 'status' => 'waiting'];
-			$outbox[$ready['event_id']]['delivery_status'] = 'delivering';
-			$outbox[$ready['event_id']]['next_attempt_at'] = $now + 60;
+			$outbox = $outboxService->lease($outbox, $ready['event_id'], $now);
 			$repository->set(self::ALERT_OUTBOX_KEY, $outbox);
 		} finally {
 			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_alert_monitor')");
 		}
 
-		$settings = $this->getLiveSettings();
-		$mail = $this->sendThresholdEvent($ready['event'], $settings['alert_email']);
+		try {
+			$mail = $this->deliverThresholdEvent($ready['event']);
+		} catch (\Throwable $exception) {
+			$mail = ['ok' => false, 'message' => $exception->getMessage() !== '' ? $exception->getMessage() : get_class($exception)];
+		}
 		$lock = $this->FreePBX->Database->query("SELECT GET_LOCK('concurrencycount_alert_monitor', 5)")->fetchColumn();
 		if ((int)$lock !== 1) return ['processed' => true, 'status' => 'retry', 'event_id' => $ready['event_id'], 'message' => _('Unable to record alert delivery result; the leased event will be retried.')];
 		try {
@@ -1049,10 +1070,20 @@ class Concurrencycount implements \BMO {
 			$outboxService = new \FreePBX\modules\Concurrencycount\Services\AlertOutboxService();
 			$outbox = $outboxService->applyDelivery($outbox, $ready['event_id'], $mail['ok'], $mail['message'], time());
 			$repository->set(self::ALERT_OUTBOX_KEY, $outbox);
+			$repository->set(self::ALERT_DELIVERY_STATUS_KEY, ['ok'=>(bool)$mail['ok'],'event_id'=>$ready['event_id'],'attempted_at'=>time(),'message'=>(string)$mail['message']]);
 			return ['processed' => true, 'status' => $mail['ok'] ? 'accepted' : 'retry', 'event_id' => $ready['event_id'], 'message' => $mail['message']];
 		} finally {
 			$this->FreePBX->Database->query("SELECT RELEASE_LOCK('concurrencycount_alert_monitor')");
 		}
+	}
+
+	private function handleTestAlertEmail(): array {
+		$to = trim((string)($_REQUEST['recipient'] ?? ''));
+		$event = ['type'=>'alert','scope'=>'test','timestamp'=>time(),'since'=>time(),'threshold'=>1,'current'=>1,'peak'=>1,'direction_counts'=>[]];
+		try { $result = $this->deliverThresholdEvent($event, $to); }
+		catch (\Throwable $exception) { $result = ['ok'=>false,'message'=>$exception->getMessage()]; }
+		$this->getSettingsRepository()->set(self::ALERT_TEST_STATUS_KEY, ['ok'=>(bool)$result['ok'],'event_id'=>'test','attempted_at'=>time(),'message'=>(string)$result['message']]);
+		return ['status'=>(bool)$result['ok'],'message'=>$result['ok'] ? _('Test alert email sent successfully.') : $result['message']];
 	}
 
 	private function handleSaveSettings(): array {
@@ -1100,7 +1131,13 @@ class Concurrencycount implements \BMO {
 		return $snapshot;
 	}
 
-	private function sendThresholdEvent(array $event, string $to): array {
+	protected function deliverThresholdEvent(array $event, ?string $recipientOverride = null): array {
+		$settings = $this->getLiveSettings();
+		$to = $recipientOverride !== null ? trim($recipientOverride) : (string)($settings['alert_email'] ?? '');
+		return $this->sendPreparedThresholdEvent($event, $to);
+	}
+
+	protected function sendPreparedThresholdEvent(array $event, string $to): array {
 		if ($to === '' || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
 			return ['ok' => false, 'message' => _('Threshold alert email is not configured.')];
 		}
@@ -2169,19 +2206,6 @@ class Concurrencycount implements \BMO {
 		$range = $this->normaliseDemoProfileRange((string)($scenario['start'] ?? ''), (string)($scenario['end'] ?? ''));
 		return ['token'=>$token, 'generation'=>(int)$generation, 'size'=>$size, 'rows'=>(int)$rows, 'start'=>$range['start'], 'end'=>$range['end']];
 	}
-	private function getSavedDemoScenario(): ?array {
-		$stored = $this->getSettingsRepository()->get(self::DEMO_SCENARIO_KEY, null);
-		if (!is_array($stored)) return null;
-		try { return $this->normaliseDemoScenario($stored); }
-		catch (\Throwable $exception) { return null; }
-	}
-	private function handleSaveDemoScenario(): array {
-		try {
-			$scenario = $this->normaliseDemoScenario(json_decode((string)($_REQUEST['scenario'] ?? ''), true));
-			$this->getSettingsRepository()->set(self::DEMO_SCENARIO_KEY, $scenario);
-			return ['status'=>true, 'scenario'=>$scenario];
-		} catch (\Throwable $exception) { return ['status'=>false, 'message'=>$exception->getMessage()]; }
-	}
 	private function handleDemoCallPage(): array {
 		try {
 			$page = filter_var($_REQUEST['page'] ?? 1, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
@@ -2263,6 +2287,7 @@ class Concurrencycount implements \BMO {
 				}
 				foreach ($committedBatch as $committedRow) $syntheticCalls->record($committedRow, $report);
 				$inserted += count($committedBatch);
+				$this->workerWork = [$inserted, $rowTotal, 'demo-inserting'];
 				$this->getSettingsRepository()->set($demoRegistryKey, ['accountcode' => $accountcode, 'calculation_id' => $this->workerId, 'started_at' => $demoRegistryStartedAt, 'updated_at' => time(), 'rows_inserted' => $inserted]);
 				$this->workerCheckpoint();
 			}
@@ -2348,7 +2373,9 @@ class Concurrencycount implements \BMO {
 			}
 		} finally {
 			try {
+				$this->workerWork = [0, max(1, $inserted), 'demo-cleanup']; $this->workerCheckpoint();
 				$cleanup = $this->cleanupDemoCdrRows($accountcode);
+				$this->workerWork = [$cleanup['rows_removed'], max(1, $inserted), 'demo-cleanup']; $this->workerCheckpoint();
 				if ($cleanup['cleanup_remaining'] > 0) throw new \Exception(sprintf(_('Demo cleanup incomplete: %d synthetic CDR rows remain.'), $cleanup['cleanup_remaining']));
 				$this->getSettingsRepository()->delete($demoRegistryKey);
 			} finally {
@@ -3071,7 +3098,7 @@ class Concurrencycount implements \BMO {
 
 	public function resultsToCsv(array $r): string {
 		$rows = [];
-		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' - NOT CURRENTLY SUITABLE FOR PRODUCTION'];
+		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION'];
 		$rows[] = ['Mode', ucfirst($r['mode'])];
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
@@ -3141,6 +3168,18 @@ class Concurrencycount implements \BMO {
 			}
 			$rows[] = [];
 			$rows[] = ['Global maximum', isset($r['global_max']) ? $r['global_max'] : 0];
+			if ($r['mode'] === 'trunk' && !empty($r['peak_evidence'])) {
+				$rows[] = [];
+				$rows[] = ['Peak occurrence evidence'];
+				$rows[] = ['Trunk', 'Occurrence from', 'Occurrence to', 'Peak', 'Timestamp', 'Caller/source', 'Destination', 'Trunk/path', 'Direction', 'Duration seconds', 'Linked ID', 'Call identity'];
+				foreach ($r['peak_evidence'] as $trunk => $occurrences) foreach ($occurrences as $occurrence) {
+					foreach (($occurrence['calls'] ?? []) as $call) {
+						$path = [];
+						foreach (($call['path'] ?? []) as $entity) if (is_array($entity) && !empty($entity['label'])) $path[] = $entity['label'];
+						$rows[] = [$trunk, $occurrence['from'] ?? '', $occurrence['to'] ?? '', $occurrence['peak'] ?? '', $call['calldate'] ?? '', $call['caller_id'] ?: ($call['source'] ?? ''), $call['destination'] ?? '', $call['trunk_channel'] . ($path ? ' / ' . implode(' / ', $path) : ''), $call['direction'] ?? '', $call['duration'] ?? 0, $call['linkedid'] ?: ($call['uniqueid'] ?? ''), $call['call_identity'] ?? ''];
+					}
+				}
+			}
 		}
 		if (!empty($r['floor_notice'])) {
 			$rows[] = [];
@@ -3177,6 +3216,7 @@ class Concurrencycount implements \BMO {
 		}
 		try {
 			$results = $this->calculate($mode, $start, $end, true, $options);
+			if ($mode === 'trunk') $results = $this->attachTrunkPeakEvidence($results);
 			$csv = $this->resultsToCsv($results);
 			$filename = 'concurrency-count-' . $mode . '-' . date('Ymd-His') . '.csv';
 
@@ -3189,6 +3229,16 @@ class Concurrencycount implements \BMO {
 			http_response_code(500);
 			echo $e->getMessage();
 		}
+	}
+
+	private function attachTrunkPeakEvidence(array $results): array {
+		$results['peak_evidence'] = [];
+		foreach (($results['peak_occurrences'] ?? []) as $trunk => $occurrences) {
+			foreach ($occurrences as $occurrence) {
+				$results['peak_evidence'][$trunk][] = $this->buildPeakDetails((string)$trunk, $results['start'], $results['end'], $occurrence['from'], $occurrence['to']);
+			}
+		}
+		return $results;
 	}
 
 	private function streamDemoFixturePreview(): void {
@@ -3304,6 +3354,7 @@ class Concurrencycount implements \BMO {
 
 		try {
 			$results = $this->calculate($mode, $start, $end, true, $options);
+			if ($mode === 'trunk') $results = $this->attachTrunkPeakEvidence($results);
 			$csv = $this->resultsToCsv($results);
 			$filename = 'concurrency-count-' . $mode . '-' . date('Ymd-His') . '.csv';
 
@@ -3323,7 +3374,7 @@ class Concurrencycount implements \BMO {
 	private function buildEmailBody(array $r): string {
 		$lines = [];
 		$lines[] = 'Concurrency Count report from ' . $this->getSystemIdentifier();
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' - NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
 		$lines[] = 'From:           ' . $r['start'];
@@ -3413,7 +3464,7 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count for FreePBX/PBXact 16 and 17 - NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
 		return implode("\n", $lines);
 	}
 

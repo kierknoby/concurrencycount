@@ -61,6 +61,7 @@ const fullscreen = helperWindow.CCLiveWallFullscreen;
 const presentation = helperWindow.CCLiveWallPresentation;
 assert(presentation.layout(400, false).inset >= 6 && presentation.layout(400, false).height <= 388, 'Short viewports retain a visible inset and bounded wall height');
 assert(presentation.layout(900, false).inset > 0 && presentation.layout(900, false).height < 900, 'Normal viewports keep all four wall edges visible');
+assert(presentation.layout(650, false).density < 1 && presentation.layout(900, false).density === 1, 'Live Wall compresses normal desktop content for shorter viewports');
 assert(presentation.layout(1800, false).inset <= 16, 'Tall viewports cap the normal-browser inset');
 assert(presentation.layout(900, true).inset === 0 && presentation.layout(900, true).height === 900, 'Browser fullscreen may consume the complete viewport');
 assert(presentation.normaliseTheme('light') === 'light' && presentation.normaliseTheme('dark') === 'dark' && presentation.normaliseTheme('invalid') === 'dark', 'Live Wall theme restoration is deterministic and defaults safely');

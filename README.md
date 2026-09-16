@@ -1,6 +1,6 @@
-# Concurrency Count 2.2.0 for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.2.1 for FreePBX/PBXact 16 and 17
 
-**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 15 SEPTEMBER 2026.**
+**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 16 SEPTEMBER 2026.**
 
 ## Overview
 
@@ -368,7 +368,7 @@ The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` modul
 
 ### Historic Report tabs and persistence
 
-The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse.
+The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse. Saved report tabs can be drag-reordered, or moved with their accessible left/right controls; Historical Reports remains anchored first and presentation order persists without changing report identity or active state.
 
 For a completed report, **Edit Report** reopens the same configuration with the submitted criteria. Cancelling leaves the displayed result unchanged; **Run Again** replaces it only after the revised calculation completes successfully. The completed result records the global Excluded Calls configuration used, and a rerun stops clearly if that configuration changed outside the normal invalidate-and-regenerate workflow.
 
@@ -411,11 +411,11 @@ Where the CDR provides a destination that an installed provider can prove, this 
 
 **View in CDR Reports** POSTs the supported `need_html=true` form fields with the call minute and standard caller-number, destination and DID filters. It does not invent a `uniqueid` query parameter or depend on the CEL-specific `action=cel_show` route.
 
-Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment. Raw values retain exact peaks; human-readable GUI, email and CLI wording distinguishes Activity only from concurrency. CLI option names remain stable, with 2.1.0 adding explicit date aliases, stricter argument validation and safer operation/health exit behaviour.
+Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment. Trunk downloads and email attachments include qualifying peak occurrences and their contributing logical-call evidence using the same filtered report semantics as the GUI. Extension and Group exports retain their supported summary formats. Raw values retain exact peaks; human-readable GUI, email and CLI wording distinguishes Activity only from concurrency. CLI option names remain stable, with 2.1.0 adding explicit date aliases, stricter argument validation and safer operation/health exit behaviour.
 
 ### Excluded Calls
 
-**Exclude Call** creates a reversible module-level exclusion for one safely identified logical call. **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence as one group. Group members remain individually inspectable and restorable; **Restore Group** restores only the group's still-excluded members, while **Restore all excluded calls** retains its global meaning. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
+**Exclude Call** creates a reversible module-level exclusion for one safely identified logical call. **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence as one group. Group members remain individually inspectable and restorable; **Restore All** restores the group's still-excluded members, while **Reset** globally clears every exclusion. Exclusions are global across every current and future Historical Report, apply to Trunk, Extension and Group, and are honoured by Historical CLI calculations. Live View and Live Wall do not use them.
 
 - Asterisk `linkedid` is preferred. Every row sharing that excluded `linkedid` is removed together.
 - `uniqueid` is the fallback when `linkedid` is unavailable.
@@ -477,7 +477,7 @@ Unknown saved channelids are retained but ignored while unavailable, and newly d
 
 ### Live Wall
 
-Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Its persisted Light/Dark choice applies only to Live Wall, using FreePBX-style green accents in both themes. The wall follows the visible viewport with a small inset outside browser fullscreen and reflows its panels and charts after viewport, orientation and fullscreen changes. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
+Live Wall is presentation-only: a read-only wallboard using the same latest browser snapshot, rolling history and polling path as Live View. Its persisted Light/Dark choice applies only to Live Wall, using FreePBX-style green accents in both themes. The wall follows and compresses to the visible desktop viewport with a small inset outside browser fullscreen and reflows its panels and charts after resize, visual-viewport, orientation and fullscreen changes; browser fullscreen uses the complete viewport. Overall remains primary. The required ordered selection depends on the configured PJSIP trunk inventory: no configured trunks permits Overall-only; one, two or three configured trunks require 1/1, 2/2 or 3/3 respectively; and more than three requires exactly three.
 
 Live Wall launch opens **Configure Live Wall** when the saved selection is incomplete. No trunk is selected or substituted automatically, so deleting a selected trunk can require reconfiguration. Hidden featured trunks remain selected but are suppressed from presentation. Monitoring-stopped featured trunks remain valid and display current data. Saved left-to-right order remains authoritative. All configured trunks, including hidden, monitoring-stopped and unfeatured trunks, continue to contribute to Overall. The desktop composition targets Overall plus three equal cards at conventional 1080p and scales or stacks elsewhere.
 
@@ -531,7 +531,7 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 ## Demo
 
-Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load and uses a cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs. **Save selection** persists only the token, generation, profile, row count and one-day range so the same generation request can be restored without retaining generated CDRs. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the profiles also increase duration, overlap and burst density. Demo Minimum concurrency defaults to 2. CLI examples are:
+Demo is an administrator/test-PBX accuracy and performance workflow. The GUI explicitly selects Light, Medium or Heavy load and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs. The current scenario remains stable until the profile changes or Randomise is pressed and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the profiles also increase duration, overlap and burst density. Demo Minimum concurrency defaults to 2. CLI examples are:
 
 ```bash
 fwconsole concurrencycount --mode=demo --demo-report=extension --demo-size=medium --demo-seed=12345

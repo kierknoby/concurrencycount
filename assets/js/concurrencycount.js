@@ -47,7 +47,6 @@ window._ccLoaded = true;
 	var currentResults = null;
 	var demoSeed = 0;
 	var demoPlan = null;
-	var savedDemoPlan = null;
 	var demoSelectedLoad = 'medium';
 	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
 	var demoPreflightRequest = null;
@@ -66,6 +65,7 @@ window._ccLoaded = true;
 
 	/* ---------- Historical report tab state (client-side model) ---------- */
 	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
+	var historicalReportOrder = [];
 	var activeReportId = null;
 	var wizardTargetReportId = null; // which report the open wizard will run into
 	var wizardEditingExisting = false;
@@ -196,12 +196,7 @@ window._ccLoaded = true;
 		$('.cc-demo-run-mode').prop('disabled', true);
 		renderDemoPreflight('Checking...', {});
 		$('#cc-demo').modal('show');
-		ajax({command: 'getdemoscenario'}).done(function (response) {
-			if (response.status && response.scenario) {
-				savedDemoPlan = window.CCDemoScenario.restore(response.scenario);
-				applyDemoPlan(savedDemoPlan, true);
-			} else randomiseDemoScenario();
-		}).fail(function () { randomiseDemoScenario(); });
+		randomiseDemoScenario();
 	}
 
 	function showDemoError(message) { $('#cc-demo-error').text(message).show(); }
@@ -251,18 +246,8 @@ window._ccLoaded = true;
 		if (refreshPreflight) requestDemoPreflight($.extend({}, demoPlan));
 	}
 	function updateDemoSelectionStatus() {
-		$('#cc-demo-selection-status').text(savedDemoPlan && window.CCDemoScenario.equal(demoPlan, savedDemoPlan) ? 'Saved deterministic scenario.' : 'Unsaved deterministic scenario.');
-	}
-	function demoScenarioDefinition(plan) {
-		return {token:plan.token,generation:plan.generation,size:plan.size,rows:plan.rows,start:plan.start,end:plan.end};
-	}
-	function saveDemoScenario() {
-		if (!demoPlan) return;
-		$('#cc-demo-save').prop('disabled', true);
-		ajax({command:'savedemoscenario',scenario:JSON.stringify(demoScenarioDefinition(demoPlan))}).done(function(response){
-			if (!response.status || !response.scenario) { showDemoError(response.message || 'Unable to save the Demo scenario.'); return; }
-			savedDemoPlan = window.CCDemoScenario.restore(response.scenario); updateDemoSelectionStatus();
-		}).fail(function(){showDemoError('Unable to save the Demo scenario. Check the PBX connection and try again.');}).always(function(){$('#cc-demo-save').prop('disabled', false);});
+		var profile = window.CCDemoScenario.loads[demoPlan.size];
+		$('#cc-demo-selection-status').text(demoPlan.size.charAt(0).toUpperCase() + demoPlan.size.slice(1) + ' selected — ' + Number(profile.rows).toLocaleString() + ' calls over ' + profile.days + ' day.');
 	}
 	function randomiseDemoScenario() {
 		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad()), true); }
@@ -453,7 +438,7 @@ window._ccLoaded = true;
 
 	function renderIdentityClassifications(entries) {
 		var body = $('#cc-identity-rows').empty();
-		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No endpoint classifications are remembered.</td></tr>'); return; }
+		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No manual classifications have been saved yet. Unknown endpoints will appear during Historical reporting when one needs your decision.</td></tr>'); return; }
 		entries.forEach(function (entry) {
 			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset to automatic</button></td></tr>');
 		});
@@ -854,7 +839,7 @@ window._ccLoaded = true;
 				var group = entry.group_context || {};
 				var groupCount = groupCounts[entry.group_id];
 				var label = 'Peak ' + [group.occurrence_from, group.occurrence_to].filter(Boolean).join(' to ') + (group.trunk ? ' on ' + group.trunk : '') + ' \u00b7 ' + groupCount + ' call' + (groupCount === 1 ? '' : 's');
-				body.append('<tr class="cc-exclusion-group"><th colspan="' + (hasReportContext ? '8' : '7') + '">' + escapeHtml(label) + '</th><th><button type="button" class="btn btn-default btn-sm cc-restore-excluded-group" data-group-id="' + escapeHtml(entry.group_id) + '">Restore Group</button></th></tr>');
+				body.append('<tr class="cc-exclusion-group"><th colspan="' + (hasReportContext ? '8' : '7') + '">' + escapeHtml(label) + '</th><th><button type="button" class="btn btn-default btn-sm cc-restore-excluded-group" data-group-id="' + escapeHtml(entry.group_id) + '">Restore All</button></th></tr>');
 			}
 			var summary = entry.summary || {};
 			var context = [summary.trunk, summary.extension].filter(Boolean).join(' / ') || '-';
@@ -886,7 +871,7 @@ window._ccLoaded = true;
 	}
 
 	function restoreAllExcludedCalls() {
-		if (!window.confirm('Restore all excluded calls? All calls will become eligible for Historical Reports again. No source CDR data will be changed.')) return;
+		if (!window.confirm('Reset all excluded calls? All calls will become eligible for Historical Reports again. No source CDR data will be changed.')) return;
 		ajax({command: 'restoreallexcludedcalls'}).done(function (response) {
 			if (!response.status) { $('#cc-excluded-calls-message').addClass('alert-danger').text(response.message || 'Unable to restore excluded calls.').show(); return; }
 			updateExcludedCount(0);
@@ -1074,15 +1059,25 @@ window._ccLoaded = true;
 	}
 
 	function sortedReports() {
-		return Object.keys(historicalReports).map(function (id) { return historicalReports[id]; }).sort(function (a, b) { return a.number - b.number; });
+		return historicalReportOrder.filter(function (id) { return !!historicalReports[id]; }).map(function (id) { return historicalReports[id]; });
+	}
+	function persistHistoricalReportOrder() { ajax({command:'reorderhistoricalreports', ids:JSON.stringify(historicalReportOrder)}); }
+	function moveHistoricalReport(id, offset) {
+		var index = historicalReportOrder.indexOf(String(id)), target = index + offset;
+		if (index < 0 || target < 0 || target >= historicalReportOrder.length) return;
+		var moved = historicalReportOrder.splice(index, 1)[0]; historicalReportOrder.splice(target, 0, moved);
+		renderTopReportTabs(); persistHistoricalReportOrder();
+		$('#cc-workspace-tabs .cc-report-tab-select[data-target="' + id + '"]').trigger('focus');
 	}
 
 	function initHistoricalReports() {
 		ajax({command: 'listhistoricalreports'}).done(function (response) {
 			if (!response.status) return;
 			historicalReports = {};
+			historicalReportOrder = [];
 			(response.reports || []).forEach(function (report) {
 				historicalReports[report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, report);
+				historicalReportOrder.push(report.id);
 			});
 			renderTopReportTabs();
 			// Deliberately does not change which top-level tab is active on
@@ -1095,8 +1090,10 @@ window._ccLoaded = true;
 		$('#cc-workspace-tabs .cc-report-tab-top').remove();
 		var html = sortedReports().map(function (report) {
 			var selected = report.id === activeReportId;
-			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '" title="' + escapeHtml(report.name) + '">' +
+			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" draggable="true" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '" title="' + escapeHtml(report.name) + '">' +
 				'<button type="button" class="cc-report-tab-select" data-target="' + escapeHtml(report.id) + '"><span>' + escapeHtml(report.name) + '</span>' + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
+				'<button type="button" class="cc-report-tab-move cc-report-tab-left" data-report-id="' + escapeHtml(report.id) + '" aria-label="Move ' + escapeHtml(report.name) + ' left"><i class="fa fa-chevron-left" aria-hidden="true"></i></button>' +
+				'<button type="button" class="cc-report-tab-move cc-report-tab-right" data-report-id="' + escapeHtml(report.id) + '" aria-label="Move ' + escapeHtml(report.name) + ' right"><i class="fa fa-chevron-right" aria-hidden="true"></i></button>' +
 				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.name) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
 				'</div>';
 		}).join('');
@@ -1208,6 +1205,7 @@ window._ccLoaded = true;
 			// needs a guaranteed round trip to discard.
 		});
 		delete historicalReports[id];
+		historicalReportOrder = historicalReportOrder.filter(function (candidate) { return candidate !== id; });
 		renderTopReportTabs();
 		if (!closingActive) return;
 		var remaining = sortedReports();
@@ -1562,6 +1560,7 @@ window._ccLoaded = true;
 			report.minimum_concurrency = minimumConcurrency;
 			report.maximum_runtime_minutes = maximumRuntimeMinutes;
 			historicalReports[report.id] = report;
+			if (historicalReportOrder.indexOf(report.id) < 0) historicalReportOrder.push(report.id);
 			hideWizard();
 			renderTopReportTabs();
 			selectTopTab(report.id);
@@ -1587,6 +1586,7 @@ window._ccLoaded = true;
 				return;
 			}
 			delete historicalReports[targetReportId];
+			historicalReportOrder = historicalReportOrder.filter(function (candidate) { return candidate !== targetReportId; });
 			renderTopReportTabs();
 			selectTopTab('historical');
 			$('#cc-report-limit-message').text(message + ' The unused report was removed.').show();
@@ -1729,6 +1729,12 @@ window._ccLoaded = true;
 	}
 
 	function renderCalculationTelemetry(response) {
+		var phase = String(response.calculation_phase || 'calculating').replace(/-/g, ' ');
+		var processed = Math.max(0, Number(response.processed) || 0), total = Math.max(0, Number(response.total) || 0);
+		if (phase === 'demo inserting' && total) $('#cc-calculation-panel-title').text('Inserted ' + processed.toLocaleString() + ' / ' + total.toLocaleString() + ' synthetic CDRs');
+		else if (phase === 'demo generation' && total) $('#cc-calculation-panel-title').text('Generated ' + processed.toLocaleString() + ' / ' + total.toLocaleString() + ' synthetic CDRs');
+		else if (phase === 'demo cleanup') $('#cc-calculation-panel-title').text('Cleaning up synthetic CDRs' + (processed ? ' — removed ' + processed.toLocaleString() : ''));
+		else if (phase.indexOf('demo') === 0 || phase.indexOf('cdr ') === 0 || phase.indexOf('original ') === 0 || phase.indexOf('sweep ') === 0) $('#cc-calculation-panel-title').text(phase.replace(/^./, function (value) { return value.toUpperCase(); }));
 		var resources = response.resources || {};
 		var cpu = resources.cpu || {};
 		var memory = resources.memory || {};
@@ -2320,6 +2326,15 @@ window._ccLoaded = true;
 			e.stopPropagation();
 			if (workspaceLockReportId) return;
 			closeReportTab($(this).data('report-id'));
+		}).off('click.ccTabsMove', '.cc-report-tab-left, .cc-report-tab-right').on('click.ccTabsMove', '.cc-report-tab-left, .cc-report-tab-right', function (e) {
+			e.stopPropagation(); moveHistoricalReport($(this).data('report-id'), $(this).hasClass('cc-report-tab-left') ? -1 : 1);
+		}).off('dragstart.ccTabs', '.cc-report-tab-top').on('dragstart.ccTabs', '.cc-report-tab-top', function (e) {
+			e.originalEvent.dataTransfer.setData('text/plain', String($(this).data('target')));
+		}).off('dragover.ccTabs', '.cc-report-tab-top').on('dragover.ccTabs', '.cc-report-tab-top', function (e) { e.preventDefault();
+		}).off('drop.ccTabs', '.cc-report-tab-top').on('drop.ccTabs', '.cc-report-tab-top', function (e) {
+			e.preventDefault(); var moved = e.originalEvent.dataTransfer.getData('text/plain'), target = String($(this).data('target'));
+			var from = historicalReportOrder.indexOf(moved), to = historicalReportOrder.indexOf(target); if (from < 0 || to < 0 || from === to) return;
+			historicalReportOrder.splice(from, 1); historicalReportOrder.splice(to, 0, moved); renderTopReportTabs(); persistHistoricalReportOrder();
 		});
 		$(document).off('cc:historical-graph-loaded').on('cc:historical-graph-loaded', function (event, series) {
 			if (historicalGraphTargetReportId && historicalReports[historicalGraphTargetReportId]) {
@@ -2330,7 +2345,6 @@ window._ccLoaded = true;
 			runDemo($(this).data('report'));
 		});
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
-		$('#cc-demo-save').off('click').on('click', saveDemoScenario);
 		$('.cc-demo-load').off('click').on('click', function () {
 			var load = $(this).data('load'); renderDemoLoadSelection(load);
 			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load), true);

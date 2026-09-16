@@ -20,12 +20,23 @@ disk_assert(in_array("SHOW VARIABLES LIKE 'log_bin_basename'", $statsDb->queries
 $separateSpace = function ($path) { return $path === '/logs' ? ['path' => '/logs', 'device' => 2, 'free' => 3 * 1024 * 1024 * 1024, 'total' => 10 * 1024 * 1024 * 1024] : ['path' => '/db', 'device' => 1, 'free' => 20 * 1024 * 1024 * 1024, 'total' => 40 * 1024 * 1024 * 1024]; };
 $separatePlan = (new DemoDiskGuard(new DiskDb(null, 1, '/logs/mysql-bin'), $separateSpace))->preflight(1000);
 disk_assert($separatePlan['binary_log']['device'] === 2 && $separatePlan['binary_log']['reserve_bytes'] === 2 * 1024 * 1024 * 1024, 'Separate binary-log filesystem receives its own reserve and requirement');
+$logDevice = 2; $logFree = 3 * 1024 * 1024 * 1024;
+$mutableLogSpace = function ($path) use (&$logDevice, &$logFree) { return $path === '/logs' ? ['path'=>'/logs','device'=>$logDevice,'free'=>$logFree,'total'=>10 * 1024 * 1024 * 1024] : ['path'=>'/db','device'=>1,'free'=>20 * 1024 * 1024 * 1024,'total'=>40 * 1024 * 1024 * 1024]; };
+$deviceGuard = new DemoDiskGuard(new DiskDb(null, 1, '/logs/mysql-bin'), $mutableLogSpace); $deviceGuard->preflight(1000); $logDevice = 3;
+$deviceMessage = ''; try { $deviceGuard->check(0); } catch (RuntimeException $e) { $deviceMessage = $e->getMessage(); }
+disk_assert(strpos($deviceMessage, 'device changed') !== false && strpos($deviceMessage, 'expected 2, current 3') !== false, 'Binary-log device changes have a specific diagnostic');
+$logDevice = 2; $spaceGuard = new DemoDiskGuard(new DiskDb(null, 1, '/logs/mysql-bin'), $mutableLogSpace); $spaceGuard->preflight(1000); $logFree = 2 * 1024 * 1024 * 1024;
+$spaceMessage = ''; try { $spaceGuard->check(0); } catch (RuntimeException $e) { $spaceMessage = $e->getMessage(); }
+disk_assert(strpos($spaceMessage, 'binary-log safely available space') !== false && strpos($spaceMessage, 'current free') !== false && strpos($spaceMessage, 'reserve') !== false && strpos($spaceMessage, 'remaining estimated requirement') !== false, 'Binary-log headroom shortage reports every relevant figure');
 $unsafeLog = false; try { (new DemoDiskGuard(new DiskDb(null, 1, '/logs/mysql-bin'), function ($path) { return $path === '/logs' ? ['path' => '/logs', 'device' => 2, 'free' => 1024, 'total' => 10 * 1024 * 1024 * 1024] : ['path' => '/db', 'device' => 1, 'free' => 20 * 1024 * 1024 * 1024, 'total' => 40 * 1024 * 1024 * 1024]; }))->preflight(1); } catch (RuntimeException $e) { $unsafeLog = true; }
 disk_assert($unsafeLog, 'Unsafe separate binary-log filesystem refuses Demo before insertion');
 $unknownLog = false; try { (new DemoDiskGuard(new DiskDb(null, 1, ''), $space))->preflight(1); } catch (RuntimeException $e) { $unknownLog = true; }
 disk_assert($unknownLog, 'Enabled binary logging with no resolvable location fails closed');
 $guard->check(0); $free -= 1024 * 1024; $checked = $guard->check(100);
 disk_assert($checked['peak_storage_growth_bytes'] === 1024 * 1024, 'Batch checks track actual growth');
+$free -= 32 * 1024 * 1024;
+$growthTelemetry = $guard->check(100);
+disk_assert($growthTelemetry['peak_storage_growth_bytes'] > 16 * 1024 * 1024, 'Unrelated filesystem movement remains telemetry and does not abort Demo');
 $unsafe = false; try { (new DemoDiskGuard($db, function () { return ['path' => '/db', 'free' => 1024, 'total' => 1024]; }))->preflight(1); } catch (RuntimeException $e) { $unsafe = true; }
 disk_assert($unsafe, 'Unsafe preflight refuses before insertion');
 $missing = false; try { (new DemoDiskGuard($db, function () { return []; }))->preflight(1); } catch (RuntimeException $e) { $missing = true; }
