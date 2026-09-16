@@ -630,7 +630,7 @@ admin_contract_assert(strpos($wallTransitionCode, 'scheduleChartResize(resizeWal
 admin_contract_assert(strpos($css, '.cc-live-wall canvas') !== false && strpos($css, '.cc-live-wall .cc-wall-theme-option:focus-visible') !== false, 'Live Wall surfaces and keyboard focus must remain wall-scoped');
 foreach (['--cc-wall-inset', '100dvh', 'box-sizing:border-box', 'overflow-x:hidden', 'max-width:calc(100vw'] as $responsiveRule) admin_contract_assert(strpos($css, $responsiveRule) !== false, 'Responsive Live Wall rule missing: ' . $responsiveRule);
 admin_contract_assert(strpos($liveJavascript, 'window.visualViewport') !== false && strpos($liveJavascript, 'orientationchange.ccLive') !== false && strpos($liveJavascript, 'syncLiveWallViewport') !== false, 'Live Wall must reflow for viewport, orientation and fullscreen changes');
-admin_contract_assert(strpos($liveJavascript, "$(window.visualViewport).off('resize.ccLive scroll.ccLive')") !== false && strpos($liveJavascript, "'--cc-wall-density': state.density") !== false && strpos($css, '--cc-wall-density') !== false, 'Live Wall must compress and recalculate against observable visual viewport changes');
+admin_contract_assert(strpos($liveJavascript, "$(window.visualViewport).off('resize.ccLive scroll.ccLive')") !== false && strpos($liveJavascript, "wall.style.setProperty('--cc-wall-density', state.density)") !== false && strpos($css, '--cc-wall-density') !== false, 'Live Wall must compress and recalculate against observable visual viewport changes');
 admin_contract_assert(strpos($view, 'cc-wall-theme-option') !== false && strpos($view, "_('Light')") !== false && strpos($view, "_('Dark')") !== false, 'Live Wall Light/Dark control missing');
 admin_contract_assert(strpos($liveJavascript, 'settings.live_wall_theme = wallTheme; saveSettings(settings, false)') !== false && strpos($liveJavascript, "'wall-' + wallTheme") !== false, 'Live Wall theme must persist through module settings and update wall charts without resetting state');
 $wallCss = substr($css, strpos($css, '.cc-live-wall {'), strpos($css, '@media (max-width:900px)', strpos($css, '.cc-live-wall {')) - strpos($css, '.cc-live-wall {'));
@@ -664,6 +664,14 @@ admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen ===
 admin_contract_assert(strpos($view, 'id="cc-live-wall-fullscreen"') !== false && strpos($view, 'fa fa-expand') !== false, 'Live Wall Full Screen presentation control missing');
 admin_contract_assert(strpos($liveJavascript, "document.fullscreenElement === wall") !== false && strpos($liveJavascript, 'syncLiveWallFullscreenState') !== false, 'Full Screen control must derive visibility from the existing fullscreen lifecycle');
 admin_contract_assert(strpos($liveJavascript, "$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen)") !== false, 'Full Screen control must request browser fullscreen independently');
+admin_contract_assert(
+	strpos($css, '--cc-wall-inset:0px; --cc-wall-height:100vh;') !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-inset', state.inset + 'px')") !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-height', state.height + 'px')") !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-density', state.density)") !== false &&
+	strpos($liveJavascript, "$('#cc-live-wall').css({'--cc-wall-inset'") === false,
+	'Live Wall viewport CSS variables must use native style.setProperty for FreePBX jQuery compatibility'
+);
 admin_contract_assert(
 	strpos($view, 'id="cc-live-wall-windowed"') !== false &&
 	strpos($liveJavascript, "$('#cc-live-wall-windowed').off('click.ccLive').on('click.ccLive', exitLiveWallFullscreen)") !== false &&

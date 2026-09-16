@@ -989,7 +989,7 @@ body:has(.concurrencycount) #page_body {
 .concurrencycount .cc-wall-featured-order { grid-column:2; grid-row:1 / span 2; white-space:nowrap; }
 
 .cc-live-wall {
-	--cc-wall-inset:clamp(6px,1.2vmin,16px); --cc-wall-height:calc(100vh - (2 * var(--cc-wall-inset)));
+	--cc-wall-inset:0px; --cc-wall-height:100vh;
 	--cc-wall-density:1;
 	--cc-wall-bg:#F0F6F1; --cc-wall-panel:#FFFFFF; --cc-wall-border:#9AB5A1; --cc-wall-text:#183B25;
 	--cc-wall-muted:#4D6856; --cc-wall-accent:#237A45; --cc-wall-accent-hover:#195E34; --cc-wall-grid:#DDE9E0;

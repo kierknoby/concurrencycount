@@ -50,7 +50,7 @@
 		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
 		layout: function (viewportHeight, fullscreen, overrides) {
 			var height = Math.max(0, Number(viewportHeight) || 0);
-			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
+			var inset = 0;
 			var available = Math.max(0, height - (inset * 2)), density = Math.max(0.58, Math.min(1, available / 850));
 			var dimensions = {wallPadding:40,header:56,headerMargin:12,overallPadding:36,overallContent:210,overallMargin:10,noteHeight:20,noteMargin:8,cardPadding:30,cardText:104,cardCanvas:125,rowGap:0};
 			Object.keys(overrides || {}).forEach(function (name) { if (Object.prototype.hasOwnProperty.call(dimensions, name)) dimensions[name] = Math.max(0, Number(overrides[name]) || 0); });
@@ -618,7 +618,11 @@ window._ccLiveLoaded = true;
 	function syncLiveWallViewport() {
 		var viewportHeight = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
 		var state = window.CCLiveWallPresentation.layout(viewportHeight, document.fullscreenElement === document.getElementById('cc-live-wall'));
-		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px', '--cc-wall-density': state.density});
+		var wall = document.getElementById('cc-live-wall');
+		if (!wall) return;
+		wall.style.setProperty('--cc-wall-inset', state.inset + 'px');
+		wall.style.setProperty('--cc-wall-height', state.height + 'px');
+		wall.style.setProperty('--cc-wall-density', state.density);
 	}
 
 	function onWallViewportChange() {
