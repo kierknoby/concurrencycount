@@ -35,6 +35,7 @@ $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-svg-chart.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-graph-export.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/cc-historical-report-order.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/live-view.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/css/concurrencycount.css') ?: 0
 ) ?: time();
@@ -114,7 +115,7 @@ $_ccAssetVer = max(
 							</div>
 						</div>
 						<div id="cc-report-active" style="display:none;">
-							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-default" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button> <button type="button" id="cc-edit-report" class="btn btn-default"><i class="fa fa-pencil"></i> <?php echo _('Edit Report'); ?></button></div>
+							<div class="cc-report-global-actions"><button type="button" id="cc-excluded-calls" class="btn btn-warning" aria-haspopup="dialog"><i class="fa fa-ban"></i> <?php echo _('Excluded Calls'); ?> <span id="cc-excluded-count"></span></button> <button type="button" id="cc-edit-report" class="btn btn-default"><i class="fa fa-pencil"></i> <?php echo _('Edit Report'); ?></button></div>
 							<section id="cc-calculation-panel" class="cc-calculation-panel" style="display:none;" aria-labelledby="cc-calculation-panel-title">
 								<div class="cc-calculation-panel-heading">
 									<button type="button" id="cc-calculation-stop" class="btn btn-danger btn-sm"><?php echo _('Stop'); ?></button>
@@ -281,12 +282,12 @@ $_ccAssetVer = max(
 					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and use a randomly selected one-day period between January 2001 and November 2016. Cleanup is verified after the run, but remains best-effort if the server or database dies mid-run.'); ?>
 				</div>
 				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
-				<div class="form-group"><label class="control-label"><?php echo _('Load'); ?></label>
+				<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
 					<div class="btn-group" id="cc-demo-loads">
-					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><button type="button" class="btn cc-demo-load <?php echo $value === 'medium' ? 'btn-primary active' : 'btn-default'; ?>" data-load="<?php echo $value; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><?php echo $label; ?></button><?php endforeach; ?>
+					<?php foreach (['light' => _('Light'), 'medium' => _('Medium'), 'heavy' => _('Heavy')] as $value => $label): ?><button type="button" class="btn cc-demo-load <?php echo $value === 'medium' ? 'cc-demo-load-selected active' : 'cc-demo-load-unselected'; ?>" data-load="<?php echo $value; ?>" aria-pressed="<?php echo $value === 'medium' ? 'true' : 'false'; ?>"><?php echo $label; ?></button><?php endforeach; ?>
 					</div>
-				</div>
-				<div class="form-group"><button type="button" class="btn btn-default" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button><span class="help-block" id="cc-demo-selection-status"></span></div>
+					<button type="button" class="btn btn-default cc-demo-randomise" id="cc-demo-randomise"><i class="fa fa-random"></i> <?php echo _('Randomise'); ?></button>
+				</div><span class="help-block" id="cc-demo-selection-status"></span></div>
 				<dl class="dl-horizontal" id="cc-demo-plan"></dl>
 				<p class="text-muted"><?php echo _('Randomise creates a new reproducible scenario using strong browser randomness and the selected load.'); ?></p>
 				<div class="panel panel-default" id="cc-demo-preflight">
@@ -493,5 +494,6 @@ $_ccAssetVer = max(
 <script src="modules/concurrencycount/assets/js/concurrency-charts.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-svg-chart.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-graph-export.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/cc-historical-report-order.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/live-view.js?v=<?php echo $_ccAssetVer; ?>"></script>

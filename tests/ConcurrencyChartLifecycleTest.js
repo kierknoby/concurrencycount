@@ -64,6 +64,8 @@ assert(presentation.layout(900, false).inset > 0 && presentation.layout(900, fal
 assert(presentation.layout(650, false).density < 1 && presentation.layout(900, false).density === 1, 'Live Wall compresses normal desktop content for shorter viewports');
 assert(presentation.layout(1800, false).inset <= 16, 'Tall viewports cap the normal-browser inset');
 assert(presentation.layout(900, true).inset === 0 && presentation.layout(900, true).height === 900, 'Browser fullscreen may consume the complete viewport');
+[520, 650, 768, 900, 1080].forEach(function (height) { const layout=presentation.layout(height,false); assert(layout.composition.fits && layout.composition.requiredHeight <= layout.composition.availableHeight, 'Component-based desktop composition fits viewport height ' + height); });
+assert(!presentation.layout(520,false,{cardCanvas:500}).composition.fits,'The fit model fails when a real component allowance is increased enough to overflow');
 assert(presentation.normaliseTheme('light') === 'light' && presentation.normaliseTheme('dark') === 'dark' && presentation.normaliseTheme('invalid') === 'dark', 'Live Wall theme restoration is deterministic and defaults safely');
 assert(fullscreen.shouldShow(true, fullscreenWall, fullscreenDocument), 'Full Screen must show for an active supported wall outside browser fullscreen');
 fullscreenDocument.fullscreenElement = fullscreenWall;

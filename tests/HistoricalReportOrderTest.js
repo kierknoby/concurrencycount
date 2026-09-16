@@ -1,0 +1,20 @@
+'use strict';
+const order=require('../assets/js/cc-historical-report-order.js');
+function assert(value,message){if(!value)throw new Error(message);}
+const original=['stable-1','stable-2','stable-3'];
+assert(order.move(original,'stable-2',-1).join(',')==='stable-2,stable-1,stable-3'&&original.join(',')==='stable-1,stable-2,stable-3','Keyboard movement preserves stable identities without mutating source state');
+assert(order.drop(original,'stable-3','stable-1',false).join(',')==='stable-3,stable-1,stable-2','Handle drop inserts exactly before its target');
+assert(order.drop(original,'stable-1','stable-3',true).join(',')==='stable-2,stable-3,stable-1','Handle drop inserts exactly after its target');
+assert(order.drop(original,'stable-1','stable-1',false).join(',')===original.join(','),'Dropping the first tab onto itself before is unchanged');
+assert(order.drop(original,'stable-1','stable-1',true).join(',')===original.join(','),'Dropping the first tab onto itself after is unchanged');
+assert(order.drop(original,'stable-2','stable-2',false).join(',')===original.join(','),'Dropping a middle tab onto itself before is unchanged');
+assert(order.drop(original,'stable-2','stable-2',true).join(',')===original.join(','),'Dropping a middle tab onto itself after is unchanged');
+let sends=[],callbacks=[],saved=[];
+const saver=order.createSaver(function(value,done){sends.push(value.join(','));callbacks.push(done);},function(value){saved.push(value.join(','));},function(){throw new Error('Unexpected save failure');});
+saver.request(['stable-1','stable-2','stable-3']);saver.request(['stable-2','stable-1','stable-3']);saver.request(['stable-3','stable-2','stable-1']);
+assert(sends.length===1&&saver.isBusy(),'Rapid moves serialize the first persistence request');
+callbacks.shift()(null,{status:true});
+assert(sends.length===2&&sends[1]==='stable-3,stable-2,stable-1','Rapid sequence coalesces to and persists the final visible order');
+callbacks.shift()(null,{status:true});
+assert(saved[saved.length-1]==='stable-3,stable-2,stable-1'&&!saver.isBusy(),'Final visible order is the final confirmed order');
+console.log('Historical report order tests passed');

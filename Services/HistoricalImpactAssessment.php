@@ -8,6 +8,7 @@ class HistoricalImpactAssessment {
 	private $baseline;
 	private $samples = [];
 	private $recent = [];
+	private $lastClassification = [];
 	public function __construct(int $threshold, float $started, array $baseline = []) {
 		if ($threshold < 50 || $threshold > 95) throw new \InvalidArgumentException('PBX Protection must be between 50% and 95%.');
 		$this->threshold = $threshold; $this->started = $started; $this->baseline = $baseline;
@@ -37,19 +38,25 @@ class HistoricalImpactAssessment {
 		$this->recent[] = $sample;
 		$this->recent = array_values(array_filter($this->recent, function ($s) use ($now) { return $s['at'] >= $now - 60; }));
 		$this->recent = array_slice($this->recent, -31);
-		$complete = $now - $this->started >= 300;
+		return $this->classify($now, false, $acuteMemory);
+	}
+	public function complete(float $now): array {
+		return $this->classify($now, true, false);
+	}
+	private function classify(float $now, bool $forcedComplete, bool $acuteMemory): array {
+		$complete = $forcedComplete || $now - $this->started >= 300;
 		$count = count($this->samples);
 		$recentCount = count($this->recent);
 		$recentSustained = $recentCount >= 10 && $now - $this->recent[0]['at'] >= 18;
 		$windowSustained = $count >= 10 && $now - $this->samples[0]['at'] >= 18;
-		$critical = $acuteMemory || ($recentSustained && count(array_filter($this->recent, function ($s) { return $s['severe']; })) / $recentCount >= .8);
+		$critical = $acuteMemory || ($recentSustained && $recentCount > 0 && count(array_filter($this->recent, function ($s) { return $s['severe']; })) / $recentCount >= .8);
 		// Three quarters of the complete observation window must be concerning;
 		// this retains four early minutes while rejecting isolated transients.
-		$high = $windowSustained && count(array_filter($this->samples, function ($s) { return $s['concern']; })) / $count >= .75;
+		$high = $windowSustained && $count > 0 && count(array_filter($this->samples, function ($s) { return $s['concern']; })) / $count >= .75;
 		$moderate = count(array_filter($this->samples, function ($s) { return $s['pressure']; })) > 0;
 		$available = count(array_filter($this->samples, function ($s) { return $s['available']; })) >= max(10, (int)ceil($count * .75));
-		$status = $critical ? 'Critical' : (!$complete ? 'Assessing...' : (!$available || !$windowSustained ? 'Unavailable' : ($high ? 'High' : ($moderate ? 'Moderate' : 'Low'))));
-		return ['impact_status' => $status, 'impact_assessment_complete' => $complete,
+		$status = !$complete ? ($critical ? 'Critical' : 'Assessing...') : (!$available || !$windowSustained ? 'Unable to assess' : (($high || $critical) ? 'High' : ($moderate ? 'Moderate' : 'Low')));
+		return $this->lastClassification = ['impact_status' => $status, 'impact_assessment_complete' => $complete,
 			'impact_reason' => !$available ? 'Resource measurements unavailable; impact cannot be established.' : ($high || $critical ? 'Potentially concerning PBX impact was observed while this calculation was running.' : 'No sustained concerning degradation observed in available measurements.'),
 			'impact_metrics_available' => $available];
 	}

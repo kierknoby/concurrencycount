@@ -66,6 +66,10 @@ window._ccLoaded = true;
 	/* ---------- Historical report tab state (client-side model) ---------- */
 	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
 	var historicalReportOrder = [];
+	var historicalOrderSaver = null;
+	var historicalOrderConfirmed = [];
+	var grabbedHistoricalReport = null;
+	var grabbedHistoricalSnapshot = null;
 	var activeReportId = null;
 	var wizardTargetReportId = null; // which report the open wizard will run into
 	var wizardEditingExisting = false;
@@ -206,7 +210,7 @@ window._ccLoaded = true;
 		demoSelectedLoad = Object.keys(state).filter(function (name) { return state[name].checked; })[0];
 		$('.cc-demo-load').each(function () {
 			var item = state[$(this).data('load')];
-			$(this).toggleClass('active btn-primary', item.active).toggleClass('btn-default', !item.active).attr('aria-pressed', item.ariaPressed);
+			$(this).toggleClass('active cc-demo-load-selected', item.active).toggleClass('cc-demo-load-unselected', !item.active).attr('aria-pressed', item.ariaPressed);
 		});
 	}
 	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
@@ -964,12 +968,12 @@ window._ccLoaded = true;
 			html += '<div class="cc-peak-summary">Expected highest ' + escapeHtml(demoUnit) + ': <strong>' + escapeHtml(r.expected_global_max) + '</strong> Actual: <strong>' + escapeHtml(r.global_max) + '</strong></div>';
 		}
 		var auditPage = r.synthetic_calls_page || {token:'',items:[],page:1,pages:1,total:0};
-		html += '<details class="cc-demo-synthetic"><summary>Synthetic calls (' + escapeHtml(auditPage.total) + ')</summary>' +
+		html += '<section class="cc-demo-synthetic" aria-labelledby="cc-demo-cdr-review-title"><h4 id="cc-demo-cdr-review-title">Synthetic Demo CDR review</h4><p>Review the generated synthetic Demo CDR sample below. Paging is retained after authoritative cleanup; these rows are not left in the live CDR table.</p>' +
 			'<div class="cc-demo-integrity ' + (r.synthetic_call_integrity === 'verified' ? 'alert alert-success' : 'alert alert-danger') + '">' +
 			'Generated ' + escapeHtml(r.rows_generated) + ' · Inserted ' + escapeHtml(r.rows_inserted) + ' · Audited ' + escapeHtml(r.synthetic_calls_returned) + ' · Removed ' + escapeHtml(r.rows_removed) + ' · Cleanup remaining ' + escapeHtml(r.cleanup_remaining) +
 			(r.synthetic_call_integrity === 'verified' ? ' — Dataset integrity verified.' : ' — Dataset counts do not agree.') + '</div>' +
 			'<div class="cc-table-scroll"><table class="table table-condensed table-striped"><thead><tr><th>Start</th><th>Answer</th><th>End</th><th>Duration</th><th>Billsec</th><th>Direction</th><th>Source</th><th>Destination</th><th>DID</th><th>Disposition</th><th>Channel</th><th>Destination channel</th><th>Report identity</th><th>Details</th></tr></thead><tbody class="cc-demo-synthetic-rows"></tbody></table></div>' +
-			'<div class="cc-demo-synthetic-pages"><button type="button" class="btn btn-default btn-sm cc-demo-calls-previous">Previous</button> <span class="cc-demo-calls-page"></span> <button type="button" class="btn btn-default btn-sm cc-demo-calls-next">Next</button></div></details>';
+			'<div class="cc-demo-synthetic-pages"><button type="button" class="btn btn-default btn-sm cc-demo-calls-previous">Previous</button> <span class="cc-demo-calls-page"></span> <button type="button" class="btn btn-default btn-sm cc-demo-calls-next">Next</button></div></section>';
 		el.html(html);
 		renderDemoSyntheticCallsPage(el.find('.cc-demo-synthetic'), auditPage);
 	}
@@ -1061,13 +1065,26 @@ window._ccLoaded = true;
 	function sortedReports() {
 		return historicalReportOrder.filter(function (id) { return !!historicalReports[id]; }).map(function (id) { return historicalReports[id]; });
 	}
-	function persistHistoricalReportOrder() { ajax({command:'reorderhistoricalreports', ids:JSON.stringify(historicalReportOrder)}); }
-	function moveHistoricalReport(id, offset) {
-		var index = historicalReportOrder.indexOf(String(id)), target = index + offset;
-		if (index < 0 || target < 0 || target >= historicalReportOrder.length) return;
-		var moved = historicalReportOrder.splice(index, 1)[0]; historicalReportOrder.splice(target, 0, moved);
-		renderTopReportTabs(); persistHistoricalReportOrder();
-		$('#cc-workspace-tabs .cc-report-tab-select[data-target="' + id + '"]').trigger('focus');
+	function persistHistoricalReportOrder() {
+		if (!historicalOrderSaver) historicalOrderSaver = window.CCHistoricalReportOrder.createSaver(function (order, complete) {
+			ajax({command:'reorderhistoricalreports', ids:JSON.stringify(order)}).done(function (response) { complete(null, response); }).fail(function () { complete('Unable to save report order.'); });
+		}, function (order) { historicalOrderConfirmed = order.slice(); }, function (message) { reconcileHistoricalReportOrder(message); });
+		historicalOrderSaver.request(historicalReportOrder);
+	}
+	function reconcileHistoricalReportOrder(message) {
+		setStatus(message + ' Reloading the saved order.', 'error');
+		ajax({command:'listhistoricalreports'}).done(function (response) {
+			if (!response.status) return;
+			historicalReportOrder = (response.reports || []).map(function (report) { return String(report.id); }).filter(function (id) { return !!historicalReports[id]; });
+			historicalOrderConfirmed = historicalReportOrder.slice(); renderTopReportTabs();
+		});
+	}
+	function moveHistoricalReport(id, offset, saveImmediately) {
+		var next = window.CCHistoricalReportOrder.move(historicalReportOrder, id, offset);
+		if (next.join('|') === historicalReportOrder.join('|')) return;
+		historicalReportOrder = next;
+		renderTopReportTabs(); if (saveImmediately !== false) persistHistoricalReportOrder();
+		$('#cc-workspace-tabs .cc-report-tab-handle[data-report-id="' + id + '"]').trigger('focus');
 	}
 
 	function initHistoricalReports() {
@@ -1079,6 +1096,7 @@ window._ccLoaded = true;
 				historicalReports[report.id] = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null}, report);
 				historicalReportOrder.push(report.id);
 			});
+			historicalOrderConfirmed = historicalReportOrder.slice();
 			renderTopReportTabs();
 			// Deliberately does not change which top-level tab is active on
 			// load: Live View remains the default landing tab, and
@@ -1090,10 +1108,9 @@ window._ccLoaded = true;
 		$('#cc-workspace-tabs .cc-report-tab-top').remove();
 		var html = sortedReports().map(function (report) {
 			var selected = report.id === activeReportId;
-			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" draggable="true" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '" title="' + escapeHtml(report.name) + '">' +
+			return '<div class="cc-workspace-tab cc-report-tab-top" role="tab" aria-selected="' + (selected ? 'true' : 'false') + '" data-target="' + escapeHtml(report.id) + '" title="' + escapeHtml(report.name) + '">' +
+				'<button type="button" class="cc-report-tab-handle" draggable="true" data-report-id="' + escapeHtml(report.id) + '" aria-label="Reorder ' + escapeHtml(report.name) + '" aria-pressed="false"><i class="fa fa-grip-vertical" aria-hidden="true"></i></button>' +
 				'<button type="button" class="cc-report-tab-select" data-target="' + escapeHtml(report.id) + '"><span>' + escapeHtml(report.name) + '</span>' + (report.missing_reference ? ' <i class="fa fa-exclamation-triangle text-warning" title="Referenced trunk/extension no longer exists" aria-hidden="true"></i>' : '') + '</button>' +
-				'<button type="button" class="cc-report-tab-move cc-report-tab-left" data-report-id="' + escapeHtml(report.id) + '" aria-label="Move ' + escapeHtml(report.name) + ' left"><i class="fa fa-chevron-left" aria-hidden="true"></i></button>' +
-				'<button type="button" class="cc-report-tab-move cc-report-tab-right" data-report-id="' + escapeHtml(report.id) + '" aria-label="Move ' + escapeHtml(report.name) + ' right"><i class="fa fa-chevron-right" aria-hidden="true"></i></button>' +
 				'<button type="button" class="cc-report-tab-close" data-report-id="' + escapeHtml(report.id) + '" aria-label="' + escapeHtml('Close ' + report.name) + '"><i class="fa fa-times" aria-hidden="true"></i></button>' +
 				'</div>';
 		}).join('');
@@ -2319,22 +2336,42 @@ window._ccLoaded = true;
 			ajax({command: 'resetallidentityclassifications'}).done(function (response) { if (response.status) { renderIdentityClassifications([]); invalidateAndRerunReports(); } });
 		});
 		$('#cc-workspace-tabs').off('click.ccTabs', '.cc-workspace-tab[data-target]').on('click.ccTabs', '.cc-workspace-tab[data-target]', function (e) {
-			if ($(e.target).closest('.cc-report-tab-close').length) return;
+			if ($(e.target).closest('.cc-report-tab-close, .cc-report-tab-handle').length) return;
 			if ($(this).attr('aria-disabled') === 'true' || workspaceLockReportId && String($(this).data('target')) !== String(workspaceLockReportId)) { e.preventDefault(); return; }
 			selectTopTab($(this).data('target'));
 		}).off('click.ccTabsClose', '.cc-report-tab-close').on('click.ccTabsClose', '.cc-report-tab-close', function (e) {
 			e.stopPropagation();
 			if (workspaceLockReportId) return;
 			closeReportTab($(this).data('report-id'));
-		}).off('click.ccTabsMove', '.cc-report-tab-left, .cc-report-tab-right').on('click.ccTabsMove', '.cc-report-tab-left, .cc-report-tab-right', function (e) {
-			e.stopPropagation(); moveHistoricalReport($(this).data('report-id'), $(this).hasClass('cc-report-tab-left') ? -1 : 1);
-		}).off('dragstart.ccTabs', '.cc-report-tab-top').on('dragstart.ccTabs', '.cc-report-tab-top', function (e) {
-			e.originalEvent.dataTransfer.setData('text/plain', String($(this).data('target')));
+		}).off('dragstart.ccTabs', '.cc-report-tab-handle').on('dragstart.ccTabs', '.cc-report-tab-handle', function (e) {
+			var id = String($(this).data('report-id')); e.stopPropagation();
+			e.originalEvent.dataTransfer.setData('text/plain', id); e.originalEvent.dataTransfer.effectAllowed = 'move';
+			$(this).closest('.cc-report-tab-top').addClass('cc-report-tab-dragging');
 		}).off('dragover.ccTabs', '.cc-report-tab-top').on('dragover.ccTabs', '.cc-report-tab-top', function (e) { e.preventDefault();
+			var rect = this.getBoundingClientRect(), before = e.originalEvent.clientX < rect.left + rect.width / 2;
+			$('#cc-workspace-tabs .cc-report-tab-top').removeClass('cc-report-drop-before cc-report-drop-after');
+			$(this).addClass(before ? 'cc-report-drop-before' : 'cc-report-drop-after');
 		}).off('drop.ccTabs', '.cc-report-tab-top').on('drop.ccTabs', '.cc-report-tab-top', function (e) {
 			e.preventDefault(); var moved = e.originalEvent.dataTransfer.getData('text/plain'), target = String($(this).data('target'));
-			var from = historicalReportOrder.indexOf(moved), to = historicalReportOrder.indexOf(target); if (from < 0 || to < 0 || from === to) return;
-			historicalReportOrder.splice(from, 1); historicalReportOrder.splice(to, 0, moved); renderTopReportTabs(); persistHistoricalReportOrder();
+			var rect = this.getBoundingClientRect(), after = e.originalEvent.clientX >= rect.left + rect.width / 2;
+			var reordered = window.CCHistoricalReportOrder.drop(historicalReportOrder, moved, target, after); if (reordered.join('|') === historicalReportOrder.join('|')) return;
+			historicalReportOrder = reordered;
+			renderTopReportTabs(); persistHistoricalReportOrder();
+		}).off('dragend.ccTabs', '.cc-report-tab-handle').on('dragend.ccTabs', '.cc-report-tab-handle', function () {
+			$('#cc-workspace-tabs .cc-report-tab-top').removeClass('cc-report-tab-dragging cc-report-drop-before cc-report-drop-after');
+		}).off('keydown.ccTabsHandle', '.cc-report-tab-handle').on('keydown.ccTabsHandle', '.cc-report-tab-handle', function (e) {
+			var handle = $(this), id = String(handle.data('report-id'));
+			if (e.key === ' ' || e.key === 'Enter') {
+				e.preventDefault();
+				if (grabbedHistoricalReport === id) { grabbedHistoricalReport = null; grabbedHistoricalSnapshot = null; handle.attr('aria-pressed','false'); persistHistoricalReportOrder(); }
+				else { grabbedHistoricalReport = id; grabbedHistoricalSnapshot = historicalReportOrder.slice(); handle.attr('aria-pressed','true'); }
+			} else if (e.key === 'Escape' && grabbedHistoricalReport === id) {
+				e.preventDefault(); historicalReportOrder = grabbedHistoricalSnapshot.slice(); grabbedHistoricalReport = null; grabbedHistoricalSnapshot = null; renderTopReportTabs();
+				$('#cc-workspace-tabs .cc-report-tab-handle[data-report-id="' + id + '"]').trigger('focus');
+			} else if (grabbedHistoricalReport === id && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+				e.preventDefault(); moveHistoricalReport(id, e.key === 'ArrowLeft' ? -1 : 1, false);
+				grabbedHistoricalReport = id; $('#cc-workspace-tabs .cc-report-tab-handle[data-report-id="' + id + '"]').attr('aria-pressed','true').trigger('focus');
+			}
 		});
 		$(document).off('cc:historical-graph-loaded').on('cc:historical-graph-loaded', function (event, series) {
 			if (historicalGraphTargetReportId && historicalReports[historicalGraphTargetReportId]) {

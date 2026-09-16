@@ -84,10 +84,19 @@ rendered.setSeries([{name:'Zero', label:'Zero', points:[{ts:yearStart + 100, val
 const zeroPoint = rendered.chart.series[0].visible[0];
 const zeroEvent = {clientX:100 + ((zeroPoint.x / rendered.chart.width) * 800), clientY:20 + ((zeroPoint.y / rendered.chart.height) * (rendered.chart.height / 2))};
 assert(rendered.candidate(zeroEvent) === null, 'A rendered zero-value point never returns a hit candidate');
+rendered.setSeries([specs[0]], {minTs:yearStart,maxTs:yearEnd}, {title:'Gap'});
+const gapX=(rendered.chart.series[0].runs[0].displayEndX+rendered.chart.series[0].runs[1].displayStartX)/2;
+const gapY=rendered.chart.series[0].visible[0].y;
+const gapEvent={clientX:100+((gapX/rendered.chart.width)*800),clientY:20+((gapY/rendered.chart.height)*(rendered.chart.height/2))};
+assert(rendered.candidate(gapEvent)===null,'A null-bounded gap has no invisible timestamp hit region');
+rendered.setSeries([{name:'Under',label:'Under',points:[{ts:yearStart+100,value:4},{ts:yearStart+200,value:null}],exactPeak:4},{name:'Top',label:'Top',points:[{ts:yearStart+100,value:4},{ts:yearStart+200,value:null}],exactPeak:4}],{minTs:yearStart,maxTs:yearEnd},{title:'Overlap'});
+const topMark=rendered.chart.series[1].visible[0];
+const overlapEvent={clientX:100+((topMark.x/rendered.chart.width)*800),clientY:20+((topMark.y/rendered.chart.height)*(rendered.chart.height/2))};
+assert(rendered.candidate(overlapEvent).seriesName==='Top','Overlapping rendered marks resolve to the topmost rendered series');
 rendered.setSeries([specs[0]], {minTs: yearStart, maxTs: yearEnd}, {title: 'Report', subtitle: 'One series'});
-assert(image.src === 'blob:image-3' && revoked[0] === 'blob:image-1', 'Selection redraw revokes superseded image URLs');
+assert(image.src === 'blob:image-5' && revoked[0] === 'blob:image-1', 'Selection redraw revokes superseded image URLs');
 rendered.destroy();
-assert(revoked[2] === 'blob:image-3' && image.src === '', 'Destroy clears the finished image and revokes its URL');
+assert(revoked[4] === 'blob:image-5' && image.src === '', 'Destroy clears the finished image and revokes its URL');
 
 const source = require('fs').readFileSync(require('path').join(__dirname, '../assets/js/historical-svg-chart.js'), 'utf8');
 assert(source.indexOf('getBoundingClientRect') > source.indexOf('pointerCoordinates') && source.indexOf('ResizeObserver') === -1 && source.indexOf('requestAnimationFrame') === -1 && source.indexOf('devicePixelRatio') === -1, 'Generation has no DOM width, resize, RAF or DPR dependency');

@@ -47,10 +47,15 @@
 	};
 	root.CCLiveWallPresentation = {
 		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
-		layout: function (viewportHeight, fullscreen) {
+		layout: function (viewportHeight, fullscreen, overrides) {
 			var height = Math.max(0, Number(viewportHeight) || 0);
 			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
-			return {inset: inset, height: Math.max(0, height - (inset * 2)), density: Math.max(0.68, Math.min(1, height / 900))};
+			var available = Math.max(0, height - (inset * 2)), density = Math.max(0.58, Math.min(1, available / 850));
+			var dimensions = {wallPadding:40,header:56,headerMargin:12,overallPadding:36,overallContent:210,overallMargin:10,noteHeight:20,noteMargin:8,cardPadding:30,cardText:104,cardCanvas:125,rowGap:0};
+			Object.keys(overrides || {}).forEach(function (name) { if (Object.prototype.hasOwnProperty.call(dimensions, name)) dimensions[name] = Math.max(0, Number(overrides[name]) || 0); });
+			var components = {}, required = 0;
+			Object.keys(dimensions).forEach(function (name) { components[name] = dimensions[name] * density; required += components[name]; });
+			return {inset:inset,height:available,density:density,composition:{components:components,requiredHeight:required,availableHeight:available,fits:required<=available}};
 		}
 	};
 

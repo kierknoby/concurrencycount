@@ -1,4 +1,4 @@
-# Concurrency Count 2.2.1 for FreePBX/PBXact 16 and 17
+# Concurrency Count 2.2.1 — NOT CURRENTLY SUITABLE FOR PRODUCTION
 
 **`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 16 SEPTEMBER 2026.**
 
@@ -47,7 +47,7 @@ Concurrency Count does not alter SIP configuration or source CDR records during 
 - Historical graphs now use one deterministic multi-series SVG image with a fixed report-window axis, deterministic colours across the complete series inventory, built-in legend and independently identified thresholds.
 - Series selection is explicit: fresh graphs start with every available series selected, while **Select All**, **Unselect All** and individual series controls change the one shared graph without changing the underlying result.
 - The currently selected graph series can be exported as **SVG, PDF, PNG or JPEG**. Single-series exports retain the series name; large multi-series selections use bounded filenames such as `15-series`.
-- Historical peak detail adds **Exclude All** for every eligible logical call contributing to the exact displayed peak occurrence and **Restore Group** for the remaining members of that grouped exclusion, while retaining individual Restore and global Restore All.
+- Historical peak detail adds **Exclude All** for every eligible logical call contributing to the exact displayed peak occurrence and **Restore All** for the remaining members of that grouped exclusion, while retaining individual Restore and global **Reset**.
 
 **Demo**
 
@@ -213,7 +213,7 @@ This changes Git's trust configuration only; it does not change module directory
 
 Live values come from the current Asterisk channel snapshot. Historical values are reconstructed from completed CDRs. For an included Historical CDR, the occupied interval runs from `calldate` through `calldate + duration`, including both boundary seconds. A CDR ending at exactly the second another begins overlaps with it at that timestamp.
 
-Historical reporting includes only CDRs with an `ANSWERED` disposition whose start time is inside the selected range. A call already in progress when the range begins is not included. An included CDR uses its full recorded `duration`, not `billsec`; setup, ringing or queue time within an ultimately answered CDR can therefore contribute. This is not a claim about billable time or connected speech.
+Historical reporting includes only CDRs with an `ANSWERED` disposition, a `duration` greater than zero, and a start time inside the selected range. A call already in progress when the range begins is not included. An included CDR uses its full recorded `duration`, not `billsec`; setup, ringing or queue time within an ultimately answered CDR can therefore contribute. Zero-duration source rows remain untouched and available to native CDR Reports, but represent no occupied interval in Concurrency Count. This is not a claim about billable time or connected speech.
 
 Historical presentation follows this rule:
 
@@ -368,7 +368,7 @@ The `calculationtelemetry`, `calculationheartbeat` and `cancelcalculation` modul
 
 ### Historic Report tabs and persistence
 
-The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse. Saved report tabs can be drag-reordered, or moved with their accessible left/right controls; Historical Reports remains anchored first and presentation order persists without changing report identity or active state.
+The Historical Reports workspace supports at most five open Historic Report tabs. **Start Historical Report** opens configuration without consuming a slot. A slot is allocated only after a validated **Run report** submission; a failed first calculation removes its unused definition. Stable internal IDs and slots are independent of editable names, and closing a tab frees its slot for reuse. Saved report tabs are reordered only from their dedicated grip handle; keyboard users can focus the handle, press Space or Enter to grab, use Left/Right to move, then press Space or Enter to drop (or Escape to cancel). Historical Reports remains anchored first, saves are serialized so the last visible order wins, and presentation order persists without changing report identity or active state.
 
 For a completed report, **Edit Report** reopens the same configuration with the submitted criteria. Cancelling leaves the displayed result unchanged; **Run Again** replaces it only after the revised calculation completes successfully. The completed result records the global Excluded Calls configuration used, and a rerun stops clearly if that configuration changed outside the normal invalidate-and-regenerate workflow.
 
@@ -388,7 +388,7 @@ Relative presets remain relative: **Last 7 days** is re-resolved against the cur
 
 Endpoint filtering is part of the shared Historical calculation, not a browser-only display filter. A filtered Trunk report calculates only the selected authoritative trunk, and a filtered Extension report calculates only the selected authoritative extension. An empty filter calculates all eligible endpoints for that mode. Group does not support endpoint filtering and does not retain an endpoint filter. If a saved endpoint is no longer authoritative for its report mode, the report remains visibly missing/unresolved and returns no endpoint result rather than silently falling back to all endpoints.
 
-The same validated mode, engine, resolved range, endpoint filter, exclusions and endpoint classifications are used where applicable by initial GUI calculation, persisted regeneration, CSV, email, Historical graph, peak occurrence/detail and Excluded Calls relevance.
+The same validated mode, engine, resolved range, endpoint filter, exclusions and endpoint classifications are used where applicable by initial GUI calculation, persisted regeneration, CSV, email, Historical graph, peak occurrence/detail and Excluded Calls relevance. Historical occupancy includes only `ANSWERED` CDRs whose duration is greater than zero; a zero-duration CDR remains untouched and visible in native FreePBX CDR Reports but cannot increase Trunk, Extension or Group concurrency or appear as peak evidence.
 
 Not persisted:
 
@@ -423,8 +423,8 @@ Results can be viewed inline, downloaded as CSV or emailed with a CSV attachment
 - **Exclude Call** excludes one safely identified logical call and is available only where a safe logical-call identity exists.
 - **Exclude All** excludes every eligible logical call contributing to the exact displayed peak occurrence and records those exclusions as one group.
 - **Restore** reverses one exclusion; restoring one member of a bulk peak group does not restore the others.
-- **Restore Group** restores every still-excluded member of that peak group without affecting unrelated exclusions.
-- **Restore All** reverses all exclusions globally.
+- **Restore All** restores every still-excluded member of that peak group without affecting unrelated exclusions.
+- **Reset** reverses all exclusions globally.
 - Demo calls cannot be persistently excluded.
 - A defensive maximum of 5,000 valid exclusions is retained.
 
@@ -609,8 +609,8 @@ This is a pre-production checklist, not a claim that these checks have been comp
 - Peak 0, peak 1 Activity only and peak 2+ concurrency in all three modes.
 - Activity-only Trunk occurrences, lazy detail, CDR Reports and Exclude Call.
 - Exclude one call and Restore it, including multiple rows sharing one `linkedid` and an independent similar call.
-- On a displayed Trunk peak, use **Exclude All**, confirm every eligible contributing logical call is grouped and the report regenerates, restore one member individually, then use **Restore Group** and confirm only the remaining members of that group return.
-- Confirm stale Exclude All state is rejected if the global exclusion configuration changes before submission, and **Restore All** retains its global meaning.
+- On a displayed Trunk peak, use **Exclude All**, confirm every eligible contributing logical call is grouped and the report regenerates, restore one member individually, then use the grouped **Restore All** action and confirm only the remaining members of that group return.
+- Confirm stale Exclude All state is rejected if the global exclusion configuration changes before submission, and **Reset** retains its global meaning.
 - Source CDR removal after exclusion, retaining summary with relevance unavailable.
 - Multiple Historic Report tabs, stable names/IDs, relative and Custom restoration, and lazy regeneration.
 - Exclusion/classification changes causing recalculation and the expected presentation transition.
