@@ -68,7 +68,7 @@ admin_contract_assert(strpos($class, 'accepted by the local mailer') !== false, 
 admin_contract_assert(strpos($view, 'data-csrf-token=') !== false && strpos($view, 'name="token"') !== false, 'View must expose the CSRF token');
 admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download, and fixture preview must send CSRF tokens');
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');
-admin_contract_assert(strpos($view, 'Demo writes to CDR.') !== false, 'Demo warning missing');
+admin_contract_assert(strpos($view, 'Demo requires MariaDB.') !== false && strpos($view, 'temporary synthetic calls') !== false, 'Demo safety disclaimer missing');
 admin_contract_assert(strpos($view, 'cc-download') !== false && strpos($view, 'cc-email-send') !== false, 'Download/email controls missing');
 admin_contract_assert(substr_count($view, "_('Minimum concurrency')") === 2, 'Historical and Demo minimum concurrency labels missing');
 admin_contract_assert(strpos($view, 'id="cc-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2"') !== false && strpos($view, 'Leave blank to show all details') === false, 'Historical Minimum concurrency must visibly default to and enforce 2 without obsolete blank-floor wording');
@@ -459,7 +459,19 @@ admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancell
 admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
 admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.2.1', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.2.2', 'Admin contract version mismatch');
+
+/* Demo deliberate-use gate must remain a local UI acknowledgement, separate from preflight. */
+admin_contract_assert(strpos($view, 'id="cc-demo-page-1"') !== false && strpos($view, 'Page 1 of 2') !== false && strpos($view, 'id="cc-demo-page-2"') !== false && strpos($view, 'Page 2 of 2') !== false, 'Demo must expose both numbered pages');
+admin_contract_assert(strpos($view, 'id="cc-demo-acknowledge"') !== false && strpos($view, 'for="cc-demo-acknowledge"') !== false && strpos($view, 'id="cc-demo-proceed" disabled') !== false, 'Demo acknowledgement must use an associated unchecked checkbox and disabled Proceed control');
+$demoGateStart = strpos($javascript, 'function resetDemoGate()');
+$demoGateEnd = strpos($javascript, 'function showDemoPrompt()', $demoGateStart);
+$demoGate = substr($javascript, $demoGateStart, $demoGateEnd - $demoGateStart);
+admin_contract_assert($demoGateStart !== false && strpos($demoGate, "demoAcknowledged = false") !== false && strpos($demoGate, "prop('checked', false)") !== false && strpos($demoGate, "prop('disabled', true)") !== false, 'Demo gate must reset acknowledgement and Proceed on open/close');
+admin_contract_assert(strpos($javascript, "if (!demoAcknowledged) return;") !== false && strpos($javascript, 'showDemoPage(2);') !== false && strpos($javascript, "$('#cc-demo-proceed').prop('disabled', !demoAcknowledged)") !== false, 'Demo Proceed must require acknowledgement and only change page');
+admin_contract_assert(strpos($javascript, "$('#cc-demo').off('hidden.bs.modal').on('hidden.bs.modal', resetDemoGate)") !== false && strpos($javascript, "$('#cc-demo-acknowledge').off('change').on('change'") !== false, 'Demo close and checkbox lifecycle must be locally reset');
+admin_contract_assert(strpos($javascript, "$('.cc-demo-run-mode').prop('disabled', false)") !== false && strpos($javascript, "$('.cc-demo-run-mode').prop('hidden', demoPage !== 2)") !== false, 'Demo acknowledgement must not replace technical Run preflight gating');
+admin_contract_assert(strpos($javascript, "command: 'demopreflight'") !== false && strpos($javascript, "executeRun('demo'") !== false, 'Existing Demo preflight and run paths must remain present');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');

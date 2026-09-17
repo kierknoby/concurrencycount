@@ -48,6 +48,8 @@ window._ccLoaded = true;
 	var demoSeed = 0;
 	var demoPlan = null;
 	var demoSelectedLoad = 'medium';
+	var demoPage = 1;
+	var demoAcknowledged = false;
 	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
 	var demoPreflightTimer = null;
 	var demoPreflightGuard = window.CCDemoScenario.preflightGuard();
@@ -193,7 +195,29 @@ window._ccLoaded = true;
 		$('#cc-wizard').modal('hide');
 	}
 
+	function resetDemoGate() {
+		demoPage = 1;
+		demoAcknowledged = false;
+		$('#cc-demo-acknowledge').prop('checked', false);
+		$('#cc-demo-proceed').prop('disabled', true);
+		$('#cc-demo-page-1').prop('hidden', false).attr('aria-hidden', 'false');
+		$('#cc-demo-page-2').prop('hidden', true).attr('aria-hidden', 'true');
+		$('#cc-demo-back').prop('hidden', true);
+		$('#cc-demo-proceed').prop('hidden', false);
+		$('.cc-demo-run-mode').prop('hidden', true);
+	}
+
+	function showDemoPage(page) {
+		demoPage = page === 2 ? 2 : 1;
+		$('#cc-demo-page-1').prop('hidden', demoPage !== 1).attr('aria-hidden', demoPage === 1 ? 'false' : 'true');
+		$('#cc-demo-page-2').prop('hidden', demoPage !== 2).attr('aria-hidden', demoPage === 2 ? 'false' : 'true');
+		$('#cc-demo-back').prop('hidden', demoPage !== 2);
+		$('#cc-demo-proceed').prop('hidden', demoPage !== 1);
+		$('.cc-demo-run-mode').prop('hidden', demoPage !== 2);
+	}
+
 	function showDemoPrompt() {
+		resetDemoGate();
 		$('#cc-results').hide();
 		setStatus('', null);
 		$('#cc-demo-error').hide().text('');
@@ -2360,6 +2384,18 @@ window._ccLoaded = true;
 		$('#cc-launch').off('click').on('click', openNewReportWizard);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-demo').off('hidden.bs.modal').on('hidden.bs.modal', resetDemoGate);
+		$('#cc-demo-acknowledge').off('change').on('change', function () {
+			demoAcknowledged = $(this).is(':checked');
+			$('#cc-demo-proceed').prop('disabled', !demoAcknowledged);
+		});
+		$('#cc-demo-proceed').off('click').on('click', function () {
+			if (!demoAcknowledged) return;
+			showDemoPage(2);
+		});
+		$('#cc-demo-back').off('click').on('click', function () {
+			showDemoPage(1);
+		});
 		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
 		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
 		$('#cc-edit-report').off('click').on('click', openEditReport);

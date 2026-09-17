@@ -2,7 +2,7 @@
 /**
  * Concurrency Count for FreePBX/PBXact 16 and 17
  *
- * Live and historical PJSIP concurrency module - NOT CURRENTLY SUITABLE FOR PRODUCTION.
+ * Live and historical PJSIP concurrency module.
  * GUI and CLI share the same validated reporting and identity services.
  *
  * @copyright 2026 20 Telecom Ltd (trading as 20tele.com)
@@ -51,7 +51,7 @@ class Concurrencycount implements \BMO {
 	const DEMO_CLEANUP_MAX_RUNTIME = 300;
 	const DEMO_CLEANUP_PHP_MARGIN = 30;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.2.1';
+	const VERSION = '2.2.2';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'testalertemail', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'reorderhistoricalreports', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
@@ -3118,7 +3118,7 @@ class Concurrencycount implements \BMO {
 
 	public function resultsToCsv(array $r): string {
 		$rows = [];
-		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION'];
+		$rows[] = ['Concurrency Count ' . $this->getVersion()];
 		$rows[] = ['Mode', ucfirst($r['mode'])];
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
@@ -3407,7 +3407,7 @@ class Concurrencycount implements \BMO {
 	private function buildEmailBody(array $r): string {
 		$lines = [];
 		$lines[] = 'Concurrency Count report from ' . $this->getSystemIdentifier();
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion();
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
 		$lines[] = 'From:           ' . $r['start'];
@@ -3497,7 +3497,7 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion();
 		return implode("\n", $lines);
 	}
 

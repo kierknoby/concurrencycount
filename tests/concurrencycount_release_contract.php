@@ -12,20 +12,21 @@ function contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
 
-contract_assert((string)$module->version === '2.2.1', 'Unexpected module version');
+contract_assert((string)$module->version === '2.2.2', 'Unexpected module version');
+contract_assert(strpos((string)$module->changelog, '*2.2.2 (18 September 2026)*') !== false, '2.2.2 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.1 (17 September 2026)*') !== false, '2.2.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.0 (15 September 2026)*') !== false, '2.2.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.1.1 (28 August 2026)*') !== false, '2.1.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.1.0 (27 August 2026)*') !== false, '2.1.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.0.1 (27 August 2026)*') !== false, '2.0.1 release history missing');
 $mainClass = file_get_contents($root . '/Concurrencycount.class.php');
-contract_assert(strpos($mainClass, "const VERSION = '2.2.1';") !== false, 'Fallback PHP version mismatch');
+contract_assert(strpos($mainClass, "const VERSION = '2.2.2';") !== false, 'Fallback PHP version mismatch');
 $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');
 contract_assert((string)$module->depends->version === '16.0', 'FreePBX minimum version must be 16.0');
 $description = (string)$module->description;
-foreach (['Live View', 'Live Wall', 'threshold monitoring', 'historical trunk, extension and PBX-wide group reporting', 'GUI/CLI management', 'NOT CURRENTLY SUITABLE FOR PRODUCTION'] as $descriptionConcept) {
+foreach (['Live View', 'Live Wall', 'threshold monitoring', 'historical trunk, extension and PBX-wide group reporting', 'GUI/CLI management'] as $descriptionConcept) {
 	contract_assert(strpos($description, $descriptionConcept) !== false, 'Install-facing description missing: ' . $descriptionConcept);
 }
 contract_assert(strpos($description, 'Read-only against asteriskcdrdb') === false, 'Install-facing description must not hide Demo CDR writes behind a blanket read-only claim');
@@ -86,7 +87,11 @@ foreach ($runtimeFiles as $file) {
 }
 
 $readme = file_get_contents($root . '/README.md');
-contract_assert(strpos($readme, "# Concurrency Count 2.2.1") === 0, 'README release heading mismatch');
+contract_assert(strpos($readme, "# Concurrency Count 2.2.2") === 0, 'README release heading mismatch');
+contract_assert(strpos($readme, 'The Demo acknowledgement gate is a client-side deliberate-use control, not a separate FreePBX permission or authorization boundary.') !== false, 'README Demo authorization-boundary explanation missing');
+contract_assert(strpos($readme, 'administrator/test-PBX feature') === false, 'README must not describe Demo as test-PBX-only');
+contract_assert(strpos($readme, 'missing permission/feature gate remains a known limitation') === false, 'README must not retain the obsolete Demo permission limitation');
+contract_assert(strpos($readme, 'pre-production checklist') === false, 'README must not retain the obsolete pre-production checklist wording');
 contract_assert(strpos($readme, 'FreePBX 16 or 17') !== false, 'README compatibility claim missing');
 contract_assert(strpos($readme, 'FreePBX/PBXact ' . '17 only') === false, 'README still excludes FreePBX 16');
 echo "Release compatibility contract passed\n";

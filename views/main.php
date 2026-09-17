@@ -48,7 +48,7 @@ $_ccAssetVer = max(
 		<div class="col-sm-12">
 			<h1>
 				<?php echo _('Concurrency Count'); ?>
-				<small class="text-muted" style="font-size:0.5em;"><?php echo htmlspecialchars($moduleVersion, ENT_QUOTES, 'UTF-8'); ?> &mdash; <?php echo _('NOT CURRENTLY SUITABLE FOR PRODUCTION'); ?></small>
+				<small class="text-muted" style="font-size:0.5em;"><?php echo htmlspecialchars($moduleVersion, ENT_QUOTES, 'UTF-8'); ?></small>
 			</h1>
 
 			<div class="row">
@@ -276,13 +276,28 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-demo-title"><?php echo _('Concurrency Count Demo'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
-				<div class="alert alert-warning">
-					<strong><?php echo _('Demo writes to CDR.'); ?></strong>
-					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and use a randomly selected one-day period between January 2001 and November 2016. Cleanup is verified after the run, but remains best-effort if the server or database dies mid-run.'); ?>
-				</div>
-				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
-				<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
+				<section id="cc-demo-page-1" class="cc-demo-page" aria-labelledby="cc-demo-page-1-title">
+					<p class="text-muted"><?php echo _('Page 1 of 2'); ?></p>
+					<h4 id="cc-demo-page-1-title"><?php echo _('Before you run Demo'); ?></h4>
+					<p><?php echo _('Demo writes temporary synthetic calls to your CDR database so Concurrency Count can run against realistic call data.'); ?></p>
+					<p><?php echo _('The records are tagged, excluded from ordinary Historical reports and removed automatically when the Demo finishes.'); ?></p>
+					<p><?php echo _('For the safest run:'); ?></p>
+					<ul>
+						<li><?php echo _('Run Demo during a quiet period.'); ?></li>
+						<li><?php echo _('Leave this page open until calculation and cleanup have completed.'); ?></li>
+						<li><?php echo _('Avoid module upgrades, database maintenance or restarting the PBX while Demo is running.'); ?></li>
+					</ul>
+					<p><?php echo _('If a run is interrupted unexpectedly, Concurrency Count will attempt to recover and remove any remaining Demo records automatically.'); ?></p>
+					<p><?php echo _('Demo requires MariaDB. Oracle MySQL is not supported for Demo because it cannot provide the bounded cleanup guarantee required by the module.'); ?></p>
+					<div class="checkbox">
+						<label for="cc-demo-acknowledge"><input type="checkbox" id="cc-demo-acknowledge"> <?php echo _('I understand that Demo temporarily writes synthetic records to the CDR database.'); ?></label>
+					</div>
+				</section>
+				<section id="cc-demo-page-2" class="cc-demo-page" aria-labelledby="cc-demo-page-2-title" hidden>
+					<p class="text-muted"><?php echo _('Page 2 of 2'); ?></p>
+					<h4 id="cc-demo-page-2-title"><?php echo _('Demo controls'); ?></h4>
+					<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
+					<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
 					<select id="cc-demo-load" class="form-control" style="width:auto;min-width:140px;">
 	<option value="light"><?php echo _('Light'); ?></option>
 	<option value="medium" selected><?php echo _('Medium'); ?></option>
@@ -319,16 +334,19 @@ $_ccAssetVer = max(
 					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
 					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2.'); ?></span>
 				</div>
+				</section>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
-				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk">
+				<button type="button" class="btn btn-default" id="cc-demo-back" hidden><?php echo _('Back'); ?></button>
+				<button type="button" class="btn btn-primary" id="cc-demo-proceed" disabled><?php echo _('Proceed'); ?></button>
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Trunks'); ?>
 				</button>
-				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="extension">
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="extension" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Extensions'); ?>
 				</button>
-				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group">
+				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Group'); ?>
 				</button>
 			</div>

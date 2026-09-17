@@ -4,7 +4,7 @@ require_once dirname(__DIR__) . '/Concurrencycount.class.php';
 
 class CsvFormulaSafetyConcurrencycount extends \FreePBX\modules\Concurrencycount {
 	public function __construct() {}
-	public function getVersion(): string { return '2.2.1'; }
+	public function getVersion(): string { return '2.2.2'; }
 }
 function csv_safety_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
 
