@@ -53,6 +53,6 @@ class HistoricalAssessment {
 			'phase_items_processed' => $processed, 'phase_items_total' => $total > 0 ? $total : null];
 	}
 	public function summary(float $now): array {
-		return $this->result + $this->peaks + ['calculation_seconds' => max(0, $now - $this->started), 'query_total_seconds' => $this->queryTotal];
+		return $this->impact->complete($now) + $this->peaks + ['calculation_seconds' => max(0, $now - $this->started), 'query_total_seconds' => $this->queryTotal];
 	}
 }

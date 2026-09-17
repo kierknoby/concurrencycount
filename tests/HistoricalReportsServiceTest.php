@@ -35,6 +35,12 @@ hr_assert(2 === $second['number'], 'Second report allocates number 2');
 hr_assert('Historic Report 2' === $second['name'], 'Second report named Historic Report 2');
 hr_assert($first['id'] !== $second['id'], 'Stable internal IDs do not collide');
 hr_assert($stored['active_id'] === $second['id'], 'Newly created report becomes active');
+$activeBeforeReorder = $stored['active_id'];
+$stored = $service->reorder($stored, [$second['id'], $first['id']]);
+hr_assert(array_column($service->listReports($stored), 'id') === [$second['id'], $first['id']], 'Explicit presentation order is retained independently of stable slot numbers');
+hr_assert($stored['active_id'] === $activeBeforeReorder && $stored['reports'][$first['id']]['number'] === 1, 'Reordering preserves active report, stable identity and slot');
+$reconciledOrder = $service->reconcileStored($stored);
+hr_assert(array_column($service->listReports($reconciledOrder), 'id') === [$second['id'], $first['id']], 'Persisted report order survives reconciliation and reload');
 
 /* Independent definitions: report 1 mode/range must not be altered by report 2's creation */
 hr_assert('trunk' === $stored['reports'][$first['id']]['mode'], 'Report 1 mode unaffected by report 2 creation');
@@ -58,6 +64,7 @@ hr_assert(5 === count($stored['reports']), 'Rejected sixth attempt does not muta
 
 /* Closing removes only the selected report and safely frees its number */
 $stored = $service->closeReport($stored, $second['id']);
+hr_assert(!in_array($second['id'], $stored['order'], true), 'Closing a report removes only its ordering entry');
 hr_assert(4 === count($stored['reports']), 'Close removes only the selected report');
 hr_assert(!isset($stored['reports'][$second['id']]), 'Closed report id is gone');
 hr_assert(isset($stored['reports'][$first['id']]), 'Closing report 2 does not affect report 1');

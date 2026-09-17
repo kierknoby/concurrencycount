@@ -8,6 +8,7 @@ $root = dirname(__DIR__);
 $class = file_get_contents($root . '/Concurrencycount.class.php');
 $view = file_get_contents($root . '/views/main.php');
 $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
+$demoScenarioJavascript = file_get_contents($root . '/assets/js/demo-scenario.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
 $chartJavascript = file_get_contents($root . '/assets/js/concurrency-charts.js');
@@ -35,6 +36,11 @@ $module = simplexml_load_file($root . '/module.xml');
 function admin_contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
+
+$orderHelperTag = strpos($view, 'assets/js/cc-historical-report-order.js?v=<?php echo $_ccAssetVer; ?>');
+$mainScriptTag = strpos($view, 'assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>');
+admin_contract_assert($orderHelperTag !== false && $mainScriptTag !== false && $orderHelperTag < $mainScriptTag, 'Historical report order helper must load before concurrencycount.js');
+admin_contract_assert(strpos($view, "filemtime(__DIR__ . '/../assets/js/cc-historical-report-order.js')") !== false, 'Historical report order helper mtime must participate in browser cache busting');
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
 foreach (['wizardstep', 'run', 'demopreflight', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'] as $command) {
@@ -100,7 +106,10 @@ admin_contract_assert(strpos($liveJavascript, 'historicalSelectedSeries') !== fa
 admin_contract_assert(strpos($historicalSvgJavascript, '<?xml version=') !== false && strpos($historicalSvgJavascript, '<style>') !== false && strpos($historicalExportJavascript, 'function svgDocument(generatedDocument)') !== false, 'SVG export must pass through the self-contained generated graph document');
 admin_contract_assert(strpos($historicalExportJavascript, "document.createElement('canvas')") !== false && strpos($historicalExportJavascript, 'widthMatch ? Number(widthMatch[1]) : EXPORT_WIDTH') !== false && strpos($historicalExportJavascript, '* 2') !== false && strpos($historicalExportJavascript, "format === 'jpeg' ? 'image/jpeg' : 'image/png'") !== false, 'PNG and JPEG must rasterise the complete generated SVG only inside the export path at two-times resolution');
 admin_contract_assert(strpos($liveJavascript, 'aria-label="Select all Historical graph series"') !== false && strpos($liveJavascript, 'aria-label="Unselect all Historical graph series"') !== false && strpos($liveJavascript, 'aria-pressed="false"') !== false, 'Historical series selection must expose accessible multi-select and bulk controls');
-admin_contract_assert(strpos($liveJavascript, ".removeClass('btn-primary active').addClass(buttonState.bulkClass).removeAttr('aria-pressed')") !== false && strpos($historicalSvgJavascript, "bulkClass: 'btn-default', bulkAriaPressed: null") !== false, 'Select All and Unselect All must remain white command buttons without persistent toggle semantics');
+admin_contract_assert(strpos($liveJavascript, 'buttonState.selectAllActive') !== false && strpos($liveJavascript, 'buttonState.unselectAllActive') !== false && strpos($historicalSvgJavascript, 'selectAllActive: all, unselectAllActive: none') !== false, 'Select All and Unselect All must reflect all, none and partial aggregate selection state');
+admin_contract_assert(strpos($historicalSvgJavascript, "selectAllClass: all ? 'cc-series-active' : 'cc-series-neutral'") !== false && strpos($historicalSvgJavascript, "unselectAllClass: none ? 'cc-series-active' : 'cc-series-neutral'") !== false && strpos($historicalSvgJavascript, "buttonClass: active ? 'cc-series-active' : 'cc-series-neutral'") !== false, 'All, none and partial states must map to explicit browser-facing active/neutral classes');
+admin_contract_assert(strpos($liveJavascript, "toggleClass('cc-series-active active', buttonState.selectAllActive)") !== false && strpos($liveJavascript, "toggleClass('cc-series-active active', buttonState.unselectAllActive)") !== false && strpos($liveJavascript, "toggleClass('cc-series-active active', state.selected)") !== false, 'Aggregate and individual Historical controls must apply the explicit active class');
+admin_contract_assert(strpos($css, '.cc-historical-series .cc-series-active') !== false && strpos($css, 'background:#176f3b !important') !== false && strpos($css, 'color:#fff !important') !== false && strpos($css, '.cc-historical-series .cc-series-neutral') !== false && strpos($css, 'background:#fff !important') !== false && strpos($css, 'color:#33414d !important') !== false, 'Historical active and neutral classes must explicitly override the FreePBX theme with visibly different presentation');
 admin_contract_assert(strpos($liveJavascript, 'selection.initial(names, historicalSeries.series)') !== false && strpos($historicalSvgJavascript, 'function initialSelection(names) { return names.slice(); }') !== false && strpos($liveJavascript, 'selection.toggle(historicalSelectedSeries') !== false && strpos($liveJavascript, 'selection.all(names)') !== false, 'Fresh Historical results must initially select every series while retaining independent toggle and Select All state');
 admin_contract_assert(strpos($liveJavascript, 'historicalSelectedSeries = []; redrawHistoricalSelection();') !== false && strpos($liveJavascript, "$('#cc-historical-resolution').text('')") !== false && strpos($liveJavascript, "$('#cc-historical-resolution').text('Select one or more series to display.')") === false && strpos($liveJavascript, 'setHistoricalExportAvailable(false)') !== false && substr_count($view, 'Select one or more series to display.') === 1, 'Unselect All must show one dedicated message, clear resolution text and disable export');
 preg_match('/cc-series-select-all.*?on\(\'click\'.*?\n/', $liveJavascript, $selectAllHandler);
@@ -143,7 +152,7 @@ admin_contract_assert(strpos($demoSource, 'if (!$retainSyntheticCalls)') !== fal
 $guiOwnerAssignment = strpos($class, '$this->workerControl = $control; $this->workerId = $calculationId; $this->workerOwner = $owner;');
 $guiOwnerSource = strpos($class, '$owner = $this->guiCalculationOwner();');
 $spoolOwner = strpos($demoSource, 'DemoSyntheticCallCollection($this->workerControl!==null?$this->workerOwner:\'\')');
-$pageOwner = strpos($class, 'DemoSyntheticCallCollection::fetchPage((string)($_REQUEST[\'token\'] ?? \'\'), $this->guiCalculationOwner()');
+$pageOwner = strpos($class, 'DemoSyntheticCallCollection::fetchPage((string)($_REQUEST[\'audit_token\'] ?? \'\'), $this->guiCalculationOwner()');
 admin_contract_assert($guiOwnerSource !== false && $guiOwnerAssignment !== false && $guiOwnerAssignment > $guiOwnerSource && $spoolOwner !== false && $pageOwner !== false, 'GUI Demo spool creation and later paging must use the same authenticated guiCalculationOwner value');
 admin_contract_assert(strpos($demoSource, 'array_slice($rows, $batchOffset, 100)') !== false && strpos($demoSource, 'array_chunk($rows, 100)') === false, 'Heavy Demo insertion must materialise only its current bounded 100-row batch');
 admin_contract_assert(strpos($demoSource, '$inventory = $this->demoEndpointInventory()') !== false && strpos($demoSource, '$extensions = $inventory[\'extensions\']') !== false, 'Demo generation must receive its defined authoritative endpoint inventory');
@@ -174,7 +183,10 @@ foreach (['Trunk Concurrency', 'Extension Concurrency', 'Group Concurrency'] as 
 }
 admin_contract_assert(strpos($view, 'Overall Extension Concurrency') === false, 'Historical Group mode must no longer be labelled Overall Extension Concurrency');
 admin_contract_assert(strpos($liveJavascript, "scopeRow('overall', 'Overall Live Concurrency', settings.overall)") !== false, 'Live threshold settings must label the overall scope as Overall Live Concurrency, not the historical Group label');
-admin_contract_assert(strpos($thresholdService, "'Overall Live Concurrency' : substr") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($thresholdService, "'Scope: Overall Live Concurrency'") !== false, 'Live alert notifications must label the overall scope as Overall Live Concurrency, not the historical Group label');
+admin_contract_assert(strpos($liveJavascript, 'Production: no alert delivery attempted yet.') === false && strpos($liveJavascript, 'Production: last alert accepted for delivery.') === false, 'Live Settings must not show persistent alert-delivery history');
+admin_contract_assert(strpos($liveJavascript, 'function testAlertEmail()') !== false && strpos($liveJavascript, 'Sending test email...') !== false, 'Test email must retain transient send feedback');
+admin_contract_assert(strpos($css, '#cc-alert-email-status:empty { display:none; }') !== false, 'Empty Test email feedback must not consume Live Settings space');
 admin_contract_assert(strpos($liveJavascript, 'Overall Extension Concurrency') === false && strpos($thresholdService, 'Overall Extension Concurrency') === false, 'No Live View reference may use the stale Overall Extension Concurrency wording');
 admin_contract_assert(substr_count($view, 'type="radio" name="cc-wizard-mode"') === 3, 'Reporting modes must use three native radio controls');
 admin_contract_assert(preg_match('/id="cc-mode-trunk"[^>]+value="trunk"[^>]+checked/', $view) === 1, 'Trunk must remain the default GUI mode');
@@ -307,7 +319,7 @@ foreach (['freepbx-trunk', 'freepbx-device', 'manual-override', 'unresolved', 'f
 admin_contract_assert(strpos($class, "SELECT id FROM devices WHERE LOWER(tech) = 'pjsip' AND id <> ''") !== false, 'Authoritative FreePBX PJSIP device query missing');
 admin_contract_assert(strpos($class, 'pjsip show endpoints') === false && strpos($class, "NOT REGEXP '^[19]'") === false, 'Obsolete endpoint/destination heuristics remain in runtime code');
 admin_contract_assert(strpos($view, 'PJSIP Endpoint Classifications') !== false && strpos($javascript, 'invalidateAndRerunReports') !== false, 'Classification management and report cache invalidation are required');
-foreach (['Exclude Call', 'Excluded Calls', 'Restore all excluded calls', 'The original CDR will not be deleted or modified.'] as $wording) admin_contract_assert(strpos($view, $wording) !== false, 'Historical exclusion UI wording missing: ' . $wording);
+foreach (['Exclude Call', 'Excluded Calls', "_('Reset')", 'cc-btn-close-light', 'The original CDR will not be deleted or modified.'] as $wording) admin_contract_assert(strpos($view, $wording) !== false, 'Historical exclusion UI wording missing: ' . $wording);
 admin_contract_assert(strpos($class, 'HISTORICAL_CALL_EXCLUSIONS_KEY') !== false && strpos($class, "GET_LOCK('concurrencycount_historical_call_exclusions'") !== false, 'Global exclusion persistence must be dedicated and race-locked');
 admin_contract_assert(strpos($class, "filterRows(\$rows, \$this->getHistoricalCallExclusions(), function (int \$processed = 0): void { \$this->workerWork = [\$processed, 0, 'cdr-exclusions']; \$this->workerCheckpoint(); })") !== false, 'Candidate CDR rows must be globally exclusion-filtered with measured cooperative checkpoints before classification');
 admin_contract_assert(strpos($exclusionService, "'linkedid:'") !== false && strpos($exclusionService, "'uniqueid:'") !== false, 'Logical call identity must prefer linkedid with uniqueid fallback');
@@ -323,7 +335,7 @@ foreach (['cc-excluded-relevant', 'cc-excluded-not-in-scope', 'cc-excluded-unkno
 admin_contract_assert(strpos($excludedRenderer, "entry.matches_current_report === false ? 'cc-excluded-not-in-scope' : 'cc-excluded-unknown'") !== false, 'Unknown relevance must remain distinct from Not in scope');
 admin_contract_assert(strpos($excludedRenderer, "!hasReportContext ? 'cc-excluded-global'") !== false && strpos($excludedRenderer, "hasReportContext ? '<td class=\"cc-excluded-relevance\">'") !== false, 'Global-list rendering without report context must omit relevance presentation and its column');
 admin_contract_assert(strpos($excludedRenderer, 'cc-restore-excluded"') !== false && strpos($excludedRenderer, "hasReportContext ? '<td class=\"cc-excluded-relevance\">'") < strpos($excludedRenderer, 'cc-restore-excluded"'), 'Individual Restore must remain rendered after the optional relevance cell for every exclusion state');
-admin_contract_assert(strpos($excludedRenderer, 'cc-restore-excluded-group') !== false && strpos($excludedRenderer, 'groupCounts') !== false, 'Grouped peak exclusions must expose one Restore Group action with the remaining-member count');
+admin_contract_assert(strpos($excludedRenderer, 'cc-restore-excluded-group') !== false && strpos($excludedRenderer, 'Restore All') !== false && strpos($excludedRenderer, 'groupCounts') !== false, 'Grouped peak exclusions must expose one Restore All action with the remaining-member count');
 admin_contract_assert(strpos($css, '.cc-excluded-not-in-scope > td:not(:last-child)') !== false && strpos($css, '.cc-excluded-unknown .cc-excluded-relevance') !== false, 'Excluded Calls must mute only Not in scope content while presenting unknown relevance distinctly');
 admin_contract_assert(strpos($class, 'UPDATE cdr') === false, 'Historical exclusions must never update CDR rows');
 admin_contract_assert(strpos($view, 'Monitor live PJSIP concurrency, thresholds and trunk activity, or analyse historical trunk, extension and PBX-wide concurrency from CDR records.') !== false, 'GUI opening description must represent both Live and Historical functionality');
@@ -447,7 +459,7 @@ admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancell
 admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
 admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.2.0', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.2.1', 'Admin contract version mismatch');
 
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
@@ -493,7 +505,7 @@ admin_contract_assert(strpos($css, '.cc-report-tab-select:hover') !== false && s
 admin_contract_assert(strpos($css, 'text-overflow: ellipsis') !== false && strpos($css, 'max-width: 240px') !== false, 'Long report names must be constrained and ellipsized');
 admin_contract_assert(strpos($console, "\$report['name']") !== false, 'CLI list/show/delete surfaces must expose the persisted report name');
 admin_contract_assert(strpos($javascript, 'role="tab"') !== false, 'Report tabs must use tab semantics');
-admin_contract_assert(strpos($javascript, "closest('.cc-report-tab-close')") !== false, 'Clicking the close (x) control must not also trigger tab selection');
+admin_contract_assert(strpos($javascript, "closest('.cc-report-tab-close, .cc-report-tab-handle')") !== false, 'Close and reorder handle must not also trigger tab selection');
 admin_contract_assert(strpos($javascript, 'function selectTopTab') !== false, 'A single top-level tab selection function must own Live/Historical/report-tab switching');
 admin_contract_assert(strpos($javascript, 'CCLiveWorkspace.switchSection') !== false, 'Top-level tab selection must delegate Live/Historical section visibility, not duplicate it');
 admin_contract_assert(strpos($javascript, 'runTargetReportId') !== false && strpos($javascript, 'targetReportId') !== false, 'Report results must be attached to the report instance captured at request time, not read live at response time');
@@ -503,11 +515,47 @@ $landingStart = strpos($view, 'id="cc-report-landing"');
 $activeStart = strpos($view, 'id="cc-report-active"');
 admin_contract_assert($landingStart !== false && $activeStart > $landingStart && strpos(substr($view, $landingStart, $activeStart - $landingStart), 'id="cc-demo-launch"') !== false, 'Run Demo must remain available from the Historical landing');
 admin_contract_assert(strpos($javascript, ".cc-demo-run-mode').off('click').on('click'") !== false && strpos($javascript, "runDemo(\$(this).data('report'))") !== false, 'Demo mode buttons must invoke the transient runDemo path');
-admin_contract_assert(strpos($view, 'class="btn cc-demo-load') !== false && strpos($view, 'name="cc-demo-load"') === false && strpos($view, 'type="radio" name="cc-demo-load"') === false && strpos($view, "'medium' ? 'btn-primary active'") !== false && strpos($view, 'data-toggle="buttons"') === false && strpos($view, 'aria-pressed="<?php echo') !== false && strpos($view, 'id="cc-demo-randomise"') !== false, 'Demo must expose three real JS-controlled load buttons with a coloured and pressed Medium default');
-admin_contract_assert(strpos($javascript, 'function renderDemoLoadSelection(load)') !== false && strpos($javascript, 'CCDemoScenario.loadState(load)') !== false && strpos($javascript, 'demoPlan.token,generation:demoPlan.generation') !== false, 'Demo load buttons must share one explicit state renderer and retain the scenario identity');
+admin_contract_assert(
+	strpos($view, '<select id="cc-demo-load"') !== false &&
+	strpos($view, '<option value="medium" selected>') !== false &&
+	strpos($view, 'id="cc-demo-randomise"') !== false,
+	'Demo must expose a native load dropdown with deterministic Medium default and Randomise control'
+);
+admin_contract_assert(
+	strpos($javascript, 'function renderDemoLoadSelection(load)') !== false &&
+	strpos($javascript, "$('#cc-demo-load').val(demoSelectedLoad)") !== false &&
+	strpos($javascript, "$('#cc-demo-load').off('change').on('change'") !== false &&
+	strpos($javascript, 'demoPlan.token,generation:demoPlan.generation') !== false,
+	'Demo load dropdown must be the single visual state control while retaining scenario identity'
+);
+admin_contract_assert(
+	strpos($javascript, 'function scheduleDemoPreflight(plan)') !== false &&
+	strpos($javascript, 'setTimeout(function ()') !== false &&
+	strpos($javascript, '}, 250)') !== false &&
+	strpos($javascript, 'scheduleDemoPreflight($.extend({}, demoPlan))') !== false &&
+	strpos($javascript, 'demoPreflightRequest.abort()') === false &&
+	strpos($javascript, 'demoPreflightKey(demoPlan) !== key') !== false,
+	'Rapid Demo scenario changes must debounce preflight AJAX and reject stale responses without abort-spamming FreePBX'
+);
+admin_contract_assert(
+	strpos($javascript, "if (r.demo_report === 'extension')") !== false &&
+	strpos($javascript, 'About Extension Demo peaks:') !== false &&
+	strpos($javascript, 'do not represent the number of simultaneous physical calls an extension can handle') !== false,
+	'Extension Demo output must explain that assigned-CDR peaks are synthetic Historical workload values rather than endpoint call capacity'
+);
+admin_contract_assert(
+	strpos($view, 'class="btn cc-demo-load') === false &&
+	strpos($demoScenarioJavascript, 'function loadState') === false &&
+	strpos($demoScenarioJavascript, 'renderLoadButtons') === false,
+	'Demo load dropdown must not retain the obsolete multi-button state implementation'
+);
+admin_contract_assert(
+	strpos($class, "\$_REQUEST['audit_token']") !== false &&
+	strpos($javascript, "command:'democallpage',audit_token:token,page:number") !== false,
+	'Demo audit pagination must use a parameter distinct from the shared AJAX CSRF token'
+);
 admin_contract_assert(strpos($view, 'cc-demo-entropy') === false && strpos($javascript, 'stirDemoSeed') === false, 'Mouse movement must not remain a competing Demo randomisation mechanism');
-admin_contract_assert(strpos($javascript, "command: 'getdemoscenario'") !== false && strpos($javascript, "command:'savedemoscenario'") !== false && strpos($class, "DEMO_SCENARIO_KEY = 'demo_saved_scenario'") !== false && strpos($view, 'id="cc-demo-save"') !== false, 'Demo scenario definition saving and restoration must remain available');
-admin_contract_assert(strpos($javascript, 'return {token:plan.token,generation:plan.generation,size:plan.size,rows:plan.rows,start:plan.start,end:plan.end};') !== false, 'Saved Demo scenarios must contain definition fields only, never generated CDR rows');
+admin_contract_assert(strpos($javascript, 'getdemoscenario') === false && strpos($javascript, 'savedemoscenario') === false && strpos($class, 'DEMO_SCENARIO_KEY') === false && strpos($view, 'id="cc-demo-save"') === false, 'GUI Demo scenarios must remain ephemeral and expose no save or restore path');
 admin_contract_assert(strpos($javascript, "showDemoError('Demo preflight request failed. Check the PBX connection and try again.')") !== false && strpos($view, 'id="cc-demo-error"') !== false, 'Demo preflight transport failures must be visible inside the open modal');
 foreach (['cc-demo-preflight', 'cc-demo-preflight-rows', 'cc-demo-preflight-required', 'cc-demo-preflight-free', 'cc-demo-preflight-reserve', 'cc-demo-preflight-available', 'cc-demo-preflight-safety'] as $preflightId) admin_contract_assert(strpos($view, 'id="' . $preflightId . '"') !== false, 'Demo modal disk preflight field missing: ' . $preflightId);
 $preflightStart = strpos($javascript, 'function requestDemoPreflight(plan, onSuccess)');
@@ -526,7 +574,7 @@ admin_contract_assert(strpos($runDemoBody, 'window.confirm(prompt)') === false &
 admin_contract_assert(strpos($runDemoBody, 'runTargetReportId = null;') !== false, 'Demo must retain a null persisted-report target');
 admin_contract_assert(strpos($runDemoBody, 'showTransientDemoResult();') !== false && strpos($runDemoBody, 'showTransientDemoResult();') < strpos($runDemoBody, "executeRun('demo'"), 'Demo must reveal its Historical result/status surface before starting the request');
 admin_contract_assert(strpos($runDemoBody, 'createhistoricalreport') === false && strpos($runDemoBody, 'historicalReports[') === false, 'Demo must not create a Historic Report, consume a slot or mutate a report cache');
-admin_contract_assert(strpos($javascript, 'Synthetic calls (') !== false && strpos($javascript, 'function renderDemoSyntheticCallsPage') !== false && strpos($javascript, "command:'democallpage'") !== false && strpos($javascript, 'page.items.length > 100') !== false && strpos($javascript, 'CCDemoScenario.page(calls, pageNumber, 100)') === false, 'Demo detail retrieval must use bounded 100-row server pages instead of downloading the complete dataset');
+admin_contract_assert(strpos($javascript, 'Synthetic Demo CDR review') !== false && strpos($javascript, 'function renderDemoSyntheticCallsPage') !== false && strpos($javascript, "command:'democallpage'") !== false && strpos($javascript, 'page.items.length > 100') !== false && strpos($javascript, 'CCDemoScenario.page(calls, pageNumber, 100)') === false, 'Completed Demo must expose its bounded 100-row server-paged synthetic CDR review');
 admin_contract_assert(strpos($javascript, "' · Audited '") !== false && strpos($javascript, "' · Displayed '") === false, 'Demo integrity totals must label the complete spooled row count as Audited rather than Displayed');
 admin_contract_assert(strpos($class, "substr(hash('sha256', \$token . ':' . \$generation), 0, 16)") === false && strpos($class, "['metadata']['dataset_identity']") !== false && strpos($class, "['Dataset identity', \$datasetIdentity]") !== false, 'Demo CSV must use the complete authoritative CDRgen dataset identity and its display prefix');
 admin_contract_assert(substr_count($class, 'normaliseDemoProfileRange($start, $end)') >= 2, 'Both Demo execution and Demo CDR CSV generation must enforce the exact one-day profile range');
@@ -585,6 +633,7 @@ admin_contract_assert(strpos($wallTransitionCode, 'scheduleChartResize(resizeWal
 admin_contract_assert(strpos($css, '.cc-live-wall canvas') !== false && strpos($css, '.cc-live-wall .cc-wall-theme-option:focus-visible') !== false, 'Live Wall surfaces and keyboard focus must remain wall-scoped');
 foreach (['--cc-wall-inset', '100dvh', 'box-sizing:border-box', 'overflow-x:hidden', 'max-width:calc(100vw'] as $responsiveRule) admin_contract_assert(strpos($css, $responsiveRule) !== false, 'Responsive Live Wall rule missing: ' . $responsiveRule);
 admin_contract_assert(strpos($liveJavascript, 'window.visualViewport') !== false && strpos($liveJavascript, 'orientationchange.ccLive') !== false && strpos($liveJavascript, 'syncLiveWallViewport') !== false, 'Live Wall must reflow for viewport, orientation and fullscreen changes');
+admin_contract_assert(strpos($liveJavascript, "$(window.visualViewport).off('resize.ccLive scroll.ccLive')") !== false && strpos($liveJavascript, "wall.style.setProperty('--cc-wall-density', state.density)") !== false && strpos($css, '--cc-wall-density') !== false, 'Live Wall must compress and recalculate against observable visual viewport changes');
 admin_contract_assert(strpos($view, 'cc-wall-theme-option') !== false && strpos($view, "_('Light')") !== false && strpos($view, "_('Dark')") !== false, 'Live Wall Light/Dark control missing');
 admin_contract_assert(strpos($liveJavascript, 'settings.live_wall_theme = wallTheme; saveSettings(settings, false)') !== false && strpos($liveJavascript, "'wall-' + wallTheme") !== false, 'Live Wall theme must persist through module settings and update wall charts without resetting state');
 $wallCss = substr($css, strpos($css, '.cc-live-wall {'), strpos($css, '@media (max-width:900px)', strpos($css, '.cc-live-wall {')) - strpos($css, '.cc-live-wall {'));
@@ -618,6 +667,30 @@ admin_contract_assert(strpos($liveJavascript, "typeof wall.requestFullscreen ===
 admin_contract_assert(strpos($view, 'id="cc-live-wall-fullscreen"') !== false && strpos($view, 'fa fa-expand') !== false, 'Live Wall Full Screen presentation control missing');
 admin_contract_assert(strpos($liveJavascript, "document.fullscreenElement === wall") !== false && strpos($liveJavascript, 'syncLiveWallFullscreenState') !== false, 'Full Screen control must derive visibility from the existing fullscreen lifecycle');
 admin_contract_assert(strpos($liveJavascript, "$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen)") !== false, 'Full Screen control must request browser fullscreen independently');
+admin_contract_assert(
+	strpos($css, '--cc-wall-inset:0px; --cc-wall-height:100vh;') !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-inset', state.inset + 'px')") !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-height', state.height + 'px')") !== false &&
+	strpos($liveJavascript, "wall.style.setProperty('--cc-wall-density', state.density)") !== false &&
+	strpos($liveJavascript, "$('#cc-live-wall').css({'--cc-wall-inset'") === false,
+	'Live Wall viewport CSS variables must use native style.setProperty for FreePBX jQuery compatibility'
+);
+admin_contract_assert(
+	strpos($view, 'id="cc-live-wall-windowed"') !== false &&
+	strpos($liveJavascript, "$('#cc-live-wall-windowed').off('click.ccLive').on('click.ccLive', exitLiveWallFullscreen)") !== false &&
+	strpos($liveJavascript, 'function exitLiveWallFullscreen()') !== false,
+	'Live Wall must provide an explicit Windowed transition without closing the Wall'
+);
+admin_contract_assert(
+	strpos($view, 'cc-live-wall-desktop-only') !== false &&
+	strpos($css, '@media (max-width: 767px)') !== false &&
+	strpos($liveJavascript, 'function liveWallSupportedViewport()') !== false &&
+	strpos($liveJavascript, 'supportsViewport(window.innerWidth)') !== false &&
+	strpos($liveJavascript, 'function showLiveWallConfiguration()') !== false &&
+	strpos($liveJavascript, "function initialiseLiveWallConfiguration(continueAfterSave) {\n\t\tif (!liveWallSupportedViewport()) return;") !== false &&
+	substr_count($liveJavascript, "$('#cc-live-wall-config-modal').modal('show')") === 1,
+	'Live Wall launch and configuration must be hidden and functionally unavailable on mobile widths'
+);
 admin_contract_assert(strpos($wallTransitionCode, 'requestLiveWallFullscreen()') !== false && strpos($wallTransitionCode, 'exitLiveWall') !== false && strpos($wallTransitionCode, 'document.exitFullscreen()') !== false, 'Live Wall fullscreen request and Exit Live Wall behavior must remain independent');
 admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
 $wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));
@@ -664,5 +737,13 @@ admin_contract_assert(strpos($javascript, '|| 3600') === false && strpos($javasc
 admin_contract_assert(strpos($javascript, "calculationDecision(run, 'continue')") !== false && strpos($javascript, "calculationDecision(run, 'reassess')") !== false, 'Continue Anyway and Recalculate must be wired to live worker decisions');
 admin_contract_assert(strpos($javascript, "command: 'demopreflight'") !== false && strpos($class, 'handleDemoPreflight') !== false, 'Demo must complete disk preflight before its run request');
 admin_contract_assert(strpos($javascript, 'stopCalculationTelemetry(run);') > strpos($javascript, "command: 'cancelcalculation', calculation_id: run.id") || strpos($javascript, 'stopCalculationTelemetry(run);') !== false, 'Warning Abort must clean the retained calculation UI only after cooperative cancellation');
+admin_contract_assert(strpos($view, '<small class="text-muted" style="font-size:0.5em;">') !== false && strpos($view, 'htmlspecialchars($moduleVersion') !== false && strpos($view, '>v<?php') === false && strpos($view, "_('- NOT CURRENTLY") === false, 'Rendered product heading must retain the small muted hierarchy with a plain version, one em dash and no stray hyphen');
+admin_contract_assert(strpos($view, 'cc-excluded-calls-dialog') !== false && strpos($css, 'width: min(96vw, 1320px)') !== false, 'Excluded Calls must use a wider responsive desktop dialog');
+admin_contract_assert(strpos($javascript, 'No manual classifications have been saved yet.') !== false && strpos($view, 'old CDR data that FreePBX no longer recognises') !== false && strpos($view, 'Add endpoint') === false, 'PJSIP classification explanation and discovery-only empty state must be clear');
+admin_contract_assert(strpos($class, 'attachTrunkPeakEvidence') !== false && substr_count($class, "if (\$mode === 'trunk') \$results = \$this->attachTrunkPeakEvidence(\$results);") === 2 && strpos($class, "['Peak occurrence evidence']") !== false, 'Trunk download and email must share contributing-call evidence generation');
+admin_contract_assert(strpos($javascript, 'class="cc-report-tab-handle" draggable="true"') !== false && strpos($javascript, 'class="cc-report-tab-grip"') !== false && strpos($javascript, '&#8942;&#8942;') !== false && strpos($javascript, 'fa-grip-vertical') === false && strpos($javascript, 'cc-report-tab-left') === false && strpos($javascript, "off('dragstart.ccTabs', '.cc-report-tab-handle')") !== false && strpos($javascript, 'CCHistoricalReportOrder.createSaver') !== false && strpos($javascript, "e.key === 'ArrowLeft'") !== false && strpos($historicalReportsService, 'function reorder(') !== false, 'Historic Report tabs must use a visible non-Font-Awesome handle for drag/keyboard reordering with serialized persistence');
+admin_contract_assert(substr_count($javascript, 'draggable="true"') === 1 && strpos($javascript, 'cc-report-tab-top" role="tab" draggable=') === false, 'Only the dedicated Historic Report grip may be draggable');
+admin_contract_assert(strpos($css, '.cc-report-tab-grip') !== false && strpos($css, 'cursor:grab') !== false && strpos($css, 'cursor:grabbing') !== false, 'Historic Report grip must have a visible compact hit target and grab/grabbing cursor states');
+admin_contract_assert(strpos($view, 'id="cc-excluded-calls" class="btn btn-warning"') !== false, 'Main Excluded Calls launcher must use warning styling');
 
 echo "Administrative contract passed\n";

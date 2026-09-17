@@ -83,10 +83,15 @@ class DemoDiskGuard {
 		$this->plan['peak_storage_growth_bytes'] = max($this->plan['peak_storage_growth_bytes'], $growth);
 		$perFilesystemRow = $this->plan['binary_log'] ? intdiv($this->plan['estimated_bytes_per_row'], 2) : $this->plan['estimated_bytes_per_row'];
 		$remaining = max(0, $this->plan['rows'] - $inserted) * ($this->plan['binary_log'] ? $perFilesystemRow : $this->plan['estimated_bytes_per_row']);
-		if ($s['free'] - $this->plan['reserve_bytes'] < $remaining || $growth > max(16777216, $inserted * $this->plan['data_required_bytes'] / max(1, $this->plan['rows']))) throw new \RuntimeException('Demo stopped: database disk headroom fell or observed filesystem growth exceeded the conservative allowance.');
+		$this->plan['current_free_bytes'] = (int)$s['free'];
+		$this->plan['remaining_required_bytes'] = $remaining;
+		$this->plan['safely_available_bytes'] = max(0, (int)$s['free'] - $this->plan['reserve_bytes']);
+		if ($this->plan['safely_available_bytes'] < $remaining) throw new \RuntimeException(sprintf('Demo stopped: database filesystem safely available space (%d bytes; current free %d minus reserve %d) is below the remaining estimated requirement (%d bytes).', $this->plan['safely_available_bytes'], $s['free'], $this->plan['reserve_bytes'], $remaining));
 		if ($this->plan['binary_log']) {
 			$log = call_user_func($this->space, $this->plan['binary_log']['path']); $this->validateSpace($log, true);
-			if ($log['device'] !== $this->plan['binary_log']['device'] || $log['free'] - $this->plan['binary_log']['reserve_bytes'] < $remaining) throw new \RuntimeException('Demo stopped: binary-log disk headroom is no longer safe.');
+			if ($log['device'] !== $this->plan['binary_log']['device']) throw new \RuntimeException(sprintf('Demo stopped: binary-log filesystem device changed (expected %s, current %s).', (string)$this->plan['binary_log']['device'], (string)$log['device']));
+			$logAvailable = max(0, (int)$log['free'] - $this->plan['binary_log']['reserve_bytes']);
+			if ($logAvailable < $remaining) throw new \RuntimeException(sprintf('Demo stopped: binary-log safely available space (%d bytes; current free %d minus reserve %d) is below the remaining estimated requirement (%d bytes).', $logAvailable, $log['free'], $this->plan['binary_log']['reserve_bytes'], $remaining));
 		}
 		return $this->plan;
 	}

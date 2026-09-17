@@ -149,24 +149,63 @@ class ThresholdService {
 	}
 
 	public function buildNotification(array $event, string $systemIdentifier): array {
-		$scope = $event['scope'] === 'overall' ? 'Overall Live Concurrency' : substr((string)$event['scope'], 6) . ' Trunk';
-		$isRecovery = $event['type'] === 'recovery';
-		$subject = sprintf('Concurrency %s on %s', $isRecovery ? 'recovered' : 'threshold exceeded', $systemIdentifier);
-		$lines = [
-			'Concurrency Count alert from ' . $systemIdentifier, '', $scope,
-			'Threshold: ' . (int)$event['threshold'], 'Current: ' . (int)$event['current'],
-		];
-		if (!empty($event['direction_counts'])) {
-			$lines[] = 'Inbound: ' . (int)(isset($event['direction_counts']['inbound']) ? $event['direction_counts']['inbound'] : 0);
-			$lines[] = 'Outbound: ' . (int)(isset($event['direction_counts']['outbound']) ? $event['direction_counts']['outbound'] : 0);
-			$lines[] = 'Unknown: ' . (int)(isset($event['direction_counts']['unknown']) ? $event['direction_counts']['unknown'] : 0);
+		$isTest = (string)($event['scope'] ?? '') === 'test';
+		$isRecovery = (string)($event['type'] ?? '') === 'recovery';
+
+		if ($isTest) {
+			return [
+				'subject' => 'Concurrency Count test - ' . $systemIdentifier,
+				'body' => implode("\n", [
+					'Concurrency Count test email',
+					'',
+					'PBX: ' . $systemIdentifier,
+					'',
+					'This is a test email from the Concurrency Count FreePBX module.',
+					'',
+					'Please note: email deliveries can be delayed.',
+					'Check current status in the FreePBX module.',
+				]),
+			];
 		}
-		$lines[] = 'Peak during alert: ' . (int)$event['peak'];
-		if ($isRecovery) $lines[] = 'Duration above threshold: ' . max(0, (int)$event['timestamp'] - (int)$event['since']) . ' seconds';
-		$lines[] = 'Time: ' . date('Y-m-d H:i:s', (int)$event['timestamp']);
-		$lines[] = 'Module: config.php?display=concurrencycount';
+
+		$scope = (string)($event['scope'] ?? '');
+		if ($scope === 'overall') {
+			$scopeLine = 'Scope: Overall Live Concurrency';
+		} elseif (strpos($scope, 'trunk:') === 0) {
+			$scopeLine = 'Trunk: ' . substr($scope, 6);
+		} else {
+			$scopeLine = 'Scope: ' . $scope;
+		}
+
+		$subject = $isRecovery
+			? 'Concurrency Count recovery - ' . $systemIdentifier
+			: 'Concurrency Count alert - ' . $systemIdentifier;
+
+		$lines = [
+			$isRecovery ? 'Concurrency returned below threshold' : 'Concurrency threshold reached',
+			'',
+			'PBX: ' . $systemIdentifier,
+			$scopeLine,
+			'Threshold: ' . (int)($event['threshold'] ?? 0),
+			'Current: ' . (int)($event['current'] ?? 0),
+		];
+
+		if (!empty($event['direction_counts'])) {
+			$lines[] = 'Inbound: ' . (int)($event['direction_counts']['inbound'] ?? 0);
+			$lines[] = 'Outbound: ' . (int)($event['direction_counts']['outbound'] ?? 0);
+			$lines[] = 'Unknown: ' . (int)($event['direction_counts']['unknown'] ?? 0);
+		}
+
+		if ($isRecovery) {
+			$lines[] = 'Peak during alert: ' . (int)($event['peak'] ?? 0);
+			$lines[] = 'Duration above threshold: ' . max(0, (int)($event['timestamp'] ?? 0) - (int)($event['since'] ?? 0)) . ' seconds';
+		}
+
+		$lines[] = 'Time: ' . date('j F Y \a\t H:i:s', (int)($event['timestamp'] ?? time()));
 		$lines[] = '';
-		$lines[] = 'Accepted by the local mailer does not confirm external delivery.';
+		$lines[] = 'Please note: email deliveries can be delayed.';
+		$lines[] = 'Check current status in the FreePBX module.';
+
 		return ['subject' => $subject, 'body' => implode("\n", $lines)];
 	}
 

@@ -30,7 +30,7 @@ class HistoricalRuntimeEstimator {
 			$percent = $processed >= $total ? 100.0 : min(99.0, 100.0 * $processed / $total);
 			$this->progress = max($this->progress, $percent);
 		}
-		$result = ['abort' => $elapsed >= $this->maxRuntime, 'warn' => false, 'reliable' => false,
+		$result = ['abort' => $elapsed >= $this->maxRuntime, 'warn' => false, 'reliable' => false, 'processed' => $processed, 'total' => $total,
 			'overall_elapsed' => $elapsed, 'engine_elapsed' => $assessmentElapsed,
 			'estimated_remaining' => null, 'runtime_remaining' => max(0.0, $this->maxRuntime - $elapsed),
 			'progress_percent' => $this->progress, 'eta_confidence' => $assessmentElapsed < 300 ? 'Calculating...' : 'Insufficient',

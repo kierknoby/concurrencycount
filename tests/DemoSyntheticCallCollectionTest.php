@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../Services/DemoSyntheticCallCollection.php';
 require_once __DIR__ . '/../Services/HistoricalResultFloor.php';
+if (!interface_exists('BMO')) { interface BMO {} }
+require_once __DIR__ . '/../Concurrencycount.class.php';
 use FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection;
 use FreePBX\modules\Concurrencycount\Services\HistoricalResultFloor;
 function synthetic_assert($condition,string $message):void{if(!$condition)throw new Exception($message);}
@@ -23,7 +25,11 @@ try{
  synthetic_assert(array_sum($mix['directions'])===20000&&array_sum($mix['dispositions'])===20000,'Traffic mix must accumulate independently from detail paging');
  synthetic_assert($heavy->integrity(20000,20000,20000,0)==='verified'&&$heavy->integrity(20000,20000,19999,1)==='mismatch','Integrity counts must remain independent from displayed pages');
  try{DemoSyntheticCallCollection::fetchPage($first['token'],'wrong-owner',1,$directory);throw new Exception('Wrong owner accepted');}catch(RuntimeException $expected){}
- $floored=(new HistoricalResultFloor())->apply(['mode'=>'demo','global_max'=>5,'synthetic_calls_page'=>$first],6);synthetic_assert(count($floored['synthetic_calls_page']['items'])===100,'Minimum concurrency must not filter audit pages');
- $heavy->discard();synthetic_assert(count(glob($directory.'/*'))===0,'Discard must remove transient paging state');
+	$floored=(new HistoricalResultFloor())->apply(['mode'=>'demo','global_max'=>5,'synthetic_calls_page'=>$first],6);synthetic_assert(count($floored['synthetic_calls_page']['items'])===100,'Minimum concurrency must not filter audit pages');
+	if (session_status() !== PHP_SESSION_ACTIVE) { session_id('ccdemoreviewtest'); session_start(); }
+	$endpointOwner=hash('sha256','concurrencycount-gui:'.session_id());$endpointCollection=new DemoSyntheticCallCollection($endpointOwner);$endpointCollection->record(synthetic_row(0),'extension');$completedPage=$endpointCollection->finalize();
+	$_REQUEST=['audit_token'=>$completedPage['token'],'page'=>1];$endpointModule=(new ReflectionClass(\FreePBX\modules\Concurrencycount::class))->newInstanceWithoutConstructor();$endpointMethod=new ReflectionMethod($endpointModule,'handleDemoCallPage');$endpointMethod->setAccessible(true);$endpointResponse=$endpointMethod->invoke($endpointModule);
+	synthetic_assert($endpointResponse['status']===true&&$endpointResponse['audit']['total']===1&&$endpointResponse['audit']['items'][0]['accountcode']!=='','The completed-run review token must remain reachable through handleDemoCallPage');$endpointCollection->discard();
+	$heavy->discard();synthetic_assert(count(glob($directory.'/*'))===0,'Discard must remove transient paging state');
 }finally{foreach((array)glob($directory.'/*') as $file)@unlink($file);@rmdir($directory);}
 echo "Demo synthetic call collection tests passed\n";

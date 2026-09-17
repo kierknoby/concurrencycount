@@ -45,12 +45,29 @@
 			refresh(ready, failed);
 		}
 	};
+	root.CCTestEmailLifecycle = {
+		create: function () {
+			var sequence = 0, recipient = '';
+			function normalise(value) { return String(value === null || value === undefined ? '' : value).trim(); }
+			return {
+				reset: function (value) { recipient = normalise(value); sequence++; },
+				begin: function (value) { recipient = normalise(value); return {sequence:++sequence, recipient:recipient}; },
+				accepts: function (request, value) { return !!request && request.sequence === sequence && request.recipient === normalise(value) && recipient === normalise(value); }
+			};
+		}
+	};
 	root.CCLiveWallPresentation = {
+		supportsViewport: function (viewportWidth) { return Number(viewportWidth) >= 768; },
 		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
-		layout: function (viewportHeight, fullscreen) {
+		layout: function (viewportHeight, fullscreen, overrides) {
 			var height = Math.max(0, Number(viewportHeight) || 0);
-			var inset = fullscreen ? 0 : Math.max(6, Math.min(16, Math.round(height * 0.012)));
-			return {inset: inset, height: Math.max(0, height - (inset * 2))};
+			var inset = 0;
+			var available = Math.max(0, height - (inset * 2)), density = Math.max(0.58, Math.min(1, available / 850));
+			var dimensions = {wallPadding:40,header:56,headerMargin:12,overallPadding:36,overallContent:210,overallMargin:10,noteHeight:20,noteMargin:8,cardPadding:30,cardText:104,cardCanvas:125,rowGap:0};
+			Object.keys(overrides || {}).forEach(function (name) { if (Object.prototype.hasOwnProperty.call(dimensions, name)) dimensions[name] = Math.max(0, Number(overrides[name]) || 0); });
+			var components = {}, required = 0;
+			Object.keys(dimensions).forEach(function (name) { components[name] = dimensions[name] * density; required += components[name]; });
+			return {inset:inset,height:available,density:density,composition:{components:components,requiredHeight:required,availableHeight:available,fits:required<=available}};
 		}
 	};
 
@@ -84,6 +101,7 @@ window._ccLiveLoaded = true;
 	var historicalSelectedSeries = [];
 	var continueToLiveWallAfterSave = false;
 	var wallTheme = 'dark';
+	var testEmailLifecycle = window.CCTestEmailLifecycle.create();
 
 	function ajax(params) {
 		params = $.extend({}, params, {token: $('.concurrencycount').first().attr('data-csrf-token') || $('input[name="token"]').first().val() || ''});
@@ -112,6 +130,7 @@ window._ccLiveLoaded = true;
 		$('#cc-live-wall-launch').off('click.ccLive').on('click.ccLive', launchLiveWall);
 		$('#cc-live-wall-configure').off('click.ccLive').on('click.ccLive', function () { openLiveWallConfiguration(false); });
 		$('#cc-live-wall-fullscreen').off('click.ccLive').on('click.ccLive', requestLiveWallFullscreen);
+		$('#cc-live-wall-windowed').off('click.ccLive').on('click.ccLive', exitLiveWallFullscreen);
 		$('#cc-live-wall-exit').off('click.ccLive').on('click.ccLive', exitLiveWall);
 		$('.cc-wall-theme-option').off('click.ccLive').on('click.ccLive', function () {
 			applyLiveWallTheme($(this).data('theme'), false);
@@ -120,10 +139,13 @@ window._ccLiveLoaded = true;
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
+		$('#cc-test-alert-email').off('click.ccLive').on('click.ccLive', testAlertEmail);
+		$('#cc-setting-email').off('input.ccLive change.ccLive').on('input.ccLive change.ccLive', function () { resetTestEmailFeedback($(this).val()); });
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
 		$(window).off('resize.ccLive orientationchange.ccLive').on('resize.ccLive orientationchange.ccLive', onWallViewportChange);
+		if (window.visualViewport) $(window.visualViewport).off('resize.ccLive scroll.ccLive').on('resize.ccLive scroll.ccLive', onWallViewportChange);
 		$(document).off('fullscreenchange.ccLive').on('fullscreenchange.ccLive', onFullscreenChange);
 		$(document).off('cc:historical-results.ccLive').on('cc:historical-results.ccLive', function (event, result, cachedSeries) { loadHistoricalGraph(result, cachedSeries); });
 		$('#cc-historical-graph').off('click.ccHistoricalExport', '.cc-historical-export-format').on('click.ccHistoricalExport', '.cc-historical-export-format', function (event) { event.preventDefault(); exportHistoricalGraph($(this).data('format')); });
@@ -407,19 +429,31 @@ window._ccLiveLoaded = true;
 	}
 
 	function initialiseLiveWallConfiguration(continueAfterSave) {
+		if (!liveWallSupportedViewport()) return;
 		continueToLiveWallAfterSave = !!continueAfterSave;
 		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
 		featuredDraft = selection.valid.slice();
 		$('#cc-wall-featured-error').hide();
 		renderLiveWallConfiguration();
+		showLiveWallConfiguration();
+	}
+
+	function showLiveWallConfiguration() {
+		if (!liveWallSupportedViewport()) return;
 		$('#cc-live-wall-config-modal').modal('show');
 	}
 
+	function liveWallSupportedViewport() {
+		return window.CCLiveWallPresentation.supportsViewport(window.innerWidth);
+	}
+
 	function openLiveWallConfiguration(continueAfterSave) {
+		if (!liveWallSupportedViewport()) return;
 		refreshLiveWallSettings(function () { initialiseLiveWallConfiguration(continueAfterSave); });
 	}
 
 	function launchLiveWall() {
+		if (!liveWallSupportedViewport()) return;
 		if (!settings) { openLiveWallConfiguration(true); return; }
 		var selection = window.CCLiveWallSelection.state(settings.live_wall_featured_trunks, currentConfiguredWallTrunks());
 		window.CCLiveWallLaunch.start(selection, {
@@ -537,7 +571,7 @@ window._ccLiveLoaded = true;
 		}, function (message) {
 			button.prop('disabled', false);
 			$('#cc-wall-featured-error').text(message || 'Unable to load configured trunks.').show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		});
 	}
 
@@ -548,15 +582,16 @@ window._ccLiveLoaded = true;
 			featuredDraft = selection.valid.slice();
 			renderLiveWallConfiguration();
 			$('#cc-wall-featured-error').text(message).show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		}, function () {
 			$('#cc-wall-featured-save').prop('disabled', false);
 			$('#cc-wall-featured-error').text(message).show();
-			$('#cc-live-wall-config-modal').modal('show');
+			showLiveWallConfiguration();
 		});
 	}
 
 	function enterLiveWall(requestBrowserFullscreen) {
+		if (!liveWallSupportedViewport()) return;
 		wallActive = true;
 		$('#cc-live-wall').show().attr('aria-hidden', 'false');
 		$('body').addClass('cc-wall-active');
@@ -569,25 +604,46 @@ window._ccLiveLoaded = true;
 	}
 
 	function requestLiveWallFullscreen() {
+		if (!liveWallSupportedViewport()) return;
 		var wall = document.getElementById('cc-live-wall');
 		window.CCLiveWallFullscreen.request(wall, syncLiveWallFullscreenState);
+	}
+
+	function exitLiveWallFullscreen() {
+		var wall = document.getElementById('cc-live-wall');
+		if (document.fullscreenElement !== wall || typeof document.exitFullscreen !== 'function') {
+			syncLiveWallFullscreenState();
+			return;
+		}
+		var result = document.exitFullscreen();
+		if (result && typeof result.catch === 'function') result.catch(syncLiveWallFullscreenState);
 	}
 
 	function syncLiveWallFullscreenState() {
 		var wall = document.getElementById('cc-live-wall');
 		var isWallFullscreen = document.fullscreenElement === wall;
 		$('#cc-live-wall').toggleClass('cc-browser-fullscreen', isWallFullscreen);
-		$('#cc-live-wall-fullscreen').toggle(window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		$('#cc-live-wall-fullscreen').toggle(liveWallSupportedViewport() && window.CCLiveWallFullscreen.shouldShow(wallActive, wall, document));
+		$('#cc-live-wall-windowed').toggle(liveWallSupportedViewport() && wallActive && isWallFullscreen);
 		syncLiveWallViewport();
 	}
 
 	function syncLiveWallViewport() {
 		var viewportHeight = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
 		var state = window.CCLiveWallPresentation.layout(viewportHeight, document.fullscreenElement === document.getElementById('cc-live-wall'));
-		$('#cc-live-wall').css({'--cc-wall-inset': state.inset + 'px', '--cc-wall-height': state.height + 'px'});
+		var wall = document.getElementById('cc-live-wall');
+		if (!wall) return;
+		wall.style.setProperty('--cc-wall-inset', state.inset + 'px');
+		wall.style.setProperty('--cc-wall-height', state.height + 'px');
+		wall.style.setProperty('--cc-wall-density', state.density);
 	}
 
 	function onWallViewportChange() {
+		if (!liveWallSupportedViewport()) {
+			$('#cc-live-wall-config-modal').modal('hide');
+			if (wallActive) exitLiveWall();
+			return;
+		}
 		if (!wallActive) return;
 		syncLiveWallViewport();
 		scheduleChartResize(resizeWallCharts);
@@ -742,6 +798,7 @@ window._ccLiveLoaded = true;
 		}
 		$('#cc-setting-refresh').val(String(settings.refresh_interval));
 		$('#cc-setting-email').val(settings.alert_email || '');
+		resetTestEmailFeedback(settings.alert_email || '');
 		$('#cc-setting-alerts').prop('checked', !!settings.alerts_enabled);
 		$('#cc-setting-recovery').prop('checked', !!settings.recovery_enabled);
 		var rows = [scopeRow('overall', 'Overall Live Concurrency', settings.overall)];
@@ -780,6 +837,24 @@ window._ccLiveLoaded = true;
 			var monitor = response.monitor;
 			$('#cc-monitor-status').text(monitor.status === 'online' ? 'Online (PID ' + monitor.pid + ')' : statusLabel(monitor.status));
 		}).fail(function () { $('#cc-monitor-status').text('Restart failed'); }).always(function () { button.prop('disabled', false); });
+	}
+
+	function testAlertEmail() {
+		var button = $('#cc-test-alert-email').prop('disabled', true), recipient = $('#cc-setting-email').val().trim();
+		var testRequest = testEmailLifecycle.begin(recipient);
+		$('#cc-alert-email-status').removeClass('text-danger text-success').text('Sending test email...');
+		ajax({command:'testalertemail', recipient:recipient}).done(function(response) {
+			if (!testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) return;
+			$('#cc-alert-email-status').text(response.message || (response.status ? 'Test alert email sent successfully.' : 'Test email failed.')).toggleClass('text-success', !!response.status).toggleClass('text-danger', !response.status);
+		}).fail(function(){
+			if (testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) $('#cc-alert-email-status').addClass('text-danger').text('Test email request failed.');
+		}).always(function(){ if (testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) button.prop('disabled', false); });
+	}
+
+	function resetTestEmailFeedback(recipient) {
+		testEmailLifecycle.reset(recipient);
+		$('#cc-alert-email-status').removeClass('text-danger text-success').text('');
+		$('#cc-test-alert-email').prop('disabled', false);
 	}
 
 	function scopeRow(scope, label, config) {
@@ -921,8 +996,8 @@ window._ccLiveLoaded = true;
 		var names = Object.keys(historicalSeries.series || {});
 		if (!names.length) return false;
 		historicalSelectedSeries = window.HistoricalSvgChart.selection.initial(names, historicalSeries.series);
-		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-default btn-sm cc-series-choice" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
-		$('#cc-historical-series').html('<button type="button" class="btn btn-default btn-sm cc-series-select-all" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-default btn-sm cc-series-unselect-all" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
+		var buttons = names.map(function (name) { return '<button type="button" class="btn btn-sm cc-series-choice cc-series-neutral" aria-pressed="false" data-series="' + escapeHtml(name) + '">' + escapeHtml(name === 'overall' ? 'Overall' : name) + '</button>'; });
+		$('#cc-historical-series').html('<button type="button" class="btn btn-sm cc-series-select-all cc-series-neutral" aria-label="Select all Historical graph series">Select All</button><button type="button" class="btn btn-sm cc-series-unselect-all cc-series-neutral" aria-label="Unselect all Historical graph series">Unselect All</button>' + buttons.join(''));
 		$('#cc-historical-series .cc-series-choice').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.toggle(historicalSelectedSeries, String($(this).attr('data-series'))); redrawHistoricalSelection(); });
 		$('#cc-historical-series .cc-series-select-all').on('click', function () { historicalSelectedSeries = window.HistoricalSvgChart.selection.all(names); redrawHistoricalSelection(); });
 		$('#cc-historical-series .cc-series-unselect-all').on('click', function () { historicalSelectedSeries = []; redrawHistoricalSelection(); });
@@ -942,10 +1017,11 @@ window._ccLiveLoaded = true;
 		var names = Object.keys(historicalSeries.series || {});
 		var inventoryColours = window.HistoricalSvgChart.coloursForInventory(names);
 		var buttonState = window.HistoricalSvgChart.selection.presentation(names, historicalSelectedSeries);
-		$('#cc-historical-series .cc-series-select-all, #cc-historical-series .cc-series-unselect-all').removeClass('btn-primary active').addClass(buttonState.bulkClass).removeAttr('aria-pressed');
+		$('#cc-historical-series .cc-series-select-all').toggleClass('cc-series-active active', buttonState.selectAllActive).toggleClass('cc-series-neutral', !buttonState.selectAllActive).attr('aria-pressed', buttonState.selectAllActive ? 'true' : 'false');
+		$('#cc-historical-series .cc-series-unselect-all').toggleClass('cc-series-active active', buttonState.unselectAllActive).toggleClass('cc-series-neutral', !buttonState.unselectAllActive).attr('aria-pressed', buttonState.unselectAllActive ? 'true' : 'false');
 		$('#cc-historical-series .cc-series-choice').each(function () {
 			var state = buttonState.series[String($(this).attr('data-series'))];
-			$(this).toggleClass('btn-primary', state.selected).toggleClass('btn-default', !state.selected).attr('aria-pressed', state.ariaPressed);
+			$(this).toggleClass('cc-series-active active', state.selected).toggleClass('cc-series-neutral', !state.selected).attr('aria-pressed', state.ariaPressed);
 		});
 		if (!historicalSelectedSeries.length) {
 			if (historicalChart) { historicalChart.destroy(); historicalChart = null; }

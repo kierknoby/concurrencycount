@@ -21,6 +21,14 @@ class AlertOutboxService {
 		return null;
 	}
 
+	public function lease(array $outbox, string $eventId, int $now, int $seconds = 60): array {
+		if (!isset($outbox[$eventId])) return $outbox;
+		$outbox[$eventId]['delivery_status'] = 'delivering';
+		$outbox[$eventId]['leased_at'] = $now;
+		$outbox[$eventId]['next_attempt_at'] = $now + max(1, $seconds);
+		return $outbox;
+	}
+
 	public function applyDelivery(array $outbox, string $eventId, bool $accepted, string $message, int $now): array {
 		if (!isset($outbox[$eventId])) return $outbox;
 		if ($accepted) {
@@ -29,8 +37,11 @@ class AlertOutboxService {
 		}
 		$event = $outbox[$eventId];
 		$event['attempts'] = (int)(isset($event['attempts']) ? $event['attempts'] : 0) + 1;
-		$event['last_error'] = $message;
+		$event['delivery_status'] = 'retry';
+		$event['last_error'] = $message !== '' ? $message : 'Alert delivery failed without an error message.';
+		$event['last_attempt_at'] = $now;
 		$event['next_attempt_at'] = $now + min(300, (int)pow(2, min(8, $event['attempts'])));
+		unset($event['leased_at']);
 		$outbox[$eventId] = $event;
 		return $outbox;
 	}

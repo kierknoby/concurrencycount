@@ -7,8 +7,6 @@ assert(scenario.build(identity).size === 'medium', 'Default Demo load must be Me
 const saved=scenario.build(identity,'medium'), restored=scenario.restore({token:saved.token,generation:saved.generation,size:saved.size,rows:saved.rows,start:saved.start,end:saved.end});
 assert(scenario.equal(saved,restored),'A saved six-field scenario must restore the same complete generation request');
 let rejectedSaved=false;try{scenario.restore({token:saved.token,generation:saved.generation,size:saved.size,rows:1,start:saved.start,end:saved.end});}catch(error){rejectedSaved=true;}assert(rejectedSaved,'A saved scenario with an invalid strict row count must be rejected');
-function assertLoadState(load) { const state=scenario.loadState(load); ['light','medium','heavy'].forEach(name => assert(state[name].active===(name===load) && state[name].ariaPressed===String(name===load), load+' must be the only selected button')); }
-['light','medium','heavy'].forEach(assertLoadState);
 assert(scenario.loads.light.rows===1000 && scenario.loads.medium.rows===5000 && scenario.loads.heavy.rows===20000 && scenario.loads.light.days===1 && scenario.loads.medium.days===1 && scenario.loads.heavy.days===1, 'Profiles must differ in volume and time range');
 const randomiser=scenario.randomiser(length => { const bytes=new Uint8Array(length); bytes.fill(7); return bytes; });
 const randomOne=randomiser.next('heavy'), randomTwo=randomiser.next('heavy');

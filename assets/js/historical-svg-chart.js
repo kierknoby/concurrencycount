@@ -111,6 +111,21 @@
 			var displayX = function (ts) { return !run.widened || run.realDuration <= 0 ? x(ts) : run.displayStartX + (((Number(ts) - run.realStartTs) / run.realDuration) * (run.displayEndX - run.displayStartX)); };
 			run.realPath = pathForRun(run, x, y); run.displayPath = pathForRun(run, displayX, y);
 			run.displayPoints = run.points.map(function (point) { return {point: point, x: displayX(point.ts), y: y(point.value)}; });
+			run.hitSegments = [];
+			if (run.displayPoints.length) {
+				var first = run.displayPoints[0];
+				if (Number(first.point.value) > 0) run.hitSegments.push({x1:first.x,y1:PLOT.bottom,x2:first.x,y2:first.y,point:first.point});
+				for (var pointIndex = 1; pointIndex < run.displayPoints.length; pointIndex++) {
+					var previous = run.displayPoints[pointIndex - 1], current = run.displayPoints[pointIndex];
+					if (Number(previous.point.value) > 0) run.hitSegments.push({x1:previous.x,y1:previous.y,x2:current.x,y2:previous.y,point:previous.point});
+					if (Math.max(Number(previous.point.value), Number(current.point.value)) > 0) run.hitSegments.push({x1:current.x,y1:previous.y,x2:current.x,y2:current.y,point:current.point});
+				}
+				var last = run.displayPoints[run.displayPoints.length - 1];
+				if (Number(last.point.value) > 0) {
+					run.hitSegments.push({x1:last.x,y1:last.y,x2:run.displayEndX,y2:last.y,point:last.point});
+					run.hitSegments.push({x1:run.displayEndX,y1:last.y,x2:run.displayEndX,y2:PLOT.bottom,point:last.point});
+				}
+			}
 			series.visible = series.visible.concat(run.displayPoints);
 		});
 		series.thresholdY = series.threshold ? y(series.threshold) : null;
@@ -149,23 +164,27 @@
 		return out + '</svg>';
 	}
 	function timestampForRun(run, logicalX) { return run.realStartTs + (((logicalX - run.displayStartX) / Math.max(0.000001, run.displayEndX - run.displayStartX)) * run.realDuration); }
+	function distanceToSegment(x, y, segment) {
+		var dx = segment.x2 - segment.x1, dy = segment.y2 - segment.y1, lengthSquared = (dx * dx) + (dy * dy);
+		var amount = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, (((x - segment.x1) * dx) + ((y - segment.y1) * dy)) / lengthSquared));
+		var closestX = segment.x1 + amount * dx, closestY = segment.y1 + amount * dy;
+		return {distance:Math.sqrt(Math.pow(x - closestX, 2) + Math.pow(y - closestY, 2)), x:closestX, y:closestY};
+	}
 	function nearestSeriesPoint(chart, logicalX, logicalY) {
 		var best = null;
 		chart.series.forEach(function (series, seriesIndex) {
 			series.runs.forEach(function (run) {
-				if (logicalX < run.displayStartX || logicalX > run.displayEndX) return;
-				var timestamp = timestampForRun(run, logicalX), point = run.points[0];
-				run.points.forEach(function (candidate) { if (candidate.ts <= timestamp) point = candidate; });
-				var y = PLOT.bottom - ((Number(point.value) / chart.maxValue) * (PLOT.bottom - PLOT.top)), distance = Math.abs(y - logicalY);
-				if (!best || distance < best.distance) best = {seriesName: series.name, seriesLabel: series.label, point: point, timestamp: timestamp, x: logicalX, y: y, distance: distance, seriesIndex: seriesIndex};
+				(run.hitSegments || []).forEach(function (segment) {
+					var hit = distanceToSegment(logicalX, logicalY, segment);
+					if (!best || hit.distance < best.distance || (hit.distance === best.distance && seriesIndex > best.seriesIndex)) best = {seriesName:series.name,seriesLabel:series.label,point:segment.point,timestamp:segment.point.ts,x:hit.x,y:hit.y,distance:hit.distance,seriesIndex:seriesIndex};
+				});
 			});
-			series.visible.forEach(function (candidate) { var distance = Math.sqrt(Math.pow(candidate.x - logicalX, 2) + Math.pow(candidate.y - logicalY, 2)); if (!best || distance < best.distance) best = {seriesName: series.name, seriesLabel: series.label, point: candidate.point, timestamp: candidate.point.ts, x: candidate.x, y: candidate.y, distance: distance, seriesIndex: seriesIndex}; });
 		});
 		return best;
 	}
 	function initialSelection(names) { return names.slice(); }
 	function toggleSelection(selected, name) { var next = selected.slice(), index = next.indexOf(name); if (index >= 0) next.splice(index, 1); else next.push(name); return next; }
-	function selectionPresentation(names, selected) { var series = {}; names.forEach(function (name) { var active = selected.indexOf(name) >= 0; series[name] = {selected: active, buttonClass: active ? 'btn-primary' : 'btn-default', ariaPressed: active ? 'true' : 'false'}; }); return {bulkClass: 'btn-default', bulkAriaPressed: null, series: series}; }
+	function selectionPresentation(names, selected) { var series = {}, all = names.length > 0 && selected.length === names.length, none = selected.length === 0; names.forEach(function (name) { var active = selected.indexOf(name) >= 0; series[name] = {selected: active, buttonClass: active ? 'cc-series-active' : 'cc-series-neutral', ariaPressed: active ? 'true' : 'false'}; }); return {selectAllActive: all, unselectAllActive: none, selectAllClass: all ? 'cc-series-active' : 'cc-series-neutral', unselectAllClass: none ? 'cc-series-active' : 'cc-series-neutral', series: series}; }
 	function isCurrentResult(current, requested) { return current === requested; }
 	function describe(chart) { return !chart.series.length ? 'Concurrency chart with no selected series' : 'Concurrency chart with ' + chart.series.length + ' selected series and peak ' + chart.exactPeak; }
 	function HistoricalSvgChart(image, overlay, tooltip, options) {
@@ -176,8 +195,8 @@
 	HistoricalSvgChart.prototype.setSeries = function (specs, domain, metadata) { this.chart = multiModel(specs, domain); this.metadata = metadata || {}; this.svgDocument = documentFor(this.chart, this.metadata); if (this.objectUrl) this.revokeImageUrl(this.objectUrl); this.objectUrl = this.createImageUrl(this.svgDocument); this.image.alt = describe(this.chart); this.image.src = this.objectUrl; };
 	HistoricalSvgChart.prototype.setData = function (points, threshold, domain, exactPeak, metadata) { this.setSeries([{name: 'series', label: 'Series', points: points, threshold: threshold, exactPeak: exactPeak}], domain, metadata); };
 	HistoricalSvgChart.prototype.pointerCoordinates = function (event) { var rect = this.overlay.getBoundingClientRect(); if (rect.width <= 0 || rect.height <= 0) return {x: PLOT.left, y: PLOT.bottom}; return {x: Math.max(PLOT.left, Math.min(PLOT.right, ((event.clientX - rect.left) / rect.width) * WIDTH)), y: Math.max(PLOT.top, Math.min(PLOT.bottom, ((event.clientY - rect.top) / rect.height) * this.chart.height))}; };
-	HistoricalSvgChart.prototype.candidate = function (event) { if (!this.chart) return null; var coordinates = this.pointerCoordinates(event); return nearestSeriesPoint(this.chart, coordinates.x, coordinates.y); };
-	HistoricalSvgChart.prototype.onPointer = function (event) { var candidate = this.candidate(event); if (!candidate) return; var rect = this.overlay.getBoundingClientRect(); this.tooltip.style.display = 'block'; this.tooltip.style.left = Math.max(0, Math.min(rect.width, event.clientX - rect.left)) + 'px'; this.tooltip.style.top = Math.max(0, Math.min(rect.height, event.clientY - rect.top) - 12) + 'px'; this.tooltip.textContent = candidate.seriesLabel + ' · ' + pointTimestamp(candidate.point.ts, this.chart.maxTs - this.chart.minTs) + '  ' + candidate.point.value; };
+	HistoricalSvgChart.prototype.candidate = function (event) { if (!this.chart) return null; var coordinates = this.pointerCoordinates(event), candidate = nearestSeriesPoint(this.chart, coordinates.x, coordinates.y); return candidate && Number(candidate.point.value) > 0 && candidate.distance <= 1.5 ? candidate : null; };
+	HistoricalSvgChart.prototype.onPointer = function (event) { var candidate = this.candidate(event); if (!candidate) { this.tooltip.style.display = 'none'; if (this.overlay.style) this.overlay.style.cursor = 'default'; return; } if (this.overlay.style) this.overlay.style.cursor = 'pointer'; var rect = this.overlay.getBoundingClientRect(); this.tooltip.style.display = 'block'; this.tooltip.style.left = Math.max(0, Math.min(rect.width, event.clientX - rect.left)) + 'px'; this.tooltip.style.top = Math.max(0, Math.min(rect.height, event.clientY - rect.top) - 12) + 'px'; this.tooltip.textContent = candidate.seriesLabel + ' · ' + pointTimestamp(candidate.point.ts, this.chart.maxTs - this.chart.minTs) + '  ' + candidate.point.value; };
 	HistoricalSvgChart.prototype.onLeave = function () { this.tooltip.style.display = 'none'; };
 	HistoricalSvgChart.prototype.onClick = function (event) { var candidate = this.candidate(event); if (candidate && typeof this.options.onSelect === 'function') this.options.onSelect(candidate.seriesName, candidate.point); };
 	HistoricalSvgChart.prototype.destroy = function () { this.overlay.removeEventListener('mousemove', this.onPointer); this.overlay.removeEventListener('mouseleave', this.onLeave); this.overlay.removeEventListener('click', this.onClick); if (this.objectUrl) this.revokeImageUrl(this.objectUrl); this.image.removeAttribute('src'); this.tooltip.style.display = 'none'; this.chart = null; this.metadata = {}; this.svgDocument = ''; this.objectUrl = null; };
