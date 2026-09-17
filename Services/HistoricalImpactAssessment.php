@@ -55,7 +55,7 @@ class HistoricalImpactAssessment {
 		$high = $windowSustained && $count > 0 && count(array_filter($this->samples, function ($s) { return $s['concern']; })) / $count >= .75;
 		$moderate = count(array_filter($this->samples, function ($s) { return $s['pressure']; })) > 0;
 		$available = count(array_filter($this->samples, function ($s) { return $s['available']; })) >= max(10, (int)ceil($count * .75));
-		$status = !$complete ? ($critical ? 'Critical' : 'Assessing...') : (!$available || !$windowSustained ? 'Unable to assess' : (($high || $critical) ? 'High' : ($moderate ? 'Moderate' : 'Low')));
+		$status = !$forcedComplete && $critical ? 'Critical' : (!$complete ? 'Assessing...' : (!$available || !$windowSustained ? 'Unable to assess' : (($high || $critical) ? 'High' : ($moderate ? 'Moderate' : 'Low'))));
 		return $this->lastClassification = ['impact_status' => $status, 'impact_assessment_complete' => $complete,
 			'impact_reason' => !$available ? 'Resource measurements unavailable; impact cannot be established.' : ($high || $critical ? 'Potentially concerning PBX impact was observed while this calculation was running.' : 'No sustained concerning degradation observed in available measurements.'),
 			'impact_metrics_available' => $available];

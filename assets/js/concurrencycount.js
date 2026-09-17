@@ -67,7 +67,9 @@ window._ccLoaded = true;
 	var historicalReports = {}; // id -> report instance (definition + transient result/UI cache)
 	var historicalReportOrder = [];
 	var historicalOrderSaver = null;
+	var historicalOrderRecovery = null;
 	var historicalOrderConfirmed = [];
+	var historicalMutationGuard = window.CCHistoricalReportOrder.createGenerationGuard();
 	var grabbedHistoricalReport = null;
 	var grabbedHistoricalSnapshot = null;
 	var activeReportId = null;
@@ -1085,20 +1087,32 @@ window._ccLoaded = true;
 	function persistHistoricalReportOrder() {
 		if (!historicalOrderSaver) historicalOrderSaver = window.CCHistoricalReportOrder.createSaver(function (order, complete) {
 			ajax({command:'reorderhistoricalreports', ids:JSON.stringify(order)}).done(function (response) { complete(null, response); }).fail(function () { complete('Unable to save report order.'); });
-		}, function (order) { historicalOrderConfirmed = order.slice(); }, function (message) { reconcileHistoricalReportOrder(message); });
-		historicalOrderSaver.request(historicalReportOrder);
+		}, function (order, response, generation) {
+			historicalOrderConfirmed = order.slice();
+			if (!historicalMutationGuard.isCurrent(generation)) return;
+			historicalReportOrder = window.CCHistoricalReportOrder.restorePersistedOrder(order, historicalReportOrder, historicalReports);
+			renderTopReportTabs();
+		}, function (message, order, generation) { reconcileHistoricalReportOrder(message, generation); });
+		historicalOrderSaver.request(historicalReportOrder, historicalMutationGuard.current());
 	}
-	function reconcileHistoricalReportOrder(message) {
+	function reconcileHistoricalReportOrder(message, failedGeneration) {
 		setStatus(message + ' Reloading the saved order.', 'error');
-		ajax({command:'listhistoricalreports'}).done(function (response) {
-			if (!response.status) return;
-			historicalReportOrder = (response.reports || []).map(function (report) { return String(report.id); }).filter(function (id) { return !!historicalReports[id]; });
-			historicalOrderConfirmed = historicalReportOrder.slice(); renderTopReportTabs();
+		if (!historicalOrderRecovery) historicalOrderRecovery = window.CCHistoricalReportOrder.createRecovery(function (complete) {
+			ajax({command:'listhistoricalreports'}).done(function (response) { complete(null, response); }).fail(function () { complete('Unable to reload saved reports.'); });
+		}, function () { return historicalMutationGuard.current(); }, function (response) {
+			var reconciled = window.CCHistoricalReportOrder.reconcileInventory(historicalReports, response.reports || [], activeReportId);
+			historicalReports = reconciled.reports;
+			historicalReportOrder = reconciled.order;
+			historicalOrderConfirmed = historicalReportOrder.slice();
+			renderTopReportTabs();
+			if (reconciled.activeRemoved) selectTopTab(reconciled.fallbackId || 'historical');
 		});
+		historicalOrderRecovery.request(failedGeneration);
 	}
 	function moveHistoricalReport(id, offset, saveImmediately) {
 		var next = window.CCHistoricalReportOrder.move(historicalReportOrder, id, offset);
 		if (next.join('|') === historicalReportOrder.join('|')) return;
+		historicalMutationGuard.advance();
 		historicalReportOrder = next;
 		renderTopReportTabs(); if (saveImmediately !== false) persistHistoricalReportOrder();
 		$('#cc-workspace-tabs .cc-report-tab-handle[data-report-id="' + id + '"]').trigger('focus');
@@ -1232,6 +1246,7 @@ window._ccLoaded = true;
 	function closeReportTab(id) {
 		if (workspaceLockReportId) return;
 		if (!historicalReports[id]) return;
+		historicalMutationGuard.advance();
 		var closingActive = id === activeReportId;
 		ajax({command: 'closehistoricalreport', id: id}).always(function () {
 			// Client-side removal proceeds regardless of network result; this
@@ -1306,8 +1321,10 @@ window._ccLoaded = true;
 
 	function persistReportDefinition(id, definition) {
 		if (!historicalReports[id]) return;
+		historicalMutationGuard.advance();
 		ajax($.extend({command: 'updatehistoricalreport', id: id}, definition)).done(function (response) {
 			if (response.status && response.report) {
+				historicalMutationGuard.advance();
 				historicalReports[id] = $.extend(historicalReports[id], response.report);
 				renderTopReportTabs();
 			}
@@ -1542,12 +1559,14 @@ window._ccLoaded = true;
 				clearHistoricalResultUi();
 				hideWizard();
 				runTargetReportId = wizardTargetReportId;
+				historicalMutationGuard.advance();
 				ajax($.extend({command: 'updatehistoricalreport', id: wizardTargetReportId}, editedCriteria)).done(function (response) {
 					if (!response.status || !response.report) {
 						existing.calculationPending = false;
 						setStatus(response.message || 'Unable to save the report settings.', 'error');
 						return;
 					}
+					historicalMutationGuard.advance();
 					historicalReports[wizardTargetReportId] = $.extend(existing, response.report);
 					executeRun(wizardState.mode, canonical.start, canonical.end, {
 						minimum_concurrency: minimumConcurrency,
@@ -1585,11 +1604,13 @@ window._ccLoaded = true;
 			filter: wizardState.mode === 'group' ? '' : $.trim($('#cc-report-filter').val()), minimum_concurrency: minimumConcurrency, maximum_runtime_minutes: maximumRuntimeMinutes
 		};
 		$('#cc-wizard-next').prop('disabled', true);
+		historicalMutationGuard.advance();
 		ajax(definition).done(function (response) {
 			if (!response.status) {
 				showError(response.message || 'Unable to create historical report.');
 				return;
 			}
+			historicalMutationGuard.advance();
 			var report = $.extend({result: null, hasRun: false, occurrenceCache: {}, graphSeries: null, firstRunPending: true}, response.report);
 			report.minimum_concurrency = minimumConcurrency;
 			report.maximum_runtime_minutes = maximumRuntimeMinutes;
@@ -1614,11 +1635,13 @@ window._ccLoaded = true;
 		report.firstRunCleanupAttempted = true;
 		$('#cc-report-loading').hide();
 		setStatus(message + ' Removing the unused saved report...', 'warning');
+		historicalMutationGuard.advance();
 		ajax({command: 'closehistoricalreport', id: targetReportId}).done(function (response) {
 			if (!response.status) {
 				failedFirstRunCleanup(report, message, response.message);
 				return;
 			}
+			historicalMutationGuard.advance();
 			delete historicalReports[targetReportId];
 			historicalReportOrder = historicalReportOrder.filter(function (candidate) { return candidate !== targetReportId; });
 			renderTopReportTabs();
@@ -2372,6 +2395,7 @@ window._ccLoaded = true;
 			e.preventDefault(); var moved = e.originalEvent.dataTransfer.getData('text/plain'), target = String($(this).data('target'));
 			var rect = this.getBoundingClientRect(), after = e.originalEvent.clientX >= rect.left + rect.width / 2;
 			var reordered = window.CCHistoricalReportOrder.drop(historicalReportOrder, moved, target, after); if (reordered.join('|') === historicalReportOrder.join('|')) return;
+			historicalMutationGuard.advance();
 			historicalReportOrder = reordered;
 			renderTopReportTabs(); persistHistoricalReportOrder();
 		}).off('dragend.ccTabs', '.cc-report-tab-handle').on('dragend.ccTabs', '.cc-report-tab-handle', function () {

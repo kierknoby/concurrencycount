@@ -1892,54 +1892,60 @@ class Concurrencycount implements \BMO {
 	}
 
 	protected function buildPeakDetailsFromRows(string $trunk, string $start, string $end, string $occurrence_from, string $occurrence_to, array $sourceRows, array $detailRows, \FreePBX\modules\Concurrencycount\Services\PjsipIdentityService $identity, array $exclusions): array {
-		$eligible = function (array $rows) use ($start, $end, $exclusions): array {
-			$rows = \FreePBX\modules\Concurrencycount\Services\HistoricalCdrEligibility::filter($rows);
-			$rows = array_values(array_filter($rows, function ($row) use ($start, $end) { $at = (string)($row['calldate'] ?? ''); return $at >= $start && $at <= $end; }));
-			return $this->getHistoricalCallExclusionService()->filterRows($rows, $exclusions);
-		};
-		$compact_rows = $this->classifyPerNameRows($eligible($sourceRows), 'trunk', $identity)['rows'];
+		$compact_rows = $this->classifyPerNameRows($this->eligiblePeakDetailRows($sourceRows, $start, $end, $exclusions), 'trunk', $identity)['rows'];
+		$details = $this->buildPeakDetailsForOccurrencesFromRows($trunk, [['from' => $occurrence_from, 'to' => $occurrence_to]], $compact_rows,
+			[$this->eligiblePeakDetailRows($detailRows, $start, $end, $exclusions)]);
+		return $details[0];
+	}
+
+	private function eligiblePeakDetailRows(array $rows, string $start, string $end, array $exclusions): array {
+		$rows = \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::excludeReservedRows($rows);
+		$rows = \FreePBX\modules\Concurrencycount\Services\HistoricalCdrEligibility::filter($rows);
+		$rows = array_values(array_filter($rows, function ($row) use ($start, $end) { $at = (string)($row['calldate'] ?? ''); return $at >= $start && $at <= $end; }));
+		return $this->getHistoricalCallExclusionService()->filterRows($rows, $exclusions);
+	}
+
+	protected function buildPeakDetailsForOccurrencesFromRows(string $trunk, array $requestedOccurrences, array $compact_rows, array $detailRowsByOccurrence): array {
 		$compact_rows = array_values(array_filter($compact_rows, function ($row) use ($trunk) { return isset($row['identity']) && hash_equals($trunk, $row['identity']); }));
 		$analyser = new \FreePBX\modules\Concurrencycount\Analyzers\PeakDetailAnalyser();
 		$analysis = $analyser->analyseTrunk($compact_rows, $trunk);
-		$selected = null;
+		$available = [];
 		foreach ($analysis['occurrences'] as $occurrence) {
-			if ($occurrence['from'] === $occurrence_from && $occurrence['to'] === $occurrence_to) {
-				$selected = $occurrence;
-				break;
-			}
+			$available[$occurrence['from'] . "\n" . $occurrence['to']] = $occurrence;
 		}
-		if ($selected === null) {
-			throw new \InvalidArgumentException(_('Peak occurrence is no longer present in the selected report data.'));
-		}
-
-		$rows = $eligible($detailRows);
-		$legs = [];
-		foreach ($rows as $row) {
-			$channel_match = $this->channelMatchesTrunk(isset($row['channel']) ? $row['channel'] : '', $trunk);
-			$destination_match = $this->channelMatchesTrunk(isset($row['dstchannel']) ? $row['dstchannel'] : '', $trunk);
-			$direction = $this->classifyTrunkLeg($channel_match, $destination_match);
-			if ($channel_match) {
-				$legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['channel'], 'identity' => $trunk, 'direction' => $direction, 'cdr' => $row];
-			}
-			if ($destination_match) {
-				$legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['dstchannel'], 'identity' => $trunk, 'direction' => $direction, 'cdr' => $row];
-			}
+		$selected = [];
+		foreach ($requestedOccurrences as $requested) {
+			$key = (string)($requested['from'] ?? '') . "\n" . (string)($requested['to'] ?? '');
+			if (!isset($available[$key])) throw new \InvalidArgumentException(_('Peak occurrence is no longer present in the selected report data.'));
+			$selected[] = $available[$key];
 		}
 
-		$calls = [];
-		$directions = ['inbound' => 0, 'outbound' => 0, 'unknown' => 0];
-		foreach ($legs as $leg) {
-			$leg_start = strtotime($leg['calldate']);
-			$leg_end = $leg_start + (int)$leg['duration'];
-			if ($leg_start > strtotime($occurrence_to) || $leg_end < strtotime($occurrence_from)) continue;
-			$call = $this->formatPeakCall($leg, $trunk);
-			$calls[] = $call;
-			$directions[$call['direction']]++;
+		$details = [];
+		foreach ($selected as $index => $occurrence) {
+			$legs = [];
+			foreach (($detailRowsByOccurrence[$index] ?? []) as $row) {
+				$channel_match = $this->channelMatchesTrunk(isset($row['channel']) ? $row['channel'] : '', $trunk);
+				$destination_match = $this->channelMatchesTrunk(isset($row['dstchannel']) ? $row['dstchannel'] : '', $trunk);
+				$direction = $this->classifyTrunkLeg($channel_match, $destination_match);
+				if ($channel_match) $legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['channel'], 'identity' => $trunk, 'direction' => $direction, 'cdr' => $row];
+				if ($destination_match) $legs[] = ['calldate' => $row['calldate'], 'duration' => $row['duration'], 'chan' => $row['dstchannel'], 'identity' => $trunk, 'direction' => $direction, 'cdr' => $row];
+			}
+			$calls = [];
+			$directions = ['inbound' => 0, 'outbound' => 0, 'unknown' => 0];
+			foreach ($legs as $leg) {
+				$leg_start = strtotime($leg['calldate']);
+				$leg_end = $leg_start + (int)$leg['duration'];
+				if ($leg_start > strtotime($occurrence['to']) || $leg_end < strtotime($occurrence['from'])) continue;
+				$call = $this->formatPeakCall($leg, $trunk);
+				$calls[] = $call;
+				$directions[$call['direction']]++;
+			}
+			unset($occurrence['row_indexes']);
+			$occurrence['calls'] = $calls;
+			$occurrence['direction_counts'] = $directions;
+			$details[] = $occurrence;
 		}
-		unset($selected['row_indexes']);
-		$selected['calls'] = $calls;
-		$selected['direction_counts'] = $directions;
-		return $selected;
+		return $details;
 	}
 
 	private function channelMatchesTrunk($channel, string $trunk): bool {
@@ -1954,12 +1960,12 @@ class Concurrencycount implements \BMO {
 		return $channel_match ? 'inbound' : 'outbound';
 	}
 
-	private function fetchTrunkDetailRows(string $trunk, string $start, string $end, string $occurrence_from, string $occurrence_to): array {
+	protected function fetchTrunkDetailRows(string $trunk, string $start, string $end, string $occurrence_from, string $occurrence_to): array {
 		$available = [];
 		foreach ($this->getCdrColumns() as $column) {
 			if (isset($column['Field'])) $available[$column['Field']] = true;
 		}
-		$wanted = ['calldate', 'clid', 'src', 'did', 'dst', 'dcontext', 'channel', 'dstchannel', 'lastapp', 'lastdata', 'duration', 'billsec', 'disposition', 'uniqueid', 'linkedid', 'recordingfile'];
+		$wanted = ['calldate', 'clid', 'src', 'did', 'dst', 'dcontext', 'channel', 'dstchannel', 'lastapp', 'lastdata', 'duration', 'billsec', 'disposition', 'uniqueid', 'linkedid', 'recordingfile', 'accountcode'];
 		$select = [];
 		foreach ($wanted as $field) {
 			if (isset($available[$field])) $select[] = '`' . $field . '`';
@@ -1969,6 +1975,7 @@ class Concurrencycount implements \BMO {
 		}
 		$sql = 'SELECT ' . implode(', ', $select) . " FROM cdr
 			WHERE disposition = 'ANSWERED' AND duration > 0 AND calldate BETWEEN :start AND :end
+			" . \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::ordinarySqlPredicate() . "
 			AND (channel LIKE :trunk_channel OR dstchannel LIKE :trunk_destination)
 			AND calldate <= :occurrence_to
 			AND TIMESTAMPADD(SECOND, duration, calldate) >= :occurrence_from
@@ -2386,9 +2393,9 @@ class Concurrencycount implements \BMO {
 			}
 		} finally {
 			try {
-				$this->workerWork = [0, max(1, $inserted), 'demo-cleanup']; $this->workerCheckpoint();
+				$this->workerWork = [0, max(1, $inserted), 'demo-cleanup'];
 				$cleanup = $this->cleanupDemoCdrRows($accountcode);
-				$this->workerWork = [$cleanup['rows_removed'], max(1, $inserted), 'demo-cleanup']; $this->workerCheckpoint();
+				$this->workerWork = [$cleanup['rows_removed'], max(1, $inserted), 'demo-cleanup'];
 				if ($cleanup['cleanup_remaining'] > 0) throw new \Exception(sprintf(_('Demo cleanup incomplete: %d synthetic CDR rows remain.'), $cleanup['cleanup_remaining']));
 				$this->getSettingsRepository()->delete($demoRegistryKey);
 			} finally {
@@ -2964,7 +2971,7 @@ class Concurrencycount implements \BMO {
 		return $ranges;
 	}
 
-	private function fetchPjsipCdrRows(string $start, string $end, string $accountcode = ''): array {
+	protected function fetchPjsipCdrRows(string $start, string $end, string $accountcode = ''): array {
 		$account_filter = $accountcode !== '' ? ' AND accountcode = :accountcode' : \FreePBX\modules\Concurrencycount\Services\DemoCleanupService::ordinarySqlPredicate();
 		$this->workerCheckpoint();
 		$capabilities = $this->configureHistoricalQueryDeadline();
@@ -3201,7 +3208,7 @@ class Concurrencycount implements \BMO {
 
 		$fh = fopen('php://temp', 'r+');
 		foreach ($rows as $row) {
-			fputcsv($fh, $row);
+			fputcsv($fh, array_map([$this, 'safeCsvCell'], $row));
 		}
 		rewind($fh);
 		$csv = stream_get_contents($fh);
@@ -3213,6 +3220,12 @@ class Concurrencycount implements \BMO {
 		// The BOM also tells Excel to use comma as the separator across
 		// most locales, even ones where the default separator is semicolon.
 		return "\xEF\xBB\xBF" . $csv;
+	}
+
+	private function safeCsvCell($value) {
+		if (!is_string($value) || !preg_match('/\A[\x00-\x20]*[=+\-@]/D', $value)) return $value;
+		if (preg_match('/\A\+[0-9]{7,15}\z/D', $value)) return $value;
+		return "'" . $value;
 	}
 
 	private function streamDownload(): void {
@@ -3246,10 +3259,17 @@ class Concurrencycount implements \BMO {
 
 	protected function attachTrunkPeakEvidence(array $results): array {
 		$results['peak_evidence'] = [];
+		$identity = $this->getPjsipIdentityService();
+		$exclusions = $this->getHistoricalCallExclusions();
+		$sourceRows = $this->eligiblePeakDetailRows($this->fetchPjsipCdrRows($results['start'], $results['end']), $results['start'], $results['end'], $exclusions);
+		$compactRows = $this->classifyPerNameRows($sourceRows, 'trunk', $identity)['rows'];
 		foreach (($results['peak_occurrences'] ?? []) as $trunk => $occurrences) {
+			if (empty($occurrences)) continue;
+			$detailRowsByOccurrence = [];
 			foreach ($occurrences as $occurrence) {
-				$results['peak_evidence'][$trunk][] = $this->buildPeakDetails((string)$trunk, $results['start'], $results['end'], $occurrence['from'], $occurrence['to']);
+				$detailRowsByOccurrence[] = $this->eligiblePeakDetailRows($this->fetchTrunkDetailRows((string)$trunk, $results['start'], $results['end'], $occurrence['from'], $occurrence['to']), $results['start'], $results['end'], $exclusions);
 			}
+			$results['peak_evidence'][$trunk] = $this->buildPeakDetailsForOccurrencesFromRows((string)$trunk, $occurrences, $compactRows, $detailRowsByOccurrence);
 		}
 		return $results;
 	}
@@ -3328,7 +3348,7 @@ class Concurrencycount implements \BMO {
 
 		$fh = fopen('php://temp', 'r+');
 		foreach ($out as $row) {
-			fputcsv($fh, $row);
+			fputcsv($fh, array_map([$this, 'safeCsvCell'], $row));
 		}
 		rewind($fh);
 		$csv = stream_get_contents($fh);

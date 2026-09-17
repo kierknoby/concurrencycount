@@ -431,7 +431,7 @@ Not persisted:
 - lazy occurrence call detail;
 - browser-only occurrence expansion and disclosure state after a full reload.
 
-Reopening the module restores tab definitions, regenerates the previously active report first, and regenerates others on demand. Historic Report definitions, endpoint classifications, call exclusions, Live/module preferences, thresholds and alert state are persisted in module settings; Historical result payloads are not.
+Reopening the module restores tab definitions without replaying result payloads; each report regenerates on demand when selected. Historic Report definitions, endpoint classifications, call exclusions, Live/module preferences, thresholds and alert state are persisted in module settings; Historical result payloads are not.
 
 ### Graphs, call detail and output
 

@@ -45,6 +45,17 @@
 			refresh(ready, failed);
 		}
 	};
+	root.CCTestEmailLifecycle = {
+		create: function () {
+			var sequence = 0, recipient = '';
+			function normalise(value) { return String(value === null || value === undefined ? '' : value).trim(); }
+			return {
+				reset: function (value) { recipient = normalise(value); sequence++; },
+				begin: function (value) { recipient = normalise(value); return {sequence:++sequence, recipient:recipient}; },
+				accepts: function (request, value) { return !!request && request.sequence === sequence && request.recipient === normalise(value) && recipient === normalise(value); }
+			};
+		}
+	};
 	root.CCLiveWallPresentation = {
 		supportsViewport: function (viewportWidth) { return Number(viewportWidth) >= 768; },
 		normaliseTheme: function (theme) { return theme === 'light' ? 'light' : 'dark'; },
@@ -90,6 +101,7 @@ window._ccLiveLoaded = true;
 	var historicalSelectedSeries = [];
 	var continueToLiveWallAfterSave = false;
 	var wallTheme = 'dark';
+	var testEmailLifecycle = window.CCTestEmailLifecycle.create();
 
 	function ajax(params) {
 		params = $.extend({}, params, {token: $('.concurrencycount').first().attr('data-csrf-token') || $('input[name="token"]').first().val() || ''});
@@ -128,6 +140,7 @@ window._ccLiveLoaded = true;
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-test-alert-email').off('click.ccLive').on('click.ccLive', testAlertEmail);
+		$('#cc-setting-email').off('input.ccLive change.ccLive').on('input.ccLive change.ccLive', function () { resetTestEmailFeedback($(this).val()); });
 		$('#cc-live-overall-value').off('click.ccLive').on('click.ccLive', function () { showCalls('Overall live PJSIP trunk activity', snapshot ? snapshot.overall.calls : []); });
 		$(document).off('visibilitychange.ccLive').on('visibilitychange.ccLive', onVisibilityChange);
 		$(window).off('beforeunload.ccLive').on('beforeunload.ccLive', stopPolling);
@@ -785,6 +798,7 @@ window._ccLiveLoaded = true;
 		}
 		$('#cc-setting-refresh').val(String(settings.refresh_interval));
 		$('#cc-setting-email').val(settings.alert_email || '');
+		resetTestEmailFeedback(settings.alert_email || '');
 		$('#cc-setting-alerts').prop('checked', !!settings.alerts_enabled);
 		$('#cc-setting-recovery').prop('checked', !!settings.recovery_enabled);
 		var rows = [scopeRow('overall', 'Overall Live Concurrency', settings.overall)];
@@ -827,10 +841,20 @@ window._ccLiveLoaded = true;
 
 	function testAlertEmail() {
 		var button = $('#cc-test-alert-email').prop('disabled', true), recipient = $('#cc-setting-email').val().trim();
+		var testRequest = testEmailLifecycle.begin(recipient);
 		$('#cc-alert-email-status').removeClass('text-danger text-success').text('Sending test email...');
 		ajax({command:'testalertemail', recipient:recipient}).done(function(response) {
+			if (!testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) return;
 			$('#cc-alert-email-status').text(response.message || (response.status ? 'Test alert email sent successfully.' : 'Test email failed.')).toggleClass('text-success', !!response.status).toggleClass('text-danger', !response.status);
-		}).fail(function(){ $('#cc-alert-email-status').addClass('text-danger').text('Test email request failed.'); }).always(function(){ button.prop('disabled', false); });
+		}).fail(function(){
+			if (testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) $('#cc-alert-email-status').addClass('text-danger').text('Test email request failed.');
+		}).always(function(){ if (testEmailLifecycle.accepts(testRequest, $('#cc-setting-email').val())) button.prop('disabled', false); });
+	}
+
+	function resetTestEmailFeedback(recipient) {
+		testEmailLifecycle.reset(recipient);
+		$('#cc-alert-email-status').removeClass('text-danger text-success').text('');
+		$('#cc-test-alert-email').prop('disabled', false);
 	}
 
 	function scopeRow(scope, label, config) {

@@ -20,15 +20,60 @@
 		var busy = false, pending = null;
 		function drain() {
 			if (busy || !pending) return;
-			var order = pending.slice(); pending = null; busy = true;
-			send(order, function (error, response) {
+			var request = pending; pending = null; busy = true;
+			send(request.order, function (error, response) {
 				busy = false;
-				if (error || !response || !response.status) { pending = null; failed(error || (response && response.message) || 'Unable to save report order.'); }
-				else saved(order, response);
+				if (error || !response || !response.status) failed(error || (response && response.message) || 'Unable to save report order.', request.order, request.context);
+				else saved(request.order, response, request.context);
+				drain();
+			}, request.context);
+		}
+		return {request:function (order, context) { pending = {order:order.slice(), context:context}; drain(); }, isBusy:function () { return busy; }};
+	}
+	function reconcileInventory(localReports, authoritativeReports, activeId) {
+		var reports = {}, order = [];
+		(authoritativeReports || []).forEach(function (authoritative) {
+			if (!authoritative || authoritative.id === undefined || authoritative.id === null) return;
+			var id = String(authoritative.id), merged = {}, existing = localReports[id] || {};
+			Object.keys(existing).forEach(function (key) { merged[key] = existing[key]; });
+			merged.result = existing.result || null;
+			merged.hasRun = !!existing.hasRun;
+			merged.occurrenceCache = existing.occurrenceCache || {};
+			merged.graphSeries = existing.graphSeries || null;
+			Object.keys(authoritative).forEach(function (key) { merged[key] = authoritative[key]; });
+			merged.id = id;
+			reports[id] = merged; order.push(id);
+		});
+		var current = activeId === null || activeId === undefined ? null : String(activeId);
+		return {reports:reports, order:order, activeRemoved:current !== null && !reports[current], fallbackId:order.length ? order[0] : null};
+	}
+	function restorePersistedOrder(persistedOrder, currentOrder, reports) {
+		var restored = [], seen = {};
+		(persistedOrder || []).concat(currentOrder || []).forEach(function (candidate) {
+			var id = String(candidate);
+			if (!seen[id] && reports[id]) { seen[id] = true; restored.push(id); }
+		});
+		return restored;
+	}
+	function createGenerationGuard() {
+		var generation = 0;
+		return {current:function () { return generation; }, advance:function () { generation++; return generation; }, isCurrent:function (candidate) { return candidate === generation; }};
+	}
+	function createRecovery(load, currentGeneration, apply) {
+		var busy = false, pendingGeneration = null;
+		function drain() {
+			if (busy || pendingGeneration === null) return;
+			var generation = pendingGeneration; pendingGeneration = null; busy = true;
+			load(function (error, response) {
+				busy = false;
+				if (!error && response && response.status) {
+					if (generation === currentGeneration()) apply(response);
+					else pendingGeneration = currentGeneration();
+				}
 				drain();
 			});
 		}
-		return {request:function (order) { pending = order.slice(); drain(); }, isBusy:function () { return busy; }};
+		return {request:function (generation) { pendingGeneration = generation === undefined ? currentGeneration() : generation; drain(); }, isBusy:function () { return busy; }};
 	}
-	return {move:move, drop:drop, createSaver:createSaver};
+	return {move:move, drop:drop, createSaver:createSaver, reconcileInventory:reconcileInventory, restorePersistedOrder:restorePersistedOrder, createGenerationGuard:createGenerationGuard, createRecovery:createRecovery};
 }));
