@@ -1,6 +1,6 @@
 # Concurrency Count 2.2.1 — NOT CURRENTLY SUITABLE FOR PRODUCTION
 
-**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 17 SEPTEMBER 2026.**
+**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-2_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-2_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 17 SEPTEMBER 2026.**
 
 ## Overview
 
