@@ -13,7 +13,7 @@ function contract_assert($condition, $message) {
 }
 
 contract_assert((string)$module->version === '2.2.1', 'Unexpected module version');
-contract_assert(strpos((string)$module->changelog, '*2.2.1 (16 September 2026)*') !== false, '2.2.1 release date missing');
+contract_assert(strpos((string)$module->changelog, '*2.2.1 (17 September 2026)*') !== false, '2.2.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.0 (15 September 2026)*') !== false, '2.2.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.1.1 (28 August 2026)*') !== false, '2.1.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.1.0 (27 August 2026)*') !== false, '2.1.0 release date missing');

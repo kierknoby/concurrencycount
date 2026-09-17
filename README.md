@@ -1,6 +1,6 @@
 # Concurrency Count 2.2.1 — NOT CURRENTLY SUITABLE FOR PRODUCTION
 
-**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 16 SEPTEMBER 2026.**
+**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-1_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-1_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 17 SEPTEMBER 2026.**
 
 ## Overview
 
@@ -354,7 +354,7 @@ While a calculation is active, its engine appears in the panel heading opposite 
 
 ETA remains **Calculating...** for at least 300 seconds. After that it appears only when at least ten recent forward-progress samples in one meaningful engine stage have throughput variation within the deterministic 15% stability limit, sufficient work has completed, and no pause, long stall, backwards movement or stage transition has contaminated the sample. Public confidence is **High**, **Calculating...** or **Insufficient**; a positive estimate below one second remains **< 1 second**.
 
-The complete five-minute window samples lightweight system and calculation evidence for **PBX Protection**. Its persisted module-owned threshold applies to Historical and Demo, defaults to 90% and is restricted to 50–95%; it is a CPU or memory headroom input, independent of Live thresholds, and not the classifier by itself. High requires concerning evidence in at least three quarters of that complete window, so isolated transients do not dominate and early sustained pressure cannot disappear during a quiet final minute. A separate recent one-minute window supports early Critical detection. The classifier considers sustained CPU pressure, change from the starting baseline while PHP or report database work is active, memory availability, swap activity, I/O wait/pressure and the report's observed query response. One transient CPU spike cannot produce High or Critical. Low and Moderate continue after five minutes. High pauses for an administrator decision. Acute memory exhaustion or sustained extreme CPU, I/O or swap pressure can pause as Critical earlier. The wording describes correlation observed while the calculation ran and does not claim exclusive causation.
+The complete five-minute window samples lightweight system and calculation evidence for **PBX Protection**. Its persisted module-owned threshold applies to Historical and Demo, defaults to 90% and is restricted to 50–95%; it is a CPU or memory headroom input, independent of Live thresholds, and not the classifier by itself. High requires concerning evidence in at least three quarters of that complete window, so isolated transients do not dominate and early sustained pressure cannot disappear during a quiet final minute. A separate recent one-minute window supports Critical detection. The classifier considers sustained CPU pressure, change from the starting baseline while PHP or report database work is active, memory availability, swap activity, I/O wait/pressure and the report's observed query response. One transient CPU spike cannot produce High or Critical. Low and Moderate continue after five minutes. High pauses for an administrator decision. Acute memory exhaustion or sustained extreme CPU, I/O or swap pressure can cause a Critical protective pause at any point during an active calculation, including after the initial five-minute assessment window. Completed presentation remains Low, Moderate, High or Unable to assess. The wording describes correlation observed while the calculation ran and does not claim exclusive causation.
 
 #### Runtime enforcement and memory
 
@@ -694,10 +694,12 @@ php tests/AmiChannelSourceTest.php
 php tests/CdrgenAdapterTest.php
 php tests/CdrgenBundleIntegrityTest.php
 php tests/CliCancellationControlTest.php
+php tests/CsvFormulaSafetyTest.php
 php tests/DemoCleanupServiceTest.php
 php tests/DemoDiskGuardTest.php
 php tests/DemoExpectedTrafficTest.php
 php tests/DemoLegacyPreflightTest.php
+php tests/DemoLifecycleCleanupTest.php
 php tests/DemoSyntheticCallCollectionTest.php
 php tests/DemoTerminalCleanupTest.php
 php tests/EngineParityTest.php
@@ -708,6 +710,7 @@ php tests/HistoricalCalculationControlTest.php
 php tests/HistoricalCallExclusionServiceTest.php
 php tests/HistoricalCdrAcquisitionTest.php
 php tests/HistoricalCdrEligibilityTest.php
+php tests/HistoricalCriticalWorkerTest.php
 php tests/HistoricalDatabaseCapabilitiesTest.php
 php tests/HistoricalEndpointFilterServiceTest.php
 php tests/HistoricalFloorOutputTest.php
@@ -739,6 +742,7 @@ node tests/HistoricalReportOrderTest.js
 node tests/HistoricalRunStateTest.js
 node tests/HistoricalSvgChartTest.js
 node tests/TelemetryFormatTest.js
+node tests/TestEmailLifecycleTest.js
 ```
 
 The release suite also runs any additional PHP and JavaScript test files present under `tests/`; the list above highlights the standalone contracts and the principal regression suites documented for this release.

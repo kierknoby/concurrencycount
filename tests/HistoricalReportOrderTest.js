@@ -57,7 +57,7 @@ const raceReports={'stable-1':{id:'stable-1'},'stable-2':{id:'stable-2'}};
 const raceRecovery=order.createRecovery(function(done){raceRecoveryCallbacks.push(done);},function(){return raceGeneration;},function(response){raceVisible=response.order.slice();});
 const raceSaver=order.createSaver(function(value,done){raceSaveCallbacks.push(done);},function(value,response,generation){
 	raceConfirmed=value.slice();
-	if(generation===raceGeneration)raceVisible=order.restorePersistedOrder(value,raceVisible,raceReports);
+	if(generation===raceGeneration){raceVisible=order.restorePersistedOrder(value,raceVisible,raceReports);raceGeneration++;}
 },function(message,value,generation){raceRecovery.request(generation);});
 raceSaver.request(['stable-1','stable-2'],raceGeneration);
 raceGeneration++;
@@ -76,5 +76,23 @@ raceVisible=['stable-1','stable-2'];
 raceSaver.request(['stable-2','stable-1'],raceGeneration-1);
 raceSaveCallbacks.shift()(null,{status:true});
 assert(raceVisible.join(',')==='stable-1,stable-2','A successful older save cannot overwrite a genuinely newer local reorder');
+let delayedGeneration=1,delayedVisible=['stable-2','stable-1'],delayedSaveCallbacks=[],delayedRecoveryCallbacks=[];
+const delayedRecovery=order.createRecovery(function(done){delayedRecoveryCallbacks.push(done);},function(){return delayedGeneration;},function(response){delayedVisible=response.order.slice();});
+const delayedSaver=order.createSaver(function(value,done){delayedSaveCallbacks.push(done);},function(value,response,generation){
+	if(generation===delayedGeneration){delayedVisible=order.restorePersistedOrder(value,delayedVisible,raceReports);delayedGeneration++;}
+},function(message,value,generation){delayedRecovery.request(generation);});
+delayedSaver.request(['stable-1','stable-2'],delayedGeneration);
+delayedGeneration++;
+delayedVisible=['stable-2','stable-1'];
+delayedSaver.request(delayedVisible,delayedGeneration);
+delayedSaveCallbacks.shift()('Rejected stale order.');
+delayedRecoveryCallbacks.shift()(null,{status:true,order:['stable-1','stable-2']});
+assert(delayedRecoveryCallbacks.length===1&&delayedSaver.isBusy(),'Stale recovery A starts recovery B while the newer save remains in flight');
+delayedSaveCallbacks.shift()(null,{status:true});
+assert(delayedVisible.join(',')==='stable-2,stable-1','Current-generation B success restores B before delayed recovery B returns');
+delayedRecoveryCallbacks.shift()(null,{status:true,order:['stable-1','stable-2']});
+assert(delayedVisible.join(',')==='stable-2,stable-1'&&delayedRecoveryCallbacks.length===1&&delayedRecovery.isBusy(),'Delayed recovery B is stale after successful persistence and schedules one fresh authoritative read');
+delayedRecoveryCallbacks.shift()(null,{status:true,order:['stable-2','stable-1']});
+assert(delayedVisible.join(',')==='stable-2,stable-1'&&!delayedRecovery.isBusy(),'Fresh post-persistence recovery converges without changing the persisted B order');
 assert(order.restorePersistedOrder(['stable-2','removed'],['remote','stable-1','stable-2'],{'remote':{},'stable-1':{},'stable-2':{}}).join(',')==='stable-2,remote,stable-1','Persisted-order restoration preserves remote creates and omits remote deletes');
 console.log('Historical report order tests passed');

@@ -1088,10 +1088,11 @@ window._ccLoaded = true;
 		if (!historicalOrderSaver) historicalOrderSaver = window.CCHistoricalReportOrder.createSaver(function (order, complete) {
 			ajax({command:'reorderhistoricalreports', ids:JSON.stringify(order)}).done(function (response) { complete(null, response); }).fail(function () { complete('Unable to save report order.'); });
 		}, function (order, response, generation) {
-			historicalOrderConfirmed = order.slice();
 			if (!historicalMutationGuard.isCurrent(generation)) return;
+			historicalOrderConfirmed = order.slice();
 			historicalReportOrder = window.CCHistoricalReportOrder.restorePersistedOrder(order, historicalReportOrder, historicalReports);
 			renderTopReportTabs();
+			historicalMutationGuard.advance();
 		}, function (message, order, generation) { reconcileHistoricalReportOrder(message, generation); });
 		historicalOrderSaver.request(historicalReportOrder, historicalMutationGuard.current());
 	}
