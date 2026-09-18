@@ -48,6 +48,8 @@ foreach ([
 	['  asterisk@example.com  ', 'FreePBX', 'asterisk@example.com', 'FreePBX'],
 	['<asterisk@example.com>', 'FreePBX', 'asterisk@example.com', 'FreePBX'],
 	['PBX-123 <asterisk@example.com>', 'FreePBX', 'asterisk@example.com', 'PBX-123'],
+	['PBXSRV28-LON &lt;asterisk@freepbx.uk&gt;', 'FreePBX', 'asterisk@freepbx.uk', 'PBXSRV28-LON'],
+	['JaCoTec TK-System &lt;pbx@example.com&gt;', 'FreePBX', 'pbx@example.com', 'JaCoTec TK-System'],
 	['JaCoTec TK-System <pbx@example.com>', 'FreePBX', 'pbx@example.com', 'JaCoTec TK-System'],
 	['  JaCoTec TK-System <pbx@example.com>  ', 'FreePBX', 'pbx@example.com', 'JaCoTec TK-System'],
 ] as $fixture) {
@@ -59,7 +61,11 @@ foreach ([
 	'', 'PBX <asterisk@example.com', 'PBX asterisk@example.com>',
 	'PBX <<asterisk@example.com>>', 'PBX <asterisk@example.com> <other@example.com>',
 	'PBX <asterisk@example.com> trailing',
+	'PBX &lt;asterisk@example.com', 'PBX &lt;&lt;asterisk@example.com&gt;&gt;',
 	'not-an-email', "PBX <asterisk@example.com>\r\nBcc: attacker@example.com",
+	'PBX &lt;asterisk@example.com&gt;&#13;Bcc: attacker@example.com',
+	'PBX &lt;asterisk@example.com&gt;&#10;Bcc: attacker@example.com',
+	'PBX &lt;asterisk@example.com&gt;&#13;&#10;Bcc: attacker@example.com',
 ] as $invalid) {
 	sender_assert($resolve($invalid) === ['address' => '', 'name' => ''], 'Malformed sender must be rejected: ' . str_replace(["\r", "\n"], '', $invalid));
 }

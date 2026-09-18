@@ -3632,8 +3632,9 @@ class Concurrencycount implements \BMO {
 
 	private function normaliseNotificationSenderIdentity(string $value, string $fallbackName = 'Concurrency Count'): array {
 		$invalid = ['address' => '', 'name' => ''];
-		if (preg_match('/[\r\n]/', $value)) return $invalid;
+		$value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 		$value = trim($value);
+		if (preg_match('/[\r\n]/', $value)) return $invalid;
 		if ($value === '') return $invalid;
 
 		$name = '';
