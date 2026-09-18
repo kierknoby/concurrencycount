@@ -1,5 +1,13 @@
 <?php
 
+namespace FreePBX\modules\Concurrencycount\Services {
+	// Keep unrelated host disk utilisation from deciding this terminal cleanup test.
+	function disk_total_space(string $path) { return 100 * 1024 * 1024 * 1024; }
+	function disk_free_space(string $path) { return 80 * 1024 * 1024 * 1024; }
+}
+
+namespace {
+
 if (!function_exists('_')) { function _($message) { return $message; } }
 if (!interface_exists('BMO')) { interface BMO {} }
 require_once __DIR__ . '/../Concurrencycount.class.php';
@@ -170,3 +178,4 @@ demo_lifecycle_assert($failedCleanupDb->totalRows() > 0, 'The cleanup-failure fi
 demo_lifecycle_assert(count($failedCleanupDb->registryKeys()) === 1, 'A genuine cleanup failure must preserve its stale-recovery registry entry.');
 
 echo "Demo lifecycle cleanup tests passed\n";
+}

@@ -1,5 +1,13 @@
 <?php
 
+namespace FreePBX\modules\Concurrencycount\Services {
+	// Keep unrelated host disk utilisation from deciding this legacy preflight test.
+	function disk_total_space(string $path) { return 100 * 1024 * 1024 * 1024; }
+	function disk_free_space(string $path) { return 80 * 1024 * 1024 * 1024; }
+}
+
+namespace {
+
 if (!function_exists('_')) { function _($message) { return $message; } }
 if (!interface_exists('BMO')) { interface BMO {} }
 require_once __DIR__ . '/../Concurrencycount.class.php';
@@ -75,3 +83,4 @@ foreach ([false, 'MyISAM'] as $engine) {
 }
 
 echo "Demo legacy preflight tests passed\n";
+}
