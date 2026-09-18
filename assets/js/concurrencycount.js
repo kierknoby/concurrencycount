@@ -435,9 +435,12 @@ window._ccLoaded = true;
 			);
 
 		var body = $('#cc-results-body');
+		var floorEmpty = window.CCHistoricalRunState.floorEmptyState(r);
 		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
 			body.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
+		} else if (floorEmpty) {
+			body.html(renderFloorEmptyState(floorEmpty));
 		} else if (r.mode === 'demo') {
 			renderDemo(body, r);
 		} else if (r.mode === 'group') {
@@ -445,7 +448,7 @@ window._ccLoaded = true;
 		} else {
 			renderPerName(body, r);
 		}
-		if (r.floor_notice) body.append('<p class="alert alert-info cc-floor-notice">' + escapeHtml(r.floor_notice) + '</p>');
+		if (r.floor_notice && !floorEmpty) body.append('<p class="alert alert-info cc-floor-notice">' + escapeHtml(r.floor_notice) + '</p>');
 		body.append(renderIdentityAnomalies(r.identity_anomalies || []));
 
 		renderResultWarning(r.warning);
@@ -453,6 +456,10 @@ window._ccLoaded = true;
 		$('#cc-results').show();
 		$('#cc-edit-report').toggle(!!activeReportId && r.mode !== 'demo');
 		$(document).trigger('cc:historical-results', [r]);
+	}
+
+	function renderFloorEmptyState(state) {
+		return '<section class="cc-floor-empty"><h4>' + escapeHtml(state.title) + '</h4><p>' + escapeHtml(state.message) + '</p><p class="text-muted">' + escapeHtml(state.guidance) + '</p></section>';
 	}
 
 	function renderIdentityAnomalies(anomalies) {

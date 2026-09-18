@@ -34,6 +34,20 @@
 			.replace(/[\s\u00a0]+/g, '') !== '';
 	}
 
+	function floorEmptyState(result) {
+		if (!result || result.mode === 'demo' || result.empty_message || !hasMeaningfulMessage(result.floor_notice)) return null;
+		if (result.minimum_concurrency === null || result.minimum_concurrency === undefined) return null;
+		var raw = String(result.minimum_concurrency).trim();
+		if (!/^\d+$/.test(raw)) return null;
+		var minimum = Number(raw);
+		if (!Number.isSafeInteger(minimum) || minimum < 1) return null;
+		return {
+			title: 'Minimum concurrency not reached',
+			message: 'No data to display. The configured minimum concurrency of ' + minimum + ' was not reached during this date range.',
+			guidance: 'Concurrency Count reports observed successful concurrency only. Actual capacity may be limited upstream, by carrier or trunk limits, or by other PBX modules and configuration.'
+		};
+	}
+
 	function snapshotCriteria(source) {
 		source = source || {};
 		var snapshot = {};
@@ -113,5 +127,5 @@
 		return requestPending ? 'wait' : 'load';
 	}
 
-	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, snapshotCriteria: snapshotCriteria, normaliseMinimumConcurrency: normaliseMinimumConcurrency, normaliseMaximumRuntimeMinutes: normaliseMaximumRuntimeMinutes, clearReportResult: clearReportResult, isDiscardableFirstRun: isDiscardableFirstRun, countingMessage: countingMessage, endpointChoices: endpointChoices, endpointSelectionForMode: endpointSelectionForMode, requiresEndpointInventory: requiresEndpointInventory, initialEndpointState: initialEndpointState, endpointModeAction: endpointModeAction};
+	return {isIntentionalAbort: isIntentionalAbort, shouldReportFailure: shouldReportFailure, cancellationAcknowledged: cancellationAcknowledged, isSameRun: isSameRun, hasMeaningfulMessage: hasMeaningfulMessage, floorEmptyState: floorEmptyState, snapshotCriteria: snapshotCriteria, normaliseMinimumConcurrency: normaliseMinimumConcurrency, normaliseMaximumRuntimeMinutes: normaliseMaximumRuntimeMinutes, clearReportResult: clearReportResult, isDiscardableFirstRun: isDiscardableFirstRun, countingMessage: countingMessage, endpointChoices: endpointChoices, endpointSelectionForMode: endpointSelectionForMode, requiresEndpointInventory: requiresEndpointInventory, initialEndpointState: initialEndpointState, endpointModeAction: endpointModeAction};
 }));

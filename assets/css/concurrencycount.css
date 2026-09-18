@@ -190,19 +190,22 @@ body:has(.concurrencycount) #page_body {
 	border-radius: 3px;
 }
 
-/* Desktop: compact the preset buttons so all eight fit on a single unwrapped row. */
+/* Desktop: keep all eight preset buttons evenly aligned within the Historical modal. */
 @media (min-width: 992px) {
-	.concurrencycount .cc-date-presets {
-		flex-wrap: nowrap;
-		width: 100%;
-	}
+    #cc-wizard .cc-date-presets {
+        flex-wrap: nowrap;
+        justify-content: center;
+        width: calc(100% + 6px);
+    }
 
-	.concurrencycount .cc-date-presets .cc-date-preset {
-		flex: 0 0 auto;
-		padding: 9px 14px;
-		font-size: 14px;
-		white-space: nowrap;
-	}
+    #cc-wizard .cc-date-presets .cc-date-preset {
+        flex: 1 1 0;
+        min-width: 0;
+        max-width: none;
+        padding: 9px 12px;
+        font-size: 14px;
+        white-space: nowrap;
+    }
 }
 
 .concurrencycount .cc-range-nav {

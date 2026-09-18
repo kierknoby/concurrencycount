@@ -955,7 +955,7 @@ window._ccLiveLoaded = true;
 
 	function loadHistoricalGraph(result, cachedSeries) {
 		historicalResult = result;
-		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message) {
+		if (!result || (result.mode !== 'trunk' && result.mode !== 'group') || result.empty_message || window.CCHistoricalRunState.floorEmptyState(result)) {
 			clearHistoricalGraphState();
 			$('#cc-historical-graph').hide();
 			return;
