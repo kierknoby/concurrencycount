@@ -1,6 +1,6 @@
-# Concurrency Count 2.2.1 — NOT CURRENTLY SUITABLE FOR PRODUCTION
+# Concurrency Count 2.2.2
 
-**`main` IS NOT SUITABLE FOR PRODUCTION. THE [`2-2-2_Dev`](https://github.com/kierknoby/concurrencycount/tree/2-2-2_Dev) BRANCH IS UNDER ACTIVE DEVELOPMENT. UPDATED 17 SEPTEMBER 2026.**
+Updated 18 September 2026.
 
 ## Overview
 
@@ -30,6 +30,24 @@ Historical Reports provide three different measurements:
 | **Group Concurrency** | PBX-wide simultaneous extension-side legs, independent of configured FreePBX Ring Groups. |
 
 Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
+
+### v2.2.2 highlights
+
+**Historical presentation**
+
+- Historic Reports now show a dedicated **Minimum concurrency not reached** empty state when no displayed data reaches the configured floor. Report metadata remains visible, while the normal graph, series controls, explanation and peak summary are suppressed without changing or discarding the complete underlying calculation or exact actual peak.
+
+**Demo safety and deliberate-use gate**
+
+- The previous module-wide pre-production warnings have been removed following release hardening. Demo now opens with a two-page safety warning; the administrator must acknowledge temporary synthetic CDR writes before the Demo controls are shown. Acknowledgement is required each time Demo is opened and is not a persistent setting or permission.
+- Demo requires MariaDB. Quiet-period and uninterrupted-run guidance is shown before the controls, while tagged-row exclusion, cleanup and interrupted-run recovery protections remain in effect.
+- Page 1 now also offers a **Year** selector (2001-2015, defaulting to 2001) that constrains the synthetic scenario generated for Page 2. The flow is deliberately one-way (Page 1 -> Proceed -> Page 2, no Back); Cancel and reopen Demo to change the initial setup. Year and acknowledgement are never persisted and reset on every fresh opening.
+
+**Live and notification hardening**
+
+- Live threshold values now accept only whole numbers from 0 to 10000; malformed numeric input is rejected.
+- FreePBX Email "From:" Address values support both bare addresses and `Display Name <address@example.com>` configurations, including HTML-encoded angle brackets, while preserving the configured display name.
+- PJSIP classification guidance now distinguishes configured endpoint identities from numbers that merely appeared in historical CDRs; manual classifications affect Concurrency Count only and do not modify FreePBX, Asterisk or source CDR data. Live Settings alignment is also improved.
 
 ### v2.2.1 highlights
 
@@ -285,7 +303,7 @@ Unknown or deleted endpoints seen in Historical CDRs appear as endpoint anomalie
 
 Historical Reports query candidate answered PJSIP CDR rows, remove globally excluded logical calls, classify endpoint sides, apply the selected reporting mode, and pass the same eligible dataset to Original or Sweep.
 
-**Minimum concurrency** is an inclusive output floor for Trunk, Extension, Group and Demo reports. Historic Reports default to 2 and cannot be set below 2; a value of 4 shows only detailed entities or periods whose calculated concurrency is 4 or greater. The full calculation always completes first, and the report period, completion state, calculation summary and actual peak remain visible even when no detail reaches the floor. A distinct notice separates that state from a report with no eligible Historical data. The same floor is applied to the GUI, Historical graph presentation, CSV/download, email, CLI and Demo output. Below-floor graph points are presented as gaps; the complete underlying graph calculation and actual peak remain unchanged. The floor does not affect Live View, CDR acquisition, engine calculations, assessment, telemetry, pause decisions or cleanup.
+**Minimum concurrency** is an inclusive presentation and output floor for Trunk, Extension, Group and Demo reports. Historic Reports default to 2 and cannot be set below 2; a value of 4 shows only detailed entities or periods whose calculated concurrency is 4 or greater. The complete underlying calculation still runs, and its exact actual peak is calculated and preserved internally. If some data reaches the configured minimum, normal filtered Historical presentation continues and graph points below the floor are shown as gaps. If no displayed data reaches the configured minimum, the GUI keeps the report metadata visible and shows a dedicated **Minimum concurrency not reached** empty state instead of the normal graph, legend and series controls, **What this means** explanation or normal peak summary. The empty state explains that Concurrency Count reports observed successful concurrency only and that actual capacity may be limited upstream, by carrier or trunk limits, or by other PBX modules and configuration. This remains distinct from a report with no eligible Historical data. The same floor continues to apply to CSV/download, email, CLI and Demo output. The floor does not affect Live View, CDR acquisition, engine calculations, assessment, telemetry, pause decisions or cleanup.
 
 **Maximum runtime** is stored with each Historic Report in whole minutes. It defaults to 60 minutes and accepts values from 5 through 1440. A GUI calculation starts with that saved allowance; any increase made from the administrator decision dialog applies only to the active run and does not change the report definition.
 
@@ -435,7 +453,7 @@ Reopening the module restores tab definitions without replaying result payloads;
 
 ### Graphs, call detail and output
 
-The complete Historical graph is calculated with exact numeric counts. Points below the effective Minimum concurrency floor are presented as gaps, while the actual calculated peak remains unchanged. The X axis always spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
+The complete Historical graph data is calculated with exact numeric counts, and the actual calculated peak remains unchanged by the Minimum concurrency floor. When at least one displayed value reaches the floor, lower points are presented as gaps and the X axis still spans the selected report window, so filtering or sparse activity cannot move qualifying buckets out of their true temporal position. When no displayed data reaches the floor, the GUI does not render the graph frame, legend or series controls and instead shows the dedicated **Minimum concurrency not reached** empty state; the underlying calculation and exact peak are still preserved. Graph state is derived at the selected start boundary, only changes in the displayed range affect that range, and the end-boundary state is explicit; the same inclusive call-interval rules apply. Trunk results expose occurrence timing and lazy contributing-call detail; activity-only Trunks use the same underlying result and detail data, not a reduced summary.
 
 Historical series buttons are independent selections. Every available series is selected when a fresh graph result is first rendered. **Select All** restores every available series and **Unselect All** clears the graph until at least one series is selected. Selected series share one generated SVG graph image and report-window axis, with colours distributed deterministically across the complete available-series inventory, a built-in legend and separately identified thresholds. The same finished graph can be exported as SVG, PDF, PNG or JPEG and contains exactly the currently selected series. Single-series filenames use the series name, while multiple-series filenames use a bounded count such as `15-series`.
 
@@ -567,7 +585,9 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 ## Demo
 
-Demo is an administrator/test-PBX accuracy and performance workflow. The GUI uses a **Load** dropdown to select Light, Medium or Heavy and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs. The current scenario remains stable until the profile changes or Randomise is pressed and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the GUI-selected day falls between January 2001 and November 2016, and the profiles also increase duration, overlap and burst density. Demo Minimum concurrency defaults to 2. CLI examples are:
+Demo is an administrator accuracy and performance workflow. Page 1 of the Demo modal offers an administrator-selectable **Year** (2001-2015, defaulting to 2001 on every fresh opening) alongside the safety acknowledgement; the selection is never persisted and always resets when Demo is reopened. The GUI uses a **Load** dropdown on Page 2 to select Light, Medium or Heavy and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs, constrained to the selected Year. The current scenario remains stable until the Year, Load or profile changes or Randomise is pressed, and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the scenario start day falls within the selected year, which may be any full calendar year from 2001 to 2015. A 31 December start naturally uses 1 January of the following year as the exclusive end boundary, and every profile remains exactly one day. Demo Minimum concurrency defaults to 2. CLI examples are:
+
+**Demo safety:** Demo temporarily writes tagged synthetic records to the CDR database and requires MariaDB. Reserved Demo rows are excluded from ordinary Historical reporting and are removed when the run completes, with recovery available for interrupted runs. Opening Demo always begins with a safety warning. The administrator must acknowledge that temporary synthetic records will be written before proceeding to the Demo controls; this acknowledgement is required every time Demo is opened and is not a persistent setting or permission. For best results, run Demo during a quiet period and allow calculation and cleanup to complete without interruption.
 
 For **Extension Demo** results, an assigned-CDR peak is the number of overlapping synthetic CDR records attributed to an extension at the busiest calculated point. It is a Historical/CDR-processing test value, not a measure of simultaneous physical calls or endpoint capacity. Heavy deliberately creates dense overlap and may therefore produce high per-extension assigned-CDR peaks.
 
@@ -594,7 +614,7 @@ Omitted Demo arguments retain their documented defaults. Explicit invalid Demo r
 
 `CCDEMO` followed by exactly eight lowercase hexadecimal characters is reserved for synthetic rows and is always excluded from ordinary Historical SQL and post-fetch processing. Cleanup runs in `finally`; it halves timed-out exact-tag delete batches from 1,000 rows and treats a successful batch shorter than its limit as verified exhaustion, avoiding a second full-table `COUNT(*)` scan. MariaDB `max_statement_time` covers cleanup statements. MySQL Demo is unavailable because `max_execution_time` does not cover `DELETE`; bounded batches and the two-second InnoDB lock-wait limit are retained as additional protections but are not treated as execution deadlines. A durable registry heartbeat is refreshed during an active Demo. Before each later Demo preflight or run, registry entries inactive for five minutes are recovered after fatal error, server kill, database interruption or host crash. A failed recovery remains registered for a later retry. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
 
-Demo lacks a dedicated FreePBX permission or feature flag. Treat it as an administrator/test-PBX feature.
+The Demo acknowledgement gate is a client-side deliberate-use control, not a separate FreePBX permission or authorization boundary.
 
 ## Architecture at a glance
 
@@ -615,11 +635,9 @@ Demo lacks a dedicated FreePBX permission or feature flag. Treat it as an admini
 - Live reads Asterisk through backend AMI handling; the browser has no direct AMI access.
 - Original is the default; experimental engines require explicit selection.
 
-Demo's missing permission/feature gate remains a known limitation.
-
 ## Required PBX/browser validation
 
-This is a pre-production checklist, not a claim that these checks have been completed. Exercise FreePBX 16 and 17 where available.
+This is a release validation checklist, not a claim that every supported PBX/browser combination has been exercised. Exercise FreePBX 16 and 17 where available.
 
 ### Historical
 
@@ -634,6 +652,7 @@ This is a pre-production checklist, not a claim that these checks have been comp
 - Run safe and unsafe Demo preflights. Confirm unsafe preflight inserts zero rows, including with the database filesystem nearly full in a controlled test environment.
 - On legacy MariaDB 5.5.65 with an InnoDB CDR table and suitable `accountcode` index, run Demo through generation, calculation and cleanup; confirm bounded cleanup completes with zero `CCDEMO*` rows and no unsupported `@@log_bin_basename` access when binary logging does not require it.
 - Run Light, Medium and Heavy Demo profiles from the **Load** dropdown and confirm they request exactly 1,000, 5,000 and 20,000 calls over one day. Select Heavy and press **Randomise** repeatedly; confirm Heavy remains selected, each click immediately changes the scenario, only the settled scenario is preflighted, and no temporary AJAX error banner appears. Reload the module and confirm the GUI scenario is not restored.
+- Confirm Demo Page 1 defaults **Year** to 2001 and the acknowledgement is unchecked on every fresh opening, that Page 1 has no Run buttons and Page 2 has no Proceed or Back control. Select a Year and confirm Proceed produces a Page 2 scenario within that year; confirm changing **Load** and pressing **Randomise** on Page 2 keep the same selected Year. Cancel and reopen Demo and confirm Year and acknowledgement both reset.
 - Run a Medium or Heavy GUI Demo to completion, inspect traffic mix and integrity totals, open the synthetic-call audit, fetch at least page 2, and confirm each audit page contains at most 100 calls.
 - Cancel and abandon Demo during insertion and calculation, and confirm verified zero `CCDEMO*` rows and no retained partial audit spool. Run a large Demo workload and inspect the capacity-assessment summary.
 - Run CLI Demo twice with the same explicit `--demo-seed` and confirm deterministic scenario generation remains compatible with the legacy CLI option.
@@ -736,6 +755,7 @@ php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
 node tests/ConcurrencyChartLifecycleTest.js
 node tests/DateRangeTest.js
+node tests/DemoModalGateTest.js
 node tests/DemoScenarioTest.js
 node tests/HistoricalGraphExportTest.js
 node tests/HistoricalReportOrderTest.js

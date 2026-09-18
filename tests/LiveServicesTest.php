@@ -326,6 +326,14 @@ foreach ([-1, 10001] as $invalidThreshold) {
 	try { $thresholds->normalise(['overall' => ['threshold' => $invalidThreshold]], []); } catch (InvalidArgumentException $exception) { $thrown = true; }
 	live_assert_same(true, $thrown, 'Invalid threshold rejected: ' . $invalidThreshold);
 }
+foreach (['1.5', '-1', '+1', '1e2', ' 1', '1 ', 'one', '', 1.5, true] as $invalidThreshold) {
+	$thrown = false;
+	try { $thresholds->normalise(['overall' => ['threshold' => $invalidThreshold]], []); } catch (InvalidArgumentException $exception) { $thrown = true; }
+	live_assert_same(true, $thrown, 'Non-integer threshold rejected: ' . var_export($invalidThreshold, true));
+}
+$zeroThreshold = $thresholds->normalise(['overall' => ['enabled' => true, 'threshold' => '0']], []);
+live_assert_same(0, $zeroThreshold['overall']['threshold'], 'Threshold zero remains valid');
+live_assert_same(false, $zeroThreshold['overall']['enabled'], 'Threshold zero disables threshold evaluation');
 
 $graphs = new HistoricalGraphService();
 $trunkGraph = $graphs->trunkSeries([

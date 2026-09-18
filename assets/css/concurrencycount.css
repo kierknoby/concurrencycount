@@ -190,6 +190,24 @@ body:has(.concurrencycount) #page_body {
 	border-radius: 3px;
 }
 
+/* Desktop: keep all eight preset buttons evenly aligned within the Historical modal. */
+@media (min-width: 992px) {
+    #cc-wizard .cc-date-presets {
+        flex-wrap: nowrap;
+        justify-content: center;
+        width: calc(100% + 6px);
+    }
+
+    #cc-wizard .cc-date-presets .cc-date-preset {
+        flex: 1 1 0;
+        min-width: 0;
+        max-width: none;
+        padding: 9px 12px;
+        font-size: 14px;
+        white-space: nowrap;
+    }
+}
+
 .concurrencycount .cc-range-nav {
 	display: grid;
 	grid-template-columns: 44px minmax(0, 1fr) 44px;
@@ -405,7 +423,46 @@ body:has(.concurrencycount) #page_body {
 	margin-right: auto;
 }
 
-.concurrencycount .cc-alert-checkboxes .checkbox label span { position: relative; top: 15px; }
+#cc-live-settings-modal .cc-alert-checkboxes {
+	padding-top: 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+
+#cc-live-settings-modal .cc-alert-checkboxes .checkbox {
+	display: block;
+	margin: 0;
+	padding: 0;
+	min-height: 24px;
+	height: 24px;
+	position: static;
+}
+
+#cc-live-settings-modal .cc-alert-checkboxes .checkbox label {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 0;
+	padding: 0;
+	min-height: 24px;
+	height: 24px;
+	line-height: 24px;
+}
+
+#cc-live-settings-modal .cc-alert-checkboxes .checkbox input[type="checkbox"] {
+	position: static;
+	margin: 0;
+	padding: 0;
+	flex: 0 0 auto;
+}
+
+#cc-live-settings-modal .cc-alert-checkboxes .checkbox label span {
+	position: static;
+	top: auto;
+	margin: 0;
+	line-height: 24px;
+}
 .concurrencycount #cc-alert-email-status:empty { display:none; }
 .concurrencycount .cc-btn-close-light { background:#f8d7da; border-color:#e7aeb3; color:#842029; }
 @media (min-width: 992px) {
@@ -952,6 +1009,12 @@ body:has(.concurrencycount) #page_body {
 	font-size: 0.95em;
 }
 
+/* Bootstrap's grid/utility CSS can override the bare [hidden] attribute with display:block;
+   scope a !important rule to the Demo modal so the hidden-property state model keeps working. */
+#cc-demo [hidden] {
+	display: none !important;
+}
+
 .concurrencycount .cc-demo-load-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .concurrencycount .cc-demo-load-row > .control-label { margin:0 2px 0 0; }
 .concurrencycount .cc-demo-randomise { margin-left:8px; }
@@ -1106,4 +1169,15 @@ body.cc-wall-active { overflow:hidden; }
 	.concurrencycount .cc-live-wall-desktop-only {
 		display: none !important;
 	}
+}
+
+/* PJSIP Endpoint Classifications alignment */
+#cc-identity-modal .table > thead > tr > th,
+#cc-identity-modal .table > tbody > tr > td {
+    vertical-align: middle !important;
+}
+
+#cc-identity-modal .table > tbody > tr > td:last-child .btn {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
 }

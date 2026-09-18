@@ -43,6 +43,14 @@ assert(!state.hasMeaningfulMessage('<span> \n&nbsp;</span>'), 'Empty generated m
 assert(state.hasMeaningfulMessage('Some calls were omitted.'), 'Meaningful report warning must remain visible');
 assert(state.hasMeaningfulMessage('<strong>Partial data:</strong> one source was unavailable.'), 'Meaningful notice text inside markup must remain visible');
 
+const floorEmpty = state.floorEmptyState({mode: 'trunk', minimum_concurrency: 99, global_max: 5, per_name: {}, floor_notice: 'No periods reached the minimum concurrency of 99 during the selected date range.'});
+assert(floorEmpty && floorEmpty.title === 'Minimum concurrency not reached', 'A floor above the observed peak must select the dedicated empty state');
+assert(floorEmpty.message === 'No data to display. The configured minimum concurrency of 99 was not reached during this date range.', 'Floor empty-state copy must use the configured minimum dynamically');
+assert(floorEmpty.guidance.indexOf('Actual capacity may be limited upstream') !== -1, 'Floor empty state must explain observed concurrency versus capacity');
+assert(state.floorEmptyState({mode: 'trunk', minimum_concurrency: 5, global_max: 5, per_name: {gamma: 5}}) === null, 'A reached minimum must retain normal result presentation');
+assert(state.floorEmptyState({mode: 'trunk', minimum_concurrency: null, global_max: 5, per_name: {gamma: 5}}) === null, 'A report without a minimum must retain normal result presentation');
+assert(state.floorEmptyState({mode: 'trunk', minimum_concurrency: 99, empty_message: 'No eligible data.', floor_notice: 'ignored'}) === null, 'A genuinely empty report must retain the established no-data presentation');
+
 const submittedCriteria = {
 	name: 'Capacity year', mode: 'trunk', engine: 'sweep', preset: 'custom',
 	range_from: '2025-01-01', range_to: '2025-12-31', include_time: true,

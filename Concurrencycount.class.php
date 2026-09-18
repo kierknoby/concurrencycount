@@ -2,7 +2,7 @@
 /**
  * Concurrency Count for FreePBX/PBXact 16 and 17
  *
- * Live and historical PJSIP concurrency module - NOT CURRENTLY SUITABLE FOR PRODUCTION.
+ * Live and historical PJSIP concurrency module.
  * GUI and CLI share the same validated reporting and identity services.
  *
  * @copyright 2026 20 Telecom Ltd (trading as 20tele.com)
@@ -51,7 +51,7 @@ class Concurrencycount implements \BMO {
 	const DEMO_CLEANUP_MAX_RUNTIME = 300;
 	const DEMO_CLEANUP_PHP_MARGIN = 30;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.2.1';
+	const VERSION = '2.2.2';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'testalertemail', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'reorderhistoricalreports', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
@@ -3118,7 +3118,7 @@ class Concurrencycount implements \BMO {
 
 	public function resultsToCsv(array $r): string {
 		$rows = [];
-		$rows[] = ['Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION'];
+		$rows[] = ['Concurrency Count ' . $this->getVersion()];
 		$rows[] = ['Mode', ucfirst($r['mode'])];
 		$rows[] = ['From', $r['start']];
 		$rows[] = ['To', $r['end']];
@@ -3407,7 +3407,7 @@ class Concurrencycount implements \BMO {
 	private function buildEmailBody(array $r): string {
 		$lines = [];
 		$lines[] = 'Concurrency Count report from ' . $this->getSystemIdentifier();
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion();
 		$lines[] = '';
 		$lines[] = 'Mode:           ' . ucfirst($r['mode']);
 		$lines[] = 'From:           ' . $r['start'];
@@ -3497,7 +3497,7 @@ class Concurrencycount implements \BMO {
 		$lines[] = $r['warning'];
 		$lines[] = '';
 		$lines[] = '-- ';
-		$lines[] = 'Concurrency Count ' . $this->getVersion() . ' — NOT CURRENTLY SUITABLE FOR PRODUCTION';
+		$lines[] = 'Concurrency Count ' . $this->getVersion();
 		return implode("\n", $lines);
 	}
 
@@ -3561,22 +3561,21 @@ class Concurrencycount implements \BMO {
 			if (!class_exists('\\CI_Email')) {
 				return ['ok' => false, 'message' => _('CI_Email is not available.')];
 			}
-			$from = $this->getNotificationFromAddress();
-			if ($from === '') {
+			$sender = $this->getNotificationSenderIdentity();
+			if ($sender['address'] === '') {
 				return ['ok' => false, 'message' => _('Email "From:" Address is not configured in Advanced Settings.')];
 			}
 			$email = new \CI_Email();
-			$senderName = $this->getNotificationSenderName();
 			if ($this->emailFromSupportsReturnPath($email)) {
-				$email->from($from, $senderName, $from);
+				$email->from($sender['address'], $sender['name'], $sender['address']);
 			} else {
-				$email->from($from, $senderName);
+				$email->from($sender['address'], $sender['name']);
 				if (method_exists($email, 'set_header')) {
-					$email->set_header('Return-Path', $from);
+					$email->set_header('Return-Path', $sender['address']);
 				}
 			}
 			if (method_exists($email, 'reply_to')) {
-				$email->reply_to($from, $senderName);
+				$email->reply_to($sender['address'], $sender['name']);
 			}
 			$email->to($to);
 			$email->subject($subject);
@@ -3620,29 +3619,36 @@ class Concurrencycount implements \BMO {
 		}
 	}
 
-	private function getNotificationFromAddress(): string {
+	private function getNotificationSenderIdentity(): array {
 		try {
-			return $this->normaliseEmailAddress((string)\FreePBX::Config()->get('AMPUSERMANEMAILFROM'));
+			$config = \FreePBX::Config();
+			$fallbackName = trim((string)$config->get('DASHBOARD_FREEPBX_BRAND'));
+			if ($fallbackName === '' || preg_match('/[\r\n]/', $fallbackName)) $fallbackName = 'Concurrency Count';
+			return $this->normaliseNotificationSenderIdentity((string)$config->get('AMPUSERMANEMAILFROM'), $fallbackName);
 		} catch (\Throwable $e) {
-			return '';
+			return ['address' => '', 'name' => ''];
 		}
 	}
 
-	private function normaliseEmailAddress(string $value): string {
+	private function normaliseNotificationSenderIdentity(string $value, string $fallbackName = 'Concurrency Count'): array {
+		$invalid = ['address' => '', 'name' => ''];
+		$value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 		$value = trim($value);
-		if (preg_match('/<([^>]+)>/', $value, $matches)) {
-			$value = trim($matches[1]);
-		}
-		return filter_var($value, FILTER_VALIDATE_EMAIL) ? $value : '';
-	}
+		if (preg_match('/[\r\n]/', $value)) return $invalid;
+		if ($value === '') return $invalid;
 
-	private function getNotificationSenderName(): string {
-		try {
-			$brand = trim((string)\FreePBX::Config()->get('DASHBOARD_FREEPBX_BRAND'));
-			return $brand !== '' ? $brand : 'Concurrency Count';
-		} catch (\Throwable $e) {
-			return 'Concurrency Count';
+		$name = '';
+		$address = $value;
+		$hasBrackets = strpos($value, '<') !== false || strpos($value, '>') !== false;
+		if ($hasBrackets) {
+			if (substr_count($value, '<') !== 1 || substr_count($value, '>') !== 1 || !preg_match('/^([^<>]*)<([^<>]+)>$/', $value, $matches)) return $invalid;
+			$name = trim($matches[1]);
+			$address = trim($matches[2]);
 		}
+		if (!filter_var($address, FILTER_VALIDATE_EMAIL)) return $invalid;
+		$fallbackName = trim($fallbackName);
+		if ($fallbackName === '' || preg_match('/[\r\n]/', $fallbackName)) $fallbackName = 'Concurrency Count';
+		return ['address' => $address, 'name' => $name !== '' ? $name : $fallbackName];
 	}
 
 	private function emailFromSupportsReturnPath($email): bool {

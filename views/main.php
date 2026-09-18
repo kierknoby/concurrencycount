@@ -48,7 +48,7 @@ $_ccAssetVer = max(
 		<div class="col-sm-12">
 			<h1>
 				<?php echo _('Concurrency Count'); ?>
-				<small class="text-muted" style="font-size:0.5em;"><?php echo htmlspecialchars($moduleVersion, ENT_QUOTES, 'UTF-8'); ?> &mdash; <?php echo _('NOT CURRENTLY SUITABLE FOR PRODUCTION'); ?></small>
+				<small class="text-muted" style="font-size:0.5em;"><?php echo htmlspecialchars($moduleVersion, ENT_QUOTES, 'UTF-8'); ?></small>
 			</h1>
 
 			<div class="row">
@@ -206,7 +206,7 @@ $_ccAssetVer = max(
 <div class="modal fade concurrencycount" id="cc-identity-modal" tabindex="-1" role="dialog" aria-labelledby="cc-identity-title">
 	<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
 		<div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="<?php echo _('Close'); ?>"><span aria-hidden="true">&times;</span></button><h4 id="cc-identity-title" class="modal-title"><?php echo _('PJSIP Endpoint Classifications'); ?></h4></div>
-		<div class="modal-body"><p><?php echo _('Concurrency Count normally identifies PJSIP trunks and extensions from current FreePBX configuration. When Historical reporting encounters an endpoint in old CDR data that FreePBX no longer recognises—such as a deleted or old trunk or extension—it asks you to classify it as Trunk, Extension or Ignore. That choice is remembered until reset and affects Concurrency Count only; it does not alter FreePBX, Asterisk or source CDR data.'); ?></p><div id="cc-identity-message" class="alert" style="display:none;"></div><div class="table-responsive"><table class="table table-striped"><thead><tr><th><?php echo _('Endpoint'); ?></th><th><?php echo _('Manual classification'); ?></th><th><?php echo _('Status'); ?></th><th><?php echo _('Action'); ?></th></tr></thead><tbody id="cc-identity-rows"></tbody></table></div></div>
+		<div class="modal-body"><p><?php echo _('Concurrency Count identifies PJSIP trunks and extensions using FreePBX’s own configuration. Configured PJSIP trunks are matched against the FreePBX trunk inventory, while configured PJSIP devices are matched against the extension inventory.'); ?></p><p><?php echo _('Historical CDRs can also contain numbers that were simply dialled. Concurrency Count keeps those separate from PJSIP endpoint identities, so a destination such as 999 is treated as a dialled number rather than being assumed to be extension 999.'); ?></p><p><?php echo _('If an older CDR contains a PJSIP endpoint that no longer exists in the current FreePBX configuration, Concurrency Count asks you to classify it as Trunk, Extension or Ignore. That choice is remembered until reset and is used only by Concurrency Count. FreePBX, Asterisk and the original CDR data are not changed.'); ?></p><div id="cc-identity-message" class="alert" style="display:none;"></div><div class="table-responsive"><table class="table table-striped"><thead><tr><th><?php echo _('Endpoint'); ?></th><th><?php echo _('Classification'); ?></th><th><?php echo _('Status'); ?></th><th><?php echo _('Action'); ?></th></tr></thead><tbody id="cc-identity-rows"></tbody></table></div></div>
 		<div class="modal-footer"><button type="button" id="cc-identity-reset-all" class="btn btn-danger"><?php echo _('Reset all classifications'); ?></button><button type="button" class="btn btn-default" data-dismiss="modal"><?php echo _('Close'); ?></button></div>
 	</div></div>
 </div>
@@ -232,8 +232,9 @@ $_ccAssetVer = max(
 					</div>
 				</fieldset>
 				<div class="cc-monitor-health">
-					<strong><?php echo _('Unattended alert monitor'); ?>:</strong>
+					<strong><?php echo _('Alert monitor'); ?>:</strong>
 					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
+					<small class="text-muted"><?php echo _('Runs unattended continuously. Restart monitor if alerts or email delivery stop working.'); ?></small>
 					<button type="button" id="cc-monitor-restart" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> <?php echo _('Restart monitor'); ?></button>
 				</div>
 				<p class="help-block"><?php echo _('Start/Stop Monitoring controls whether Concurrency Count operationally evaluates a trunk. Threshold enabled controls whether its configured threshold is active, and Alert enabled controls notifications. These settings are independent. The supervised monitor reconciles every 5 seconds without relying on the browser.'); ?></p>
@@ -276,13 +277,48 @@ $_ccAssetVer = max(
 				<h4 class="modal-title" id="cc-demo-title"><?php echo _('Concurrency Count Demo'); ?></h4>
 			</div>
 			<div class="modal-body">
-				<p><?php echo _('The demo temporarily writes tagged synthetic PJSIP CDR rows, runs the normal report queries against those rows, then verifies that the rows were removed.'); ?></p>
-				<div class="alert alert-warning">
-					<strong><?php echo _('Demo writes to CDR.'); ?></strong>
-					<?php echo _('The rows are synthetic, tagged with a CCDEMO accountcode, and use a randomly selected one-day period between January 2001 and November 2016. Cleanup is verified after the run, but remains best-effort if the server or database dies mid-run.'); ?>
-				</div>
-				<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
-				<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
+				<section id="cc-demo-page-1" class="cc-demo-page" aria-labelledby="cc-demo-page-1-title">
+					<p class="text-muted"><?php echo _('Page 1 of 2'); ?></p>
+					<h4 id="cc-demo-page-1-title"><?php echo _('Before you run Demo'); ?></h4>
+					<p><?php echo _('Demo writes temporary synthetic calls to your CDR database so Concurrency Count can run against realistic call data.'); ?></p>
+					<p><?php echo _('The records are tagged, excluded from ordinary Historical reports and removed automatically when the Demo finishes.'); ?></p>
+					<p><?php echo _('For the safest run:'); ?></p>
+					<ul>
+						<li><?php echo _('Run Demo during a quiet period.'); ?></li>
+						<li><?php echo _('Leave this page open until calculation and cleanup have completed.'); ?></li>
+						<li><?php echo _('Avoid module upgrades, database maintenance or restarting the PBX while Demo is running.'); ?></li>
+					</ul>
+					<p><?php echo _('If a run is interrupted unexpectedly, Concurrency Count will attempt to recover and remove any remaining Demo records automatically.'); ?></p>
+					<p><?php echo _('Demo requires MariaDB. Oracle MySQL is not supported for Demo because it cannot provide the bounded cleanup guarantee required by the module.'); ?></p>
+					<div class="form-group">
+						<label for="cc-demo-year" class="control-label"><?php echo _('Year'); ?></label>
+						<select id="cc-demo-year" class="form-control" style="width:auto;min-width:100px;">
+							<option value="2001" selected>2001</option>
+							<option value="2002">2002</option>
+							<option value="2003">2003</option>
+							<option value="2004">2004</option>
+							<option value="2005">2005</option>
+							<option value="2006">2006</option>
+							<option value="2007">2007</option>
+							<option value="2008">2008</option>
+							<option value="2009">2009</option>
+							<option value="2010">2010</option>
+							<option value="2011">2011</option>
+							<option value="2012">2012</option>
+							<option value="2013">2013</option>
+							<option value="2014">2014</option>
+							<option value="2015">2015</option>
+						</select>
+					</div>
+					<div class="checkbox">
+						<label for="cc-demo-acknowledge"><input type="checkbox" id="cc-demo-acknowledge"> <?php echo _('I understand that Demo temporarily writes synthetic records to the CDR database.'); ?></label>
+					</div>
+				</section>
+				<section id="cc-demo-page-2" class="cc-demo-page" aria-labelledby="cc-demo-page-2-title" hidden>
+					<p class="text-muted"><?php echo _('Page 2 of 2'); ?></p>
+					<h4 id="cc-demo-page-2-title"><?php echo _('Demo controls'); ?></h4>
+					<div id="cc-demo-error" class="alert alert-danger" role="alert" style="display:none;"></div>
+					<div class="form-group cc-demo-load-control"><div class="cc-demo-load-row"><label class="control-label"><?php echo _('Load'); ?></label>
 					<select id="cc-demo-load" class="form-control" style="width:auto;min-width:140px;">
 	<option value="light"><?php echo _('Light'); ?></option>
 	<option value="medium" selected><?php echo _('Medium'); ?></option>
@@ -319,16 +355,18 @@ $_ccAssetVer = max(
 					<input type="number" id="cc-demo-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2">
 					<span class="help-block fpbx-help-block"><?php echo _('Only show detailed results with this many or more concurrent calls. The minimum is 2.'); ?></span>
 				</div>
+				</section>
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
-				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk">
+				<button type="button" class="btn btn-primary" id="cc-demo-proceed" disabled><?php echo _('Proceed'); ?></button>
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Trunks'); ?>
 				</button>
-				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="extension">
+				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="extension" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Extensions'); ?>
 				</button>
-				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group">
+				<button type="button" class="btn btn-primary cc-demo-run-mode" data-report="group" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Group'); ?>
 				</button>
 			</div>

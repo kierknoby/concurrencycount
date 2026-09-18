@@ -48,6 +48,9 @@ window._ccLoaded = true;
 	var demoSeed = 0;
 	var demoPlan = null;
 	var demoSelectedLoad = 'medium';
+	var demoSelectedYear = 2001;
+	var demoPage = 1;
+	var demoAcknowledged = false;
 	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
 	var demoPreflightTimer = null;
 	var demoPreflightGuard = window.CCDemoScenario.preflightGuard();
@@ -193,7 +196,28 @@ window._ccLoaded = true;
 		$('#cc-wizard').modal('hide');
 	}
 
+	function resetDemoGate() {
+		demoPage = 1;
+		demoAcknowledged = false;
+		$('#cc-demo-acknowledge').prop('checked', false);
+		$('#cc-demo-proceed').prop('disabled', true);
+		$('#cc-demo-page-1').prop('hidden', false).attr('aria-hidden', 'false');
+		$('#cc-demo-page-2').prop('hidden', true).attr('aria-hidden', 'true');
+		$('#cc-demo-proceed').prop('hidden', false);
+		$('.cc-demo-run-mode').prop('hidden', true);
+		renderDemoYearSelection(window.CCDemoScenario.YEAR_DEFAULT);
+	}
+
+	function showDemoPage(page) {
+		demoPage = page === 2 ? 2 : 1;
+		$('#cc-demo-page-1').prop('hidden', demoPage !== 1).attr('aria-hidden', demoPage === 1 ? 'false' : 'true');
+		$('#cc-demo-page-2').prop('hidden', demoPage !== 2).attr('aria-hidden', demoPage === 2 ? 'false' : 'true');
+		$('#cc-demo-proceed').prop('hidden', demoPage !== 1);
+		$('.cc-demo-run-mode').prop('hidden', demoPage !== 2);
+	}
+
 	function showDemoPrompt() {
+		resetDemoGate();
 		$('#cc-results').hide();
 		setStatus('', null);
 		$('#cc-demo-error').hide().text('');
@@ -210,6 +234,11 @@ window._ccLoaded = true;
 	function renderDemoLoadSelection(load) {
 		demoSelectedLoad = String(load || 'medium');
 		$('#cc-demo-load').val(demoSelectedLoad);
+	}
+	function selectedDemoYear() { return demoSelectedYear; }
+	function renderDemoYearSelection(year) {
+		demoSelectedYear = Number(year) || window.CCDemoScenario.YEAR_DEFAULT;
+		$('#cc-demo-year').val(String(demoSelectedYear));
 	}
 
 	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
@@ -270,7 +299,7 @@ window._ccLoaded = true;
 		$('#cc-demo-selection-status').text(demoPlan.size.charAt(0).toUpperCase() + demoPlan.size.slice(1) + ' selected — ' + Number(profile.rows).toLocaleString() + ' calls over ' + profile.days + ' day.');
 	}
 	function randomiseDemoScenario() {
-		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad()), true); }
+		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad(), selectedDemoYear()), true); }
 		catch (error) { showDemoError('Secure browser randomness is unavailable; Demo cannot create a safe scenario.'); }
 	}
 
@@ -406,9 +435,12 @@ window._ccLoaded = true;
 			);
 
 		var body = $('#cc-results-body');
+		var floorEmpty = window.CCHistoricalRunState.floorEmptyState(r);
 		body.data('demoRows', r.rows_inserted || '');
 		if (r.empty_message) {
 			body.html(renderExplanation(r) + '<p class="text-muted">No activity found for this report.</p>');
+		} else if (floorEmpty) {
+			body.html(renderFloorEmptyState(floorEmpty));
 		} else if (r.mode === 'demo') {
 			renderDemo(body, r);
 		} else if (r.mode === 'group') {
@@ -416,7 +448,7 @@ window._ccLoaded = true;
 		} else {
 			renderPerName(body, r);
 		}
-		if (r.floor_notice) body.append('<p class="alert alert-info cc-floor-notice">' + escapeHtml(r.floor_notice) + '</p>');
+		if (r.floor_notice && !floorEmpty) body.append('<p class="alert alert-info cc-floor-notice">' + escapeHtml(r.floor_notice) + '</p>');
 		body.append(renderIdentityAnomalies(r.identity_anomalies || []));
 
 		renderResultWarning(r.warning);
@@ -424,6 +456,10 @@ window._ccLoaded = true;
 		$('#cc-results').show();
 		$('#cc-edit-report').toggle(!!activeReportId && r.mode !== 'demo');
 		$(document).trigger('cc:historical-results', [r]);
+	}
+
+	function renderFloorEmptyState(state) {
+		return '<section class="cc-floor-empty"><h4>' + escapeHtml(state.title) + '</h4><p>' + escapeHtml(state.message) + '</p><p class="text-muted">' + escapeHtml(state.guidance) + '</p></section>';
 	}
 
 	function renderIdentityAnomalies(anomalies) {
@@ -460,7 +496,7 @@ window._ccLoaded = true;
 		var body = $('#cc-identity-rows').empty();
 		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No manual classifications have been saved yet. Unknown endpoints will appear during Historical reporting when one needs your decision.</td></tr>'); return; }
 		entries.forEach(function (entry) {
-			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset to automatic</button></td></tr>');
+			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset classification</button></td></tr>');
 		});
 	}
 
@@ -2360,6 +2396,15 @@ window._ccLoaded = true;
 		$('#cc-launch').off('click').on('click', openNewReportWizard);
 		$('input[name="cc-wizard-mode"]').off('change').on('change', updateModeDescription);
 		$('#cc-demo-launch').off('click').on('click', showDemoPrompt);
+		$('#cc-demo').off('hidden.bs.modal').on('hidden.bs.modal', resetDemoGate);
+		$('#cc-demo-acknowledge').off('change').on('change', function () {
+			demoAcknowledged = $(this).is(':checked');
+			$('#cc-demo-proceed').prop('disabled', !demoAcknowledged);
+		});
+		$('#cc-demo-proceed').off('click').on('click', function () {
+			if (!demoAcknowledged) return;
+			showDemoPage(2);
+		});
 		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
 		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
 		$('#cc-edit-report').off('click').on('click', openEditReport);
@@ -2424,10 +2469,14 @@ window._ccLoaded = true;
 			runDemo($(this).data('report'));
 		});
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
+		$('#cc-demo-year').off('change').on('change', function () {
+			renderDemoYearSelection($(this).val());
+			randomiseDemoScenario();
+		});
 		$('#cc-demo-load').off('change').on('change', function () {
 			var load = $(this).val();
 			renderDemoLoadSelection(load);
-			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load), true);
+			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load, demoPlan.year), true);
 		});
 
 		$('#cc-wizard-next').off('click').on('click', submitStep);

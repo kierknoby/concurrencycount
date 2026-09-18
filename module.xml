@@ -2,11 +2,12 @@
 	<rawname>concurrencycount</rawname>
 	<repo>unsupported</repo>
 	<name>Concurrency Count</name>
-	<version>2.2.1</version>
+	<version>2.2.2</version>
 	<publisher>20tele.com</publisher>
 	<license>GPLv3+</license>
 	<licenselink>http://www.gnu.org/licenses/gpl-3.0.txt</licenselink>
 	<changelog>
+		*2.2.2 (18 September 2026)* Removes previous module-wide pre-production warnings, adds deliberate two-step Demo acknowledgement and selectable 2001-2015 scenario years, adds Historical Minimum concurrency not reached presentation and stricter whole-number Live thresholds, supports bare and display-name FreePBX sender identities, improves Live Settings alignment, and clarifies PJSIP endpoint classification behaviour.
 		*2.2.1 (17 September 2026)* Hardens alert-mail bootstrapping and retry state, Test email feedback, notification copy and Live Settings controls. Makes Demo scenarios ephemeral with corrected audit paging, live-headroom disk protection and mandatory cleanup after cancellation, runtime or resource termination. Excludes zero-duration ANSWERED CDRs from Historical calculations, keeps active Critical PBX protection throughout calculations, bounds Trunk peak-evidence acquisition while isolating reserved Demo rows, adds CSV formula safety and concurrent Historic Report inventory/order recovery, clarifies exclusion actions, and fixes graph selection/hit-testing and Live Wall windowed, mobile and edge-to-edge behaviour.
 		*2.2.0 (15 September 2026)* Adds modelled Historical progress and ETA, PBX Protection, configurable Maximum runtime and Minimum concurrency, bounded database-aware CDR acquisition, multi-series graph exports, and grouped Exclude All/Restore Group exclusions. Reworks Demo around the pinned CDRgen 1.1.0 core with deterministic scenarios, authoritative PJSIP inventories, audit/provenance reporting, conservative preflight and exact cleanup including legacy MariaDB 5.5.65 support. Live Wall adds Light/Dark themes and improved fullscreen layout.
 		*2.1.1 (28 August 2026)* Fixes Live View Hide/Unhide persistence and stale settings responses. Improves long-running Historical ETA/runtime handling, adds hard-runtime checkpoints, cooperative GUI Stop, single-active GUI calculation locking with abandoned-page cleanup, CLI SIGINT/SIGTERM cancellation where available, and temporary resource telemetry.
@@ -15,7 +16,7 @@
 		*2.0.0 (26 August 2026)* Initial release. UI module port of the Concurrency Count CLI tool. Calculates maximum concurrent calls per PJSIP trunk, extension, or group within a date range, with a Live Command Centre (AMI-backed current state, threshold alerts via a supervised PM2 worker), persistent Historic Report tabs (up to five, saved report definitions restored across sessions), an optional 'sweep' calculation engine alongside the original per-second occupancy algorithm, and email/download output.
 	</changelog>
 	<category>Reports</category>
-	<description>Live and historical PJSIP concurrency visibility with configurable Live View and read-only Live Wall dashboards, threshold monitoring and alerting, historical trunk, extension and PBX-wide group reporting, and GUI/CLI management. NOT CURRENTLY SUITABLE FOR PRODUCTION.</description>
+	<description>Live and historical PJSIP concurrency visibility with configurable Live View and read-only Live Wall dashboards, threshold monitoring and alerting, historical trunk, extension and PBX-wide group reporting, and GUI/CLI management.</description>
 	<menuitems>
 		<concurrencycount>Concurrency Count</concurrencycount>
 	</menuitems>

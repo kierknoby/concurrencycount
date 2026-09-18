@@ -61,7 +61,7 @@ class ThresholdService {
 			'trunk_order' => $this->normaliseIdentifierList(isset($input['trunk_order']) ? $input['trunk_order'] : [], 'Trunk order', $rejectUnknownTrunks),
 			'live_wall_featured_trunks' => $this->normaliseIdentifierList(isset($input['live_wall_featured_trunks']) ? $input['live_wall_featured_trunks'] : [], 'Live Wall featured trunks', $rejectUnknownTrunks, 3),
 			'live_wall_theme' => isset($input['live_wall_theme']) && $input['live_wall_theme'] === 'light' ? 'light' : 'dark',
-			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : []),
+			'overall' => $this->normaliseScope(isset($input['overall']) && is_array($input['overall']) ? $input['overall'] : [], $rejectUnknownTrunks),
 			'trunks' => [],
 		];
 		$allowed = array_fill_keys($trunks, true);
@@ -209,11 +209,18 @@ class ThresholdService {
 		return ['subject' => $subject, 'body' => implode("\n", $lines)];
 	}
 
-	private function normaliseScope(array $scope): array {
+	private function normaliseScope(array $scope, bool $strict): array {
 		$enabled = $this->toBool(isset($scope['enabled']) ? $scope['enabled'] : false);
-		$threshold = isset($scope['threshold']) ? (int)$scope['threshold'] : 0;
+		$rawThreshold = isset($scope['threshold']) ? $scope['threshold'] : 0;
+		$validThreshold = is_int($rawThreshold) || (is_string($rawThreshold) && preg_match('/^[0-9]+$/', $rawThreshold));
+		if (!$validThreshold) {
+			if ($strict) throw new \InvalidArgumentException('Threshold must be a whole number between 0 and 10000.');
+			$rawThreshold = 0;
+		}
+		$threshold = (int)$rawThreshold;
 		if ($threshold < 0 || $threshold > 10000) {
-			throw new \InvalidArgumentException('Threshold must be between 0 and 10000.');
+			if ($strict) throw new \InvalidArgumentException('Threshold must be a whole number between 0 and 10000.');
+			$threshold = 0;
 		}
 		if ($threshold === 0) $enabled = false;
 		return [
@@ -230,7 +237,7 @@ class ThresholdService {
 			if ($strict) throw $exception;
 			$monitored = true;
 		}
-		return $this->normaliseScope($scope) + [
+		return $this->normaliseScope($scope, $strict) + [
 			'monitored' => $monitored,
 		];
 	}
