@@ -55,7 +55,7 @@ admin_contract_assert(strpos($class, 'unknown system') !== false, 'System identi
 admin_contract_assert(strpos($class, 'new \\CI_Email()') !== false, 'CI_Email transport missing');
 admin_contract_assert(strpos($class, '$this->FreePBX->Mail()') === false, 'Obsolete FreePBX Mail transport remains');
 admin_contract_assert(strpos($class, '@mail(') === false && strpos($class, 'mail($') === false, 'Raw PHP mail transport remains');
-foreach (['getNotificationFromAddress', 'normaliseEmailAddress', 'getNotificationSenderName', 'emailFromSupportsReturnPath'] as $helper) {
+foreach (['getNotificationSenderIdentity', 'normaliseNotificationSenderIdentity', 'emailFromSupportsReturnPath'] as $helper) {
 	admin_contract_assert(strpos($class, 'function ' . $helper) !== false, 'Email helper missing: ' . $helper);
 }
 foreach (['->to($to)', '->subject($subject)', "->set_mailtype('text')", '->message($body)', '->attach(', '->send()'] as $call) {
