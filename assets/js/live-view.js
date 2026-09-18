@@ -24,6 +24,9 @@
 			return {required: required, inventoryCount: configured.length, valid: valid, complete: valid.length === required};
 		}
 	};
+	root.CCThresholdInput = {
+		normalise: function (value) { return String(value === null || value === undefined ? '' : value).replace(/[^0-9]/g, ''); }
+	};
 	root.CCLiveWallLaunch = {
 		start: function (selection, actions) {
 			if (!selection.complete) { actions.configure(); return; }
@@ -138,6 +141,10 @@ window._ccLiveLoaded = true;
 		});
 		$('#cc-wall-featured-save').off('click.ccLive').on('click.ccLive', saveLiveWallConfiguration);
 		$('#cc-settings-save').off('click.ccLive').on('click.ccLive', saveSettingsFromModal);
+		$('#cc-threshold-rows').off('input.ccLiveThreshold', '.cc-threshold-value').on('input.ccLiveThreshold', '.cc-threshold-value', function () {
+			var input = $(this), normalised = window.CCThresholdInput.normalise(input.val());
+			if (input.val() !== normalised) input.val(normalised);
+		});
 		$('#cc-monitor-restart').off('click.ccLive').on('click.ccLive', restartMonitor);
 		$('#cc-test-alert-email').off('click.ccLive').on('click.ccLive', testAlertEmail);
 		$('#cc-setting-email').off('input.ccLive change.ccLive').on('input.ccLive change.ccLive', function () { resetTestEmailFeedback($(this).val()); });
@@ -860,7 +867,7 @@ window._ccLiveLoaded = true;
 	function scopeRow(scope, label, config) {
 		return '<tr data-scope="' + escapeHtml(scope) + '"><td>' + escapeHtml(label) + '</td>' +
 			'<td><input type="checkbox" class="cc-threshold-enabled"' + (config.enabled ? ' checked' : '') + ' aria-label="Enable threshold for ' + escapeHtml(label) + '"></td>' +
-			'<td><input type="number" class="form-control cc-threshold-value" min="0" max="10000" value="' + escapeHtml(config.threshold) + '" aria-label="Threshold for ' + escapeHtml(label) + '"></td>' +
+			'<td><input type="text" class="form-control cc-threshold-value" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="' + escapeHtml(config.threshold) + '" aria-label="Threshold for ' + escapeHtml(label) + '"></td>' +
 			'<td><input type="checkbox" class="cc-alert-enabled"' + (config.alert_enabled ? ' checked' : '') + ' aria-label="Enable alert for ' + escapeHtml(label) + '"></td></tr>';
 	}
 
@@ -878,7 +885,8 @@ window._ccLiveLoaded = true;
 		$('#cc-threshold-rows tr').each(function () {
 			var row = $(this);
 			var scope = row.data('scope');
-			var value = {enabled: row.find('.cc-threshold-enabled').is(':checked'), threshold: parseInt(row.find('.cc-threshold-value').val(), 10) || 0, alert_enabled: row.find('.cc-alert-enabled').is(':checked')};
+			var threshold = window.CCThresholdInput.normalise(row.find('.cc-threshold-value').val());
+			var value = {enabled: row.find('.cc-threshold-enabled').is(':checked'), threshold: threshold === '' ? 0 : parseInt(threshold, 10), alert_enabled: row.find('.cc-alert-enabled').is(':checked')};
 			if (scope === 'overall') candidate.overall = value;
 			else {
 				var trunk = String(scope).substring(6);

@@ -300,7 +300,9 @@ foreach (['LIVE', 'Current Asterisk state', 'HISTORICAL', 'Reconstructed from CD
 foreach (['1, 5, 10, 15, 30, 60', 'Enable threshold alerts', 'Send recovery notifications', 'cc-threshold-rows'] as $settingControl) {
 	admin_contract_assert(strpos($view, $settingControl) !== false, 'Live setting control missing: ' . $settingControl);
 }
-foreach (['Unattended alert monitor', 'Restart monitor', 'reconciles every 5 seconds'] as $monitorControl) {
+admin_contract_assert(strpos($liveJavascript, 'type="text" class="form-control cc-threshold-value" inputmode="numeric" pattern="[0-9]*"') !== false, 'Live threshold values must use a digits-only text input rather than type=number');
+admin_contract_assert(strpos($liveJavascript, "off('input.ccLiveThreshold', '.cc-threshold-value')") !== false && strpos($liveJavascript, 'CCThresholdInput.normalise(input.val())') !== false, 'Dynamic Live threshold inputs must sanitize typed and pasted values');
+foreach (['Alert monitor', 'Restart monitor', 'reconciles every 5 seconds'] as $monitorControl) {
 	admin_contract_assert(strpos($view, $monitorControl) !== false, 'Monitor health control missing: ' . $monitorControl);
 }
 admin_contract_assert(preg_match('/class="cc-workspace-tab"[^>]*id="cc-tab-live"[^>]*role="tab"[^>]*aria-selected="true"/', $view) === 1, 'Live workspace tab must default to selected via aria-selected, not a button-state class');

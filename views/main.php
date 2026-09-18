@@ -232,8 +232,9 @@ $_ccAssetVer = max(
 					</div>
 				</fieldset>
 				<div class="cc-monitor-health">
-					<strong><?php echo _('Unattended alert monitor'); ?>:</strong>
+					<strong><?php echo _('Alert monitor'); ?>:</strong>
 					<span id="cc-monitor-status"><?php echo _('Checking...'); ?></span>
+					<small class="text-muted"><?php echo _('Runs unattended continuously. Restart monitor if alerts or email delivery stop working.'); ?></small>
 					<button type="button" id="cc-monitor-restart" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> <?php echo _('Restart monitor'); ?></button>
 				</div>
 				<p class="help-block"><?php echo _('Start/Stop Monitoring controls whether Concurrency Count operationally evaluates a trunk. Threshold enabled controls whether its configured threshold is active, and Alert enabled controls notifications. These settings are independent. The supervised monitor reconciles every 5 seconds without relying on the browser.'); ?></p>
