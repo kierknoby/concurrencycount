@@ -289,6 +289,27 @@ $_ccAssetVer = max(
 					</ul>
 					<p><?php echo _('If a run is interrupted unexpectedly, Concurrency Count will attempt to recover and remove any remaining Demo records automatically.'); ?></p>
 					<p><?php echo _('Demo requires MariaDB. Oracle MySQL is not supported for Demo because it cannot provide the bounded cleanup guarantee required by the module.'); ?></p>
+					<div class="form-group">
+						<label for="cc-demo-year" class="control-label"><?php echo _('Year'); ?></label>
+						<select id="cc-demo-year" class="form-control" style="width:auto;min-width:100px;">
+							<option value="2001" selected>2001</option>
+							<option value="2002">2002</option>
+							<option value="2003">2003</option>
+							<option value="2004">2004</option>
+							<option value="2005">2005</option>
+							<option value="2006">2006</option>
+							<option value="2007">2007</option>
+							<option value="2008">2008</option>
+							<option value="2009">2009</option>
+							<option value="2010">2010</option>
+							<option value="2011">2011</option>
+							<option value="2012">2012</option>
+							<option value="2013">2013</option>
+							<option value="2014">2014</option>
+							<option value="2015">2015</option>
+							<option value="2016">2016</option>
+						</select>
+					</div>
 					<div class="checkbox">
 						<label for="cc-demo-acknowledge"><input type="checkbox" id="cc-demo-acknowledge"> <?php echo _('I understand that Demo temporarily writes synthetic records to the CDR database.'); ?></label>
 					</div>
@@ -338,7 +359,6 @@ $_ccAssetVer = max(
 			</div>
 			<div class="modal-footer">
 				<button type="button" class="btn cc-btn-cancel" data-dismiss="modal" id="cc-demo-cancel"><?php echo _('Cancel'); ?></button>
-				<button type="button" class="btn btn-default" id="cc-demo-back" hidden><?php echo _('Back'); ?></button>
 				<button type="button" class="btn btn-primary" id="cc-demo-proceed" disabled><?php echo _('Proceed'); ?></button>
 				<button type="button" class="btn btn-default cc-demo-run-mode" data-report="trunk" hidden>
 					<i class="fa fa-play"></i> <?php echo _('Run Trunks'); ?>

@@ -473,6 +473,39 @@ admin_contract_assert(strpos($javascript, "$('#cc-demo').off('hidden.bs.modal').
 admin_contract_assert(strpos($javascript, "$('.cc-demo-run-mode').prop('disabled', false)") !== false && strpos($javascript, "$('.cc-demo-run-mode').prop('hidden', demoPage !== 2)") !== false, 'Demo acknowledgement must not replace technical Run preflight gating');
 admin_contract_assert(strpos($javascript, "command: 'demopreflight'") !== false && strpos($javascript, "executeRun('demo'") !== false, 'Existing Demo preflight and run paths must remain present');
 
+/* Demo's two-page flow is deliberately one-way: no Back control anywhere. */
+admin_contract_assert(strpos($view, 'id="cc-demo-back"') === false, 'Demo Page 2 must not expose a Back control');
+admin_contract_assert(strpos($javascript, 'cc-demo-back') === false, 'Demo JS must not wire any Back control behaviour');
+admin_contract_assert(strpos($view, 'id="cc-demo-proceed"') !== false && substr_count($view, 'id="cc-demo-proceed"') === 1, 'Proceed remains the only Page 1 -> Page 2 control');
+
+/* Bootstrap's grid/utility CSS can override the bare [hidden] attribute; the Demo modal needs a scoped override. */
+admin_contract_assert(strpos($css, '#cc-demo [hidden]') !== false && strpos($css, 'display: none !important;') !== false, 'Demo modal must scope a [hidden] override so Bootstrap cannot expose hidden footer buttons');
+
+/* Demo Year selection must genuinely constrain scenario generation, defaulting to 2001 on every fresh open. */
+admin_contract_assert(
+	strpos($view, '<select id="cc-demo-year"') !== false &&
+	strpos($view, '<option value="2001" selected>') !== false &&
+	strpos($view, '<option value="2016">') !== false,
+	'Demo Page 1 must expose a Year selector spanning 2001-2016 defaulting to 2001'
+);
+admin_contract_assert(
+	strpos($demoGate, 'renderDemoYearSelection(window.CCDemoScenario.YEAR_DEFAULT)') !== false,
+	'Demo gate reset must restore Year to its default on every open/close'
+);
+admin_contract_assert(
+	strpos($javascript, "$('#cc-demo-year').off('change').on('change'") !== false &&
+	strpos($javascript, 'renderDemoYearSelection($(this).val())') !== false,
+	'Selecting a Year must update local Demo state, not merely relabel the display'
+);
+admin_contract_assert(
+	strpos($javascript, 'demoRandomiser.next(selectedDemoLoad(), selectedDemoYear())') !== false,
+	'Randomise must pass the selected Year into scenario generation'
+);
+admin_contract_assert(
+	strpos($javascript, 'window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load, demoPlan.year)') !== false,
+	'Changing Load must rebuild the scenario while retaining its selected Year'
+);
+
 /* Persisted historical report tabs */
 admin_contract_assert(strpos($class, 'HISTORICAL_REPORTS_KEY') !== false, 'Historical report tabs must use the module settings key persistence layer, not a new table');
 admin_contract_assert(strpos($install, 'install()') !== false && strpos($class, 'CREATE TABLE') === false, 'No new database table should be introduced for historical report tabs');
@@ -575,7 +608,7 @@ $preflightEnd = strpos($javascript, 'function applyDemoPlan', $preflightStart);
 $preflightBody = ($preflightStart !== false && $preflightEnd !== false) ? substr($javascript, $preflightStart, $preflightEnd - $preflightStart) : '';
 admin_contract_assert($preflightStart !== false && $preflightEnd !== false && strpos($preflightBody, ".cc-demo-run-mode').prop('disabled', true)") !== false && strpos($preflightBody, ".cc-demo-run-mode').prop('disabled', false)") !== false, 'Inline Demo preflight must disable Run while checking and enable it only after success');
 admin_contract_assert(strpos($preflightBody, "renderDemoPreflight('Good'") !== false && strpos($preflightBody, "renderDemoPreflight('Failed'") !== false && strpos($preflightBody, 'demoPreflightGuard.accepts(token, key)') !== false, 'Inline Demo preflight must render success/failure and reject stale responses');
-admin_contract_assert(strpos($javascript, 'demoRandomiser.next(selectedDemoLoad())') !== false && strpos($javascript, 'window.crypto.getRandomValues') !== false, 'Demo Randomise must use strong entropy while retaining the selected load');
+admin_contract_assert(strpos($javascript, 'demoRandomiser.next(selectedDemoLoad(), selectedDemoYear())') !== false && strpos($javascript, 'window.crypto.getRandomValues') !== false, 'Demo Randomise must use strong entropy while retaining the selected load and Year');
 admin_contract_assert(strpos($view, 'id="cc-demo-minimum-concurrency" class="form-control" min="2"') !== false && strpos($javascript, "readMinimumConcurrency('#cc-demo-minimum-concurrency')") !== false, 'Demo must share the Historical effective Minimum concurrency of 2');
 $runDemoStart = strpos($javascript, 'function runDemo(report)');
 $runDemoEnd = strpos($javascript, 'function selectedDemoEngines', $runDemoStart);

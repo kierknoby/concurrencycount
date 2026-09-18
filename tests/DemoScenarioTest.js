@@ -15,4 +15,32 @@ assert(!scenario.equal(scenario.build({token:'00112233445566778899aabbccddeeff',
 ['trunk','extension','group'].forEach(mode => { const plan=scenario.build(identity,'medium'), parameters=scenario.runParameters(plan,mode,['original','sweep'],2); assert(parameters.demo_report===mode && parameters.demo_token===plan.token && parameters.demo_generation==='1' && parameters.demo_rows==='5000', mode+' run must retain its complete scenario identity'); });
 const preflight=scenario.preflightGuard(), oldToken=preflight.begin('old'), currentToken=preflight.begin('current');
 assert(!preflight.accepts(oldToken,'old') && preflight.accepts(currentToken,'current'), 'Stale preflight responses must be rejected');
+
+/* Year selection must genuinely constrain scenario generation, not just be cosmetic. */
+assert(scenario.YEAR_MIN === 2001 && scenario.YEAR_MAX === 2016 && scenario.YEAR_DEFAULT === 2001, 'Supported Demo year range must be 2001-2016 defaulting to 2001');
+assert(scenario.build(identity,'medium').year === 2001, 'Omitting year must default the scenario to 2001');
+function tokenFor(index) { return (index.toString(16).padStart(8,'0') + '00112233445566778899aabb').slice(0,32); }
+for (let year = 2001; year <= 2016; year++) {
+	for (let sample = 0; sample < 40; sample++) {
+		const plan = scenario.build({token: tokenFor(year * 1000 + sample), generation: sample + 1}, 'medium', year);
+		const start = new Date(plan.start.replace(' ', 'T'));
+		const end = new Date(plan.end.replace(' ', 'T'));
+		assert(plan.year === year, 'Scenario must record the constrained year: ' + year);
+		assert(start.getFullYear() === year, 'Generated scenario start must fall within the selected year ' + year);
+		assert(end.getFullYear() === year, 'Generated scenario end must also fall within the selected year ' + year + ', not spill into the next year');
+		if (year === 2016) {
+			assert(start < new Date(2016, 10, 19, 0, 0, 0), 'Year 2016 must retain its existing November upper boundary');
+		} else {
+			assert(start >= new Date(year, 0, 1) && start < new Date(year, 11, 31, 23, 59, 60), 'Years 2001-2015 may use their full supported range');
+		}
+	}
+}
+assert(scenario.build(identity, 'medium', 1999).year === 2001, 'A year before the supported range must clamp to 2001');
+assert(scenario.build(identity, 'medium', 2099).year === 2016, 'A year after the supported range must clamp to 2016');
+const yearRandomiser = scenario.randomiser(length => { const bytes = new Uint8Array(length); bytes.fill(9); return bytes; });
+const randomYearPlan = yearRandomiser.next('medium', 2010);
+assert(randomYearPlan.year === 2010, 'Randomise must honour the selected year, not merely relabel a fixed-year scenario');
+const sameYearDifferentLoad = scenario.build({token: randomYearPlan.token, generation: randomYearPlan.generation}, 'heavy', randomYearPlan.year);
+assert(sameYearDifferentLoad.year === 2010 && new Date(sameYearDifferentLoad.start.replace(' ', 'T')).getFullYear() === 2010, 'Changing Load for an existing scenario must keep the selected year');
+
 console.log('Demo scenario tests passed');

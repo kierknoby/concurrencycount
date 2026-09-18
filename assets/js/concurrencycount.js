@@ -48,6 +48,7 @@ window._ccLoaded = true;
 	var demoSeed = 0;
 	var demoPlan = null;
 	var demoSelectedLoad = 'medium';
+	var demoSelectedYear = 2001;
 	var demoPage = 1;
 	var demoAcknowledged = false;
 	var demoRandomiser = window.CCDemoScenario.randomiser(function (length) { var bytes = new Uint8Array(length); window.crypto.getRandomValues(bytes); return bytes; });
@@ -202,16 +203,15 @@ window._ccLoaded = true;
 		$('#cc-demo-proceed').prop('disabled', true);
 		$('#cc-demo-page-1').prop('hidden', false).attr('aria-hidden', 'false');
 		$('#cc-demo-page-2').prop('hidden', true).attr('aria-hidden', 'true');
-		$('#cc-demo-back').prop('hidden', true);
 		$('#cc-demo-proceed').prop('hidden', false);
 		$('.cc-demo-run-mode').prop('hidden', true);
+		renderDemoYearSelection(window.CCDemoScenario.YEAR_DEFAULT);
 	}
 
 	function showDemoPage(page) {
 		demoPage = page === 2 ? 2 : 1;
 		$('#cc-demo-page-1').prop('hidden', demoPage !== 1).attr('aria-hidden', demoPage === 1 ? 'false' : 'true');
 		$('#cc-demo-page-2').prop('hidden', demoPage !== 2).attr('aria-hidden', demoPage === 2 ? 'false' : 'true');
-		$('#cc-demo-back').prop('hidden', demoPage !== 2);
 		$('#cc-demo-proceed').prop('hidden', demoPage !== 1);
 		$('.cc-demo-run-mode').prop('hidden', demoPage !== 2);
 	}
@@ -234,6 +234,11 @@ window._ccLoaded = true;
 	function renderDemoLoadSelection(load) {
 		demoSelectedLoad = String(load || 'medium');
 		$('#cc-demo-load').val(demoSelectedLoad);
+	}
+	function selectedDemoYear() { return demoSelectedYear; }
+	function renderDemoYearSelection(year) {
+		demoSelectedYear = Number(year) || window.CCDemoScenario.YEAR_DEFAULT;
+		$('#cc-demo-year').val(String(demoSelectedYear));
 	}
 
 	function demoPreflightKey(plan) { return [plan.token, plan.generation, plan.size, plan.rows, plan.start, plan.end].join('|'); }
@@ -294,7 +299,7 @@ window._ccLoaded = true;
 		$('#cc-demo-selection-status').text(demoPlan.size.charAt(0).toUpperCase() + demoPlan.size.slice(1) + ' selected — ' + Number(profile.rows).toLocaleString() + ' calls over ' + profile.days + ' day.');
 	}
 	function randomiseDemoScenario() {
-		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad()), true); }
+		try { applyDemoPlan(demoRandomiser.next(selectedDemoLoad(), selectedDemoYear()), true); }
 		catch (error) { showDemoError('Secure browser randomness is unavailable; Demo cannot create a safe scenario.'); }
 	}
 
@@ -2393,9 +2398,6 @@ window._ccLoaded = true;
 			if (!demoAcknowledged) return;
 			showDemoPage(2);
 		});
-		$('#cc-demo-back').off('click').on('click', function () {
-			showDemoPage(1);
-		});
 		$('#cc-identity-manage').off('click').on('click', openIdentityClassifications);
 		$('#cc-excluded-calls').off('click').on('click', openExcludedCalls);
 		$('#cc-edit-report').off('click').on('click', openEditReport);
@@ -2460,10 +2462,14 @@ window._ccLoaded = true;
 			runDemo($(this).data('report'));
 		});
 		$('#cc-demo-randomise').off('click').on('click', randomiseDemoScenario);
+		$('#cc-demo-year').off('change').on('change', function () {
+			renderDemoYearSelection($(this).val());
+			randomiseDemoScenario();
+		});
 		$('#cc-demo-load').off('change').on('change', function () {
 			var load = $(this).val();
 			renderDemoLoadSelection(load);
-			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load), true);
+			if (demoPlan) applyDemoPlan(window.CCDemoScenario.build({token:demoPlan.token,generation:demoPlan.generation}, load, demoPlan.year), true);
 		});
 
 		$('#cc-wizard-next').off('click').on('click', submitStep);
