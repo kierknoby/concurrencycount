@@ -20,15 +20,15 @@
 		if (year > YEAR_MAX) year = YEAR_MAX;
 		return year;
 	}
-	// Reserves `days` at the end of the year so start + days never spills into the next year.
-	function maxYearDayOffset(year, days) { return (isLeapYear(year) ? 366 : 365) - days - 1; }
+	// The selected year constrains the scenario start date; the exclusive end may enter the next year.
+	function maxYearDayOffset(year) { return isLeapYear(year) ? 365 : 364; }
 	function build(identity, load, year) {
 		load = Object.prototype.hasOwnProperty.call(LOADS, load) ? load : 'medium'; identity = identity || {};
 		year = normaliseYear(year === undefined ? YEAR_DEFAULT : year);
 		var token = String(identity.token || '').toLowerCase(), generation = Math.max(1, Number(identity.generation) || 1);
 		if (!/^[a-f0-9]{32}$/.test(token)) throw new Error('A cryptographically strong Demo scenario token is required.');
 		var seed = hash32(token + ':' + generation + ':' + year) || 1, random = rng(seed), profile = LOADS[load];
-		var start = new Date(year, 0, 1 + range(random, 0, maxYearDayOffset(year, profile.days)), range(random, 0, 23), range(random, 0, 59), 0);
+		var start = new Date(year, 0, 1 + range(random, 0, maxYearDayOffset(year)), range(random, 0, 23), range(random, 0, 59), 0);
 		var end = new Date(start.getTime() + profile.days * 86400000);
 		var plan = {token: token, generation: generation, seed: seed, size: load, year: year, rows: profile.rows, start: format(start), end: format(end)};
 		plan.fingerprint = fingerprint(plan); return plan;
