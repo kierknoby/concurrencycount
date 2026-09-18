@@ -6,9 +6,7 @@
 }(typeof self !== 'undefined' ? self : this, function () {
 	'use strict';
 	var LOADS = {light: {rows: 1000, days: 1}, medium: {rows: 5000, days: 1}, heavy: {rows: 20000, days: 1}};
-	var YEAR_MIN = 2001, YEAR_MAX = 2016, YEAR_DEFAULT = 2001;
-	// Preserves the historical Jan 2001 - Nov 2016 supported range: 2016 stops at day-offset 322 (18 Nov).
-	var YEAR_2016_MAX_OFFSET = 322;
+	var YEAR_MIN = 2001, YEAR_MAX = 2015, YEAR_DEFAULT = 2001;
 	function rng(seed) { var state = (Number(seed) || 1) >>> 0; return function () { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; }; }
 	function range(random, minimum, maximum) { return minimum + Math.floor(random() * (maximum - minimum + 1)); }
 	function format(date) { function pad(value) { return value < 10 ? '0' + value : String(value); } return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds()); }
@@ -23,7 +21,7 @@
 		return year;
 	}
 	// Reserves `days` at the end of the year so start + days never spills into the next year.
-	function maxYearDayOffset(year, days) { return year === YEAR_MAX ? (YEAR_2016_MAX_OFFSET - (days - 1)) : ((isLeapYear(year) ? 366 : 365) - days - 1); }
+	function maxYearDayOffset(year, days) { return (isLeapYear(year) ? 366 : 365) - days - 1; }
 	function build(identity, load, year) {
 		load = Object.prototype.hasOwnProperty.call(LOADS, load) ? load : 'medium'; identity = identity || {};
 		year = normaliseYear(year === undefined ? YEAR_DEFAULT : year);

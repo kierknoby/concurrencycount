@@ -190,6 +190,21 @@ body:has(.concurrencycount) #page_body {
 	border-radius: 3px;
 }
 
+/* Desktop: compact the preset buttons so all eight fit on a single unwrapped row. */
+@media (min-width: 992px) {
+	.concurrencycount .cc-date-presets {
+		flex-wrap: nowrap;
+		width: 100%;
+	}
+
+	.concurrencycount .cc-date-presets .cc-date-preset {
+		flex: 0 0 auto;
+		padding: 9px 14px;
+		font-size: 14px;
+		white-space: nowrap;
+	}
+}
+
 .concurrencycount .cc-range-nav {
 	display: grid;
 	grid-template-columns: 44px minmax(0, 1fr) 44px;

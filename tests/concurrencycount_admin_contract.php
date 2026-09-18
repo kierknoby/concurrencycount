@@ -485,8 +485,9 @@ admin_contract_assert(strpos($css, '#cc-demo [hidden]') !== false && strpos($css
 admin_contract_assert(
 	strpos($view, '<select id="cc-demo-year"') !== false &&
 	strpos($view, '<option value="2001" selected>') !== false &&
-	strpos($view, '<option value="2016">') !== false,
-	'Demo Page 1 must expose a Year selector spanning 2001-2016 defaulting to 2001'
+	strpos($view, '<option value="2015">') !== false &&
+	strpos($view, '<option value="2016">') === false,
+	'Demo Page 1 must expose a Year selector spanning 2001-2015 defaulting to 2001'
 );
 admin_contract_assert(
 	strpos($demoGate, 'renderDemoYearSelection(window.CCDemoScenario.YEAR_DEFAULT)') !== false,
