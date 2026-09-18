@@ -172,7 +172,7 @@ admin_contract_assert(strpos($javascript, 'Demo Traffic mix') !== false && strpo
 admin_contract_assert(strpos($class, 'DemoCleanupHeartbeat') !== false && strpos($class, 'cleanup_active') === false, 'Mandatory cleanup must use the isolated registry heartbeat service');
 admin_contract_assert(strpos($class, 'set_time_limit(self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN)') !== false && strpos($class, 'set_time_limit(0)') === false, 'Mandatory cleanup must restart a bounded PHP execution-time backstop');
 admin_contract_assert(strpos($javascript, 'Number.isInteger(minutes)') !== false && strpos($javascript, 'allowance_seconds: minutes * 60') !== false, 'Browser runtime increases must be exact whole minutes');
-admin_contract_assert(strpos($readme, 'actual peak remain visible') !== false && strpos($readme, 'cannot currently be reused safely') !== false, 'Minimum concurrency semantics or completed-result reuse limitation missing');
+admin_contract_assert(strpos($readme, 'exact actual peak is calculated and preserved internally') !== false && strpos($readme, 'Minimum concurrency not reached') !== false && strpos($readme, 'normal graph, legend and series controls') !== false && strpos($readme, 'cannot currently be reused safely') !== false, 'Minimum concurrency presentation semantics or completed-result reuse limitation missing');
 foreach (['trunk', 'extension', 'group'] as $mode) {
 	admin_contract_assert(preg_match('/<input[^>]+type="radio"[^>]+name="cc-wizard-mode"[^>]+id="cc-mode-' . $mode . '"[^>]+value="' . $mode . '"/', $view) === 1, 'GUI reporting radio missing or remapped: ' . $mode);
 	admin_contract_assert(strpos($view, 'for="cc-mode-' . $mode . '"') !== false, 'GUI reporting label missing: ' . $mode);

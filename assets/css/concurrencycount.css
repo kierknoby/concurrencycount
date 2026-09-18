@@ -1170,3 +1170,14 @@ body.cc-wall-active { overflow:hidden; }
 		display: none !important;
 	}
 }
+
+/* PJSIP Endpoint Classifications alignment */
+#cc-identity-modal .table > thead > tr > th,
+#cc-identity-modal .table > tbody > tr > td {
+    vertical-align: middle !important;
+}
+
+#cc-identity-modal .table > tbody > tr > td:last-child .btn {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}

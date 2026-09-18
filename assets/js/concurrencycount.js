@@ -496,7 +496,7 @@ window._ccLoaded = true;
 		var body = $('#cc-identity-rows').empty();
 		if (!entries.length) { body.append('<tr><td colspan="4" class="text-muted">No manual classifications have been saved yet. Unknown endpoints will appear during Historical reporting when one needs your decision.</td></tr>'); return; }
 		entries.forEach(function (entry) {
-			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset to automatic</button></td></tr>');
+			body.append('<tr><td><code>' + escapeHtml(entry.endpoint) + '</code></td><td>' + escapeHtml(entry.manual) + '</td><td>' + escapeHtml(entry.status) + (entry.status === 'superseded' ? ' by FreePBX (' + escapeHtml(entry.automatic_type) + ')' : '') + '</td><td><button type="button" class="btn btn-default btn-xs cc-reset-identity" data-endpoint="' + escapeHtml(entry.endpoint) + '">Reset classification</button></td></tr>');
 		});
 	}
 
