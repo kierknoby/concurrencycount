@@ -4,7 +4,7 @@ Updated 18 September 2026.
 
 ## Overview
 
-Concurrency Count helps FreePBX and PBXact administrators understand how much simultaneous calling activity their system is handling.
+Concurrency Count (`concurrencycount`) helps FreePBX and PBXact administrators understand how much simultaneous calling activity their system is handling.
 
 It provides both a live view of current PJSIP trunk usage and Historical Reports built from Asterisk CDR data, making it easier to answer questions such as:
 
@@ -31,90 +31,6 @@ Historical Reports provide three different measurements:
 
 Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
 
-### v2.2.2 highlights
-
-**Historical presentation**
-
-- Historic Reports now show a dedicated **Minimum concurrency not reached** empty state when no displayed data reaches the configured floor. Report metadata remains visible, while the normal graph, series controls, explanation and peak summary are suppressed without changing or discarding the complete underlying calculation or exact actual peak.
-
-**Demo safety and deliberate-use gate**
-
-- The previous module-wide pre-production warnings have been removed following release hardening. Demo now opens with a two-page safety warning; the administrator must acknowledge temporary synthetic CDR writes before the Demo controls are shown. Acknowledgement is required each time Demo is opened and is not a persistent setting or permission.
-- Demo requires MariaDB. Quiet-period and uninterrupted-run guidance is shown before the controls, while tagged-row exclusion, cleanup and interrupted-run recovery protections remain in effect.
-- Page 1 now also offers a **Year** selector (2001-2015, defaulting to 2001) that constrains the synthetic scenario generated for Page 2. The flow is deliberately one-way (Page 1 -> Proceed -> Page 2, no Back); Cancel and reopen Demo to change the initial setup. Year and acknowledgement are never persisted and reset on every fresh opening.
-
-**Live and notification hardening**
-
-- Live threshold values now accept only whole numbers from 0 to 10000; malformed numeric input is rejected.
-- FreePBX Email "From:" Address values support both bare addresses and `Display Name <address@example.com>` configurations, including HTML-encoded angle brackets, while preserving the configured display name.
-- PJSIP classification guidance now distinguishes configured endpoint identities from numbers that merely appeared in historical CDRs; manual classifications affect Concurrency Count only and do not modify FreePBX, Asterisk or source CDR data. Live Settings alignment is also improved.
-
-### v2.2.1 highlights
-
-**Release hardening and Historical reporting**
-
-- Historical eligibility now explicitly requires `ANSWERED` CDRs with `duration > 0`. Zero-duration source rows remain untouched and visible in native FreePBX CDR Reports but cannot contribute to Concurrency Count peaks, graphs or evidence.
-- Trunk CSV and email output now include qualifying peak occurrences and contributing logical-call evidence using the same range, endpoint identity, exclusions and exact peak semantics as the GUI. Extension and Group retain their supported summary formats.
-- Historic Report tabs now use a dedicated visible grip for mouse drag and keyboard reordering. Presentation order persists independently of stable report identity, slot, calculation state and active selection.
-- Historical graph selection now has explicit all-selected, none-selected and partial states, and tooltip hit-testing is restricted to rendered non-zero series segments rather than loose timestamp proximity.
-- Excluded Calls now distinguishes individual **Restore**, grouped **Restore All** and destructive global **Reset**, with a wider dialog and clearer warning presentation.
-
-**Demo**
-
-- GUI Demo scenarios are ephemeral. The **Load** selector chooses Light, Medium or Heavy, **Randomise** creates a fresh deterministic scenario for that load, and GUI scenario state is not restored after reload.
-- Demo preflight requests are debounced and stale responses are ignored without aborting the current valid request.
-- Synthetic-call audit paging uses a dedicated audit token rather than the normal AJAX CSRF token, so later 100-row audit pages remain available after authoritative `CCDEMO` cleanup.
-- Runtime disk protection now stops on loss of required live filesystem headroom. Observed filesystem growth is retained as telemetry rather than being an independent abort condition.
-- Completed Demo PBX impact resolves to **Low**, **Moderate**, **High** or **Unable to assess** rather than remaining in an intermediate state.
-- Extension Demo wording now makes clear that assigned-CDR peaks are synthetic overlapping-record values, not physical endpoint or simultaneous-call capacity.
-
-**Alerts and notifications**
-
-- Alert delivery now leases outbox events before sending and returns failed attempts to a deterministic retry state with bounded exponential backoff and retained diagnostics.
-- The restricted mail-worker bootstrap includes FreePBX Core so current configured trunk information can be resolved when preparing notifications.
-- Live settings adds **Test email**. Test and production delivery use the same live-settings reload and message-preparation path; Test email supplies an explicit recipient override.
-- Test email feedback is shown only for an explicit **Test email** action, while production delivery and retry diagnostics remain internal; failed `CI_Email` sends retain bounded diagnostics for troubleshooting.
-- The FreePBX Advanced Settings **Email "From:" Address** is validated before delivery and is used consistently for From, Reply-To and Return-Path handling where supported.
-
-**Live Wall**
-
-- Live Wall has explicit **Full Screen**, **Windowed** and **Exit Live Wall** states. Leaving browser fullscreen through **Windowed** or Esc keeps the wall active; **Exit Live Wall** alone returns to normal Live View.
-- Live Wall launch and configuration are unavailable below 768px while normal Live View remains available.
-- Windowed Live Wall is edge-to-edge with no decorative browser inset and uses the complete available visual viewport.
-- Responsive wall height and density are updated with native `style.setProperty()` calls for compatibility with the jQuery version shipped on the tested FreePBX platform.
-
-### v2.2.0 highlights
-
-**Historical calculation safety and control**
-
-- Historical and Demo now expose modelled engine progress rather than projecting completion from a small early sample. ETA remains gated for the first five minutes and is shown as High confidence only after stable forward-progress evidence.
-- **PBX Protection** assesses sustained CPU, memory, swap, I/O and observed database-query pressure during the calculation. High or Critical impact can pause work for an administrator decision without discarding completed progress.
-- Historic Reports now store a configurable **Maximum runtime** from 5 to 1,440 minutes. An active paused run can be given more time without resetting its calculation identity, elapsed time or completed work.
-- **Minimum concurrency** provides a persisted output floor for Historical and Demo presentation while preserving the complete underlying calculation and exact peak.
-- Historical CDR acquisition is bounded and database-aware: newer MariaDB/MySQL use supported server-side SELECT execution limits, while legacy MariaDB uses adaptive indexed ranges with explicit capability and index validation rather than unbounded full-table work.
-- Worker-owned process telemetry, memory headroom protection and calculation-specific cadence/state handling strengthen long-running Historical and Demo operation without changing Original or Sweep counting semantics.
-
-**Historical graphs and exclusions**
-
-- Historical graphs now use one deterministic multi-series SVG image with a fixed report-window axis, deterministic colours across the complete series inventory, built-in legend and independently identified thresholds.
-- Series selection is explicit: fresh graphs start with every available series selected, while **Select All**, **Unselect All** and individual series controls change the one shared graph without changing the underlying result.
-- The currently selected graph series can be exported as **SVG, PDF, PNG or JPEG**. Single-series exports retain the series name; large multi-series selections use bounded filenames such as `15-series`.
-- Historical peak detail adds **Exclude All** for every eligible logical call contributing to the exact displayed peak occurrence and **Restore Group** for the remaining members of that grouped exclusion, while retaining individual Restore and global Restore All.
-
-**Demo**
-
-- Demo now uses the pinned CDRgen 1.1.0 core to generate deterministic PJSIP-only synthetic traffic, with Light, Medium and Heavy profiles of 1,000, 5,000 and 20,000 calls over exact one-day ranges.
-- GUI scenarios use cryptographically random 128-bit identities with deterministic generation numbers, while existing CLI `--demo-seed` workflows remain reproducible.
-- Demo generation starts from authoritative FreePBX PJSIP trunk/device inventories, supplementing only the extension side with isolated synthetic fallback identities when too few configured extensions are available. Numeric configured trunks and configured extensions beginning with 1 or 9 retain their authoritative roles.
-- The independent Demo expectation derives topology from observable PJSIP channel legs and the exact Demo inventory rather than trusting CDRgen direction/helper metadata.
-- Completed Demo results expose generator provenance, dataset identity, traffic mix and generated/inserted/audited/removed/remaining integrity totals. Synthetic-call detail is retained in an authenticated transient server spool and fetched in bounded 100-row pages.
-- Demo preflight and cleanup are fail-closed and database-aware, with conservative database/binlog filesystem headroom checks, bounded insertion and cleanup, stale-run recovery, a verified `accountcode` cleanup access path, an independent mandatory-cleanup allowance and a dedicated legacy MariaDB 5.5.65 InnoDB path.
-
-**Live Wall**
-
-- Live Wall adds persisted **Light** and **Dark** presentation with matching chart palettes.
-- The wall now follows the visible viewport, retains a bounded inset outside browser fullscreen, consumes the full viewport in fullscreen, and reflows panels and charts after resize, orientation and fullscreen changes.
-
 ## Requirements
 
 - FreePBX 16 or 17
@@ -139,6 +55,8 @@ fwconsole reload
 The module appears under **Reports > Concurrency Count**.
 
 ### Option 2: Install from GitHub
+
+Use this option only when `/var/www/html/admin/modules/concurrencycount/` does not already exist. If the module directory already exists, do not clone over it; use **Update from GitHub** below.
 
 Git must be installed before cloning the module.
 
@@ -215,51 +133,197 @@ Run the version checks again after the update.
 
 ### Update from GitHub
 
-After `fwconsole chown`, Git may report `detected dubious ownership` when root next accesses the repository because FreePBX has assigned the module directory to its web user. Explicitly trust this one repository for the current user:
+After the first installation, `fwconsole chown` may cause Git to reject the module directory because it is owned by the FreePBX web user rather than root. Run the following commands as root:
 
 ```bash
-git config --global --add safe.directory /var/www/html/admin/modules/concurrencycount
+cd
+
+git config --global --get-all safe.directory | grep -Fxq '/var/www/html/admin/modules/concurrencycount' \
+  || git config --global --add safe.directory /var/www/html/admin/modules/concurrencycount
+
+cd /var/www/html/admin/modules/concurrencycount
+git fetch origin
+git reset --hard origin/main
+
+grep -m1 '<version>' module.xml
 ```
 
-This changes Git's trust configuration only; it does not change module directory ownership. Do not use a wildcard safe-directory rule or recursively change the FreePBX-owned directory back to root.
-
-The supported GitHub update workflow replaces tracked files with the current `main` branch and removes untracked files. Back up any intentional local changes first: `git reset --hard` discards tracked modifications, and `git clean -fd` deletes untracked files and directories inside the module repository.
+Confirm that `module.xml` reports the release you expect before installing it. Then continue:
 
 ```bash
-cd /var/www/html/admin/modules/concurrencycount
-git fetch origin main
-git reset --hard origin/main
-git clean -fd
-cd ~
 fwconsole ma install concurrencycount
+cd
 fwconsole chown
 fwconsole reload
 ```
 
-Run the version checks again after the update.
+`git reset --hard` discards tracked local modifications in the module repository. Back up any intentional local changes before updating.
 
 ### Update from a local copy
 
 Replace the module files from the local copy, preserving any deployment-specific changes deliberately, then run:
 
 ```bash
-cd ~
+cd /var/www/html/admin/modules/concurrencycount
 fwconsole ma install concurrencycount
+cd
 fwconsole chown
 fwconsole reload
 ```
 
-Run the version checks again after the update.
+### Verify the update
 
-### Git dubious-ownership troubleshooting
-
-If Git reports `detected dubious ownership` for the module repository after `fwconsole chown`, explicitly trust only that repository for the current user:
+After any update, confirm that the installed module and its files report the expected version:
 
 ```bash
-git config --global --add safe.directory /var/www/html/admin/modules/concurrencycount
+fwconsole ma list | grep -i concurrencycount
+grep -m1 '<version>' /var/www/html/admin/modules/concurrencycount/module.xml
 ```
 
-This changes Git's trust configuration only; it does not change module directory ownership.
+If either command does not report the expected version, the module has not updated successfully. Correct the update source or module directory first, then rerun the update before troubleshooting anything else.
+
+### If the GitHub update did not complete
+
+If `module.xml` still reports an older version, the source update did not complete. Do not run `fwconsole ma install` repeatedly against the same old files.
+
+First rerun the normal GitHub update:
+
+```bash
+cd /var/www/html/admin/modules/concurrencycount
+git fetch origin
+git reset --hard origin/main
+grep -m1 '<version>' module.xml
+```
+
+If `git fetch origin` fails with an error such as `fatal: Couldn't find remote ref refs/heads/...`, an older local checkout may have `remote.origin.fetch` pinned to an obsolete development branch.
+
+Inspect the configured fetch refspecs:
+
+```bash
+cd /var/www/html/admin/modules/concurrencycount
+git config --get-all remote.origin.fetch
+```
+
+A normal checkout should include:
+
+```text
++refs/heads/*:refs/remotes/origin/*
+```
+
+If the fetch configuration points to an obsolete branch, repair it with:
+
+```bash
+cd /var/www/html/admin/modules/concurrencycount
+
+git remote set-url origin https://github.com/kierknoby/concurrencycount.git
+
+git config --unset-all remote.origin.fetch
+git config --add remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+
+git fetch --prune origin
+git branch -r
+```
+
+Confirm that `origin/main` is present, then rerun the stable update:
+
+```bash
+cd /var/www/html/admin/modules/concurrencycount
+git reset --hard origin/main
+grep -m1 '<version>' module.xml
+
+fwconsole ma install concurrencycount
+cd
+fwconsole chown
+fwconsole reload
+```
+
+If the fetch or reset fails, fix the Git checkout before running `fwconsole ma install`; otherwise FreePBX will simply reinstall whatever older module files are already on disk.
+
+## Release highlights
+
+### v2.2.2
+
+**Historical presentation**
+
+- Historic Reports now show a dedicated **Minimum concurrency not reached** empty state when no displayed data reaches the configured floor. Report metadata remains visible, while the normal graph, series controls, explanation and peak summary are suppressed without changing or discarding the complete underlying calculation or exact actual peak.
+
+**Demo safety and deliberate-use gate**
+
+- The previous module-wide pre-production warnings have been removed following release hardening. Demo now opens with a two-page safety warning; the administrator must acknowledge temporary synthetic CDR writes before the Demo controls are shown. Acknowledgement is required each time Demo is opened and is not a persistent setting or permission.
+- Demo requires MariaDB. Quiet-period and uninterrupted-run guidance is shown before the controls, while tagged-row exclusion, cleanup and interrupted-run recovery protections remain in effect.
+- Page 1 now also offers a **Year** selector (2001-2015, defaulting to 2001) that constrains the synthetic scenario generated for Page 2. The flow is deliberately one-way (Page 1 -> Proceed -> Page 2, no Back); Cancel and reopen Demo to change the initial setup. Year and acknowledgement are never persisted and reset on every fresh opening.
+
+**Live and notification hardening**
+
+- Live threshold values now accept only whole numbers from 0 to 10000; malformed numeric input is rejected.
+- FreePBX Email "From:" Address values support both bare addresses and `Display Name <address@example.com>` configurations, including HTML-encoded angle brackets, while preserving the configured display name.
+- PJSIP classification guidance now distinguishes configured endpoint identities from numbers that merely appeared in historical CDRs; manual classifications affect Concurrency Count only and do not modify FreePBX, Asterisk or source CDR data. Live Settings alignment is also improved.
+
+### v2.2.1
+
+**Release hardening and Historical reporting**
+
+- Historical eligibility now explicitly requires `ANSWERED` CDRs with `duration > 0`. Zero-duration source rows remain untouched and visible in native FreePBX CDR Reports but cannot contribute to Concurrency Count peaks, graphs or evidence.
+- Trunk CSV and email output now include qualifying peak occurrences and contributing logical-call evidence using the same range, endpoint identity, exclusions and exact peak semantics as the GUI. Extension and Group retain their supported summary formats.
+- Historic Report tabs now use a dedicated visible grip for mouse drag and keyboard reordering. Presentation order persists independently of stable report identity, slot, calculation state and active selection.
+- Historical graph selection now has explicit all-selected, none-selected and partial states, and tooltip hit-testing is restricted to rendered non-zero series segments rather than loose timestamp proximity.
+- Excluded Calls now distinguishes individual **Restore**, grouped **Restore All** and destructive global **Reset**, with a wider dialog and clearer warning presentation.
+
+**Demo**
+
+- GUI Demo scenarios are ephemeral. The **Load** selector chooses Light, Medium or Heavy, **Randomise** creates a fresh deterministic scenario for that load, and GUI scenario state is not restored after reload.
+- Demo preflight requests are debounced and stale responses are ignored without aborting the current valid request.
+- Synthetic-call audit paging uses a dedicated audit token rather than the normal AJAX CSRF token, so later 100-row audit pages remain available after authoritative `CCDEMO` cleanup.
+- Runtime disk protection now stops on loss of required live filesystem headroom. Observed filesystem growth is retained as telemetry rather than being an independent abort condition.
+- Completed Demo PBX impact resolves to **Low**, **Moderate**, **High** or **Unable to assess** rather than remaining in an intermediate state.
+- Extension Demo wording now makes clear that assigned-CDR peaks are synthetic overlapping-record values, not physical endpoint or simultaneous-call capacity.
+
+**Alerts and notifications**
+
+- Alert delivery now leases outbox events before sending and returns failed attempts to a deterministic retry state with bounded exponential backoff and retained diagnostics.
+- The restricted mail-worker bootstrap includes FreePBX Core so current configured trunk information can be resolved when preparing notifications.
+- Live settings adds **Test email**. Test and production delivery use the same live-settings reload and message-preparation path; Test email supplies an explicit recipient override.
+- Test email feedback is shown only for an explicit **Test email** action, while production delivery and retry diagnostics remain internal; failed `CI_Email` sends retain bounded diagnostics for troubleshooting.
+- The FreePBX Advanced Settings **Email "From:" Address** is validated before delivery and is used consistently for From, Reply-To and Return-Path handling where supported.
+
+**Live Wall**
+
+- Live Wall has explicit **Full Screen**, **Windowed** and **Exit Live Wall** states. Leaving browser fullscreen through **Windowed** or Esc keeps the wall active; **Exit Live Wall** alone returns to normal Live View.
+- Live Wall launch and configuration are unavailable below 768px while normal Live View remains available.
+- Windowed Live Wall is edge-to-edge with no decorative browser inset and uses the complete available visual viewport.
+- Responsive wall height and density are updated with native `style.setProperty()` calls for compatibility with the jQuery version shipped on the tested FreePBX platform.
+
+### v2.2.0
+
+**Historical calculation safety and control**
+
+- Historical and Demo now expose modelled engine progress rather than projecting completion from a small early sample. ETA remains gated for the first five minutes and is shown as High confidence only after stable forward-progress evidence.
+- **PBX Protection** assesses sustained CPU, memory, swap, I/O and observed database-query pressure during the calculation. High or Critical impact can pause work for an administrator decision without discarding completed progress.
+- Historic Reports now store a configurable **Maximum runtime** from 5 to 1,440 minutes. An active paused run can be given more time without resetting its calculation identity, elapsed time or completed work.
+- **Minimum concurrency** provides a persisted output floor for Historical and Demo presentation while preserving the complete underlying calculation and exact peak.
+- Historical CDR acquisition is bounded and database-aware: newer MariaDB/MySQL use supported server-side SELECT execution limits, while legacy MariaDB uses adaptive indexed ranges with explicit capability and index validation rather than unbounded full-table work.
+- Worker-owned process telemetry, memory headroom protection and calculation-specific cadence/state handling strengthen long-running Historical and Demo operation without changing Original or Sweep counting semantics.
+
+**Historical graphs and exclusions**
+
+- Historical graphs now use one deterministic multi-series SVG image with a fixed report-window axis, deterministic colours across the complete series inventory, built-in legend and independently identified thresholds.
+- Series selection is explicit: fresh graphs start with every available series selected, while **Select All**, **Unselect All** and individual series controls change the one shared graph without changing the underlying result.
+- The currently selected graph series can be exported as **SVG, PDF, PNG or JPEG**. Single-series exports retain the series name; large multi-series selections use bounded filenames such as `15-series`.
+- Historical peak detail adds **Exclude All** for every eligible logical call contributing to the exact displayed peak occurrence and **Restore Group** for the remaining members of that grouped exclusion, while retaining individual Restore and global Restore All.
+
+**Demo**
+
+- Demo now uses the pinned CDRgen 1.1.0 core to generate deterministic PJSIP-only synthetic traffic, with Light, Medium and Heavy profiles of 1,000, 5,000 and 20,000 calls over exact one-day ranges.
+- GUI scenarios use cryptographically random 128-bit identities with deterministic generation numbers, while existing CLI `--demo-seed` workflows remain reproducible.
+- Demo generation starts from authoritative FreePBX PJSIP trunk/device inventories, supplementing only the extension side with isolated synthetic fallback identities when too few configured extensions are available. Numeric configured trunks and configured extensions beginning with 1 or 9 retain their authoritative roles.
+- The independent Demo expectation derives topology from observable PJSIP channel legs and the exact Demo inventory rather than trusting CDRgen direction/helper metadata.
+- Completed Demo results expose generator provenance, dataset identity, traffic mix and generated/inserted/audited/removed/remaining integrity totals. Synthetic-call detail is retained in an authenticated transient server spool and fetched in bounded 100-row pages.
+- Demo preflight and cleanup are fail-closed and database-aware, with conservative database/binlog filesystem headroom checks, bounded insertion and cleanup, stale-run recovery, a verified `accountcode` cleanup access path, an independent mandatory-cleanup allowance and a dedicated legacy MariaDB 5.5.65 InnoDB path.
+
+**Live Wall**
+
+- Live Wall adds persisted **Light** and **Dark** presentation with matching chart palettes.
+- The wall now follows the visible viewport, retains a bounded inset outside browser fullscreen, consumes the full viewport in fullscreen, and reflows panels and charts after resize, orientation and fullscreen changes.
 
 ## Concurrency definitions
 
