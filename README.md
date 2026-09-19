@@ -869,6 +869,7 @@ node tests/DemoScenarioTest.js
 node tests/HistoricalGraphExportTest.js
 node tests/HistoricalReportOrderTest.js
 node tests/HistoricalRunStateTest.js
+node tests/HistoricalSvgChartNode8CompatTest.js
 node tests/HistoricalSvgChartTest.js
 node tests/LiveViewRenderSnapshotTest.js
 node tests/TelemetryFormatTest.js

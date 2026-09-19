@@ -3,7 +3,7 @@
 	var api = factory(root);
 	if (typeof module === 'object' && module.exports) module.exports = api;
 	else root.HistoricalSvgChart = api.HistoricalSvgChart;
-}(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function (root) {
+}(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : (typeof global !== 'undefined' ? global : this)), function (root) {
 	'use strict';
 	var WIDTH = 1600, BASE_HEIGHT = 320, MINIMUM_RUN_WIDTH = 24, RUN_GAP = 4, LEGEND_COLUMNS = 4;
 	var PLOT = {left: 75, right: 1575, top: 52, bottom: 245};
