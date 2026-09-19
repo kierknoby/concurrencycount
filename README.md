@@ -2,8 +2,6 @@
 
 Updated 19 September 2026.
 
-> **Not currently suitable for production**
-
 ## Overview
 
 Concurrency Count (`concurrencycount`) helps FreePBX and PBXact administrators understand how much simultaneous calling activity their system is handling.
@@ -813,16 +811,16 @@ This is a release validation checklist, not a claim that every supported PBX/bro
 Standalone tests and contracts include:
 
 ```bash
+php tests/AlertDeliveryPathTest.php
 php tests/AlertMonitorCoordinatorTest.php
 php tests/AlertOutboxServiceTest.php
-php tests/AlertDeliveryPathTest.php
 php tests/AmiChannelSourceTest.php
 php tests/CdrgenAdapterTest.php
 php tests/CdrgenBundleIntegrityTest.php
-php tests/DemoAccessAuthorizationTest.php
-php tests/DemoAccessLifecycleTest.php
 php tests/CliCancellationControlTest.php
 php tests/CsvFormulaSafetyTest.php
+php tests/DemoAccessAuthorizationTest.php
+php tests/DemoAccessLifecycleTest.php
 php tests/DemoCleanupServiceTest.php
 php tests/DemoDiskGuardTest.php
 php tests/DemoExpectedTrafficTest.php
@@ -851,6 +849,7 @@ php tests/HistoricalRuntimeEstimatorTest.php
 php tests/HistoricalTelemetryCadenceTest.php
 php tests/InputValidationTest.php
 php tests/LiveServicesTest.php
+php tests/NotificationSenderIdentityTest.php
 php tests/OriginalMemoryBenchmarkTest.php
 php tests/OriginalWindowingTest.php
 php tests/PeakDetailAnalyserTest.php
@@ -863,6 +862,7 @@ php tests/concurrencycount_admin_contract.php
 php tests/concurrencycount_console_contract.php
 php tests/concurrencycount_release_contract.php
 node tests/ConcurrencyChartLifecycleTest.js
+node tests/DateFormattingTest.js
 node tests/DateRangeTest.js
 node tests/DemoModalGateTest.js
 node tests/DemoScenarioTest.js
@@ -870,11 +870,36 @@ node tests/HistoricalGraphExportTest.js
 node tests/HistoricalReportOrderTest.js
 node tests/HistoricalRunStateTest.js
 node tests/HistoricalSvgChartTest.js
+node tests/LiveViewRenderSnapshotTest.js
 node tests/TelemetryFormatTest.js
 node tests/TestEmailLifecycleTest.js
+node tests/ThresholdInputTest.js
 ```
 
 The release suite also runs any additional PHP and JavaScript test files present under `tests/`; the list above highlights the standalone contracts and the principal regression suites documented for this release.
+
+### Running the installed PHP test suite
+
+On an installed FreePBX/PBXact system, the module is normally located at `/var/www/html/admin/modules/concurrencycount`. When connected interactively over SSH as root, use this safe command sequence to run the complete PHP test suite without risking the shell session:
+
+```bash
+if cd /var/www/html/admin/modules/concurrencycount; then
+  for file in $(find tests -type f -name '*.php' | sort); do
+    echo "=== $file ==="
+    php "$file" || { echo "FAILED: $file"; break; }
+  done
+else
+  echo "ERROR: Concurrency Count module directory not found."
+fi
+```
+
+This attempts to change to the installed Concurrency Count module directory and leaves the SSH session open if that directory cannot be entered. It discovers every PHP test under `tests/`, runs them in sorted order, prints each test name before running it, and stops at the first PHP test that returns a non-zero exit status. It deliberately does not use `set -e` or `exit`, so a path or test failure will not terminate the interactive shell.
+
+A successful run shows each test file followed by its normal `... tests passed` or equivalent success output, contains no `FAILED:` line, and returns normally to the shell prompt after the final test. Some tests deliberately print more detailed successful output: `EngineParityTest.php` and `InputValidationTest.php` print individual successful checks before their final pass counts, while benchmark/windowing tests print timing, memory and workload information. That output is expected and is not a failure.
+
+`FAILED: tests/<name>.php` means that test returned a non-zero exit status and the loop stopped so the failure can be investigated.
+
+This command runs the complete PHP test suite only. It does not replace the JavaScript test suite, PHP linting, JavaScript syntax checks, `git diff --check`, browser testing, live FreePBX/PBXact functional testing or the normal release review process.
 
 Source checks include:
 
