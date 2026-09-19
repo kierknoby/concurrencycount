@@ -31,8 +31,8 @@ class Concurrencycount extends Command {
 		$this->setName('concurrencycount')
 			->setDescription('Calculate maximum concurrent PJSIP calls per trunk, extension, group, or demo fixture')
 			->addArgument('demo', InputArgument::OPTIONAL, 'Demo access administration command: demo')
-			->addOption('enable', null, InputOption::VALUE_NONE, 'Authorize GUI Demo functionality; does not start Demo or generate data')
-			->addOption('disable', null, InputOption::VALUE_NONE, 'Revoke Demo authorization; does not delete CDR data')
+			->addOption('enable', null, InputOption::VALUE_NONE, 'Authorise GUI Demo functionality; does not start Demo or generate data')
+			->addOption('disable', null, InputOption::VALUE_NONE, 'Revoke Demo authorisation; does not delete CDR data')
 			->addOption('status', null, InputOption::VALUE_NONE, 'Report Demo access as ENABLED or DISABLED')
 			->addOption('mode', 'm', InputOption::VALUE_REQUIRED, 'Mode: trunk, extension, group, or demo (abbreviations accepted)', 'trunk')
 			->addOption('start', 's', InputOption::VALUE_REQUIRED, 'Start date YYYY-MM-DD HH:MM:SS (or shorthand)')
@@ -254,7 +254,7 @@ class Concurrencycount extends Command {
 		}
 		$enabled = $action === 'enable';
 		$message = $enabled
-			? 'Enable Demo access? Demo scenarios can generate synthetic CDR records. This authorizes the GUI only; it does not start Demo or generate data. (y/N) '
+			? 'Enable Demo access? Demo scenarios can generate synthetic CDR records. This authorises the GUI only; it does not start Demo or generate data. (y/N) '
 			: 'Disable Demo access? New Demo operations will be rejected; existing CDR data will not be deleted. (y/N) ';
 		$question = new ConfirmationQuestion($message, false);
 		if (!$this->getHelper('question')->ask($input, $output, $question)) {

@@ -248,10 +248,10 @@ If the fetch or reset fails, fix the Git checkout before running `fwconsole ma i
 **Demo security and administration**
 
 - Demo remains visible in its normal GUI location but is **DISABLED by default** because Demo scenarios can write synthetic CDR records into a database that normally contains genuine call records. This default is intentional and does not indicate an incomplete or incorrectly installed module.
-- A privileged system administrator must explicitly authorize Demo with `fwconsole concurrencycount demo --enable` before the GUI Demo workflow can operate. Enabling access authorizes the GUI only; it does not start a scenario or generate synthetic data.
+- A privileged system administrator must explicitly authorise Demo with `fwconsole concurrencycount demo --enable` before the GUI Demo workflow can operate. Enabling access authorises the GUI only; it does not start a scenario or generate synthetic data.
 - `fwconsole concurrencycount demo --disable` rejects new Demo operations without deleting CDR data, and `fwconsole concurrencycount demo --status` reports the authoritative state. The FreePBX GUI cannot grant itself Demo permission.
-- The server checks Demo authorization independently for GUI, AJAX, direct requests, downloads, email, previews and legacy CLI Demo calculations. Normal Live monitoring, Historical reporting, thresholds and alerts do not require Demo and remain available while access is disabled.
-- A newly installed module and the first upgrade from a release without this setting initialize Demo access to DISABLED. An administrator-selected ENABLED or DISABLED state is preserved across normal module updates, service restarts and reboots.
+- The server checks Demo authorisation independently for GUI, AJAX, direct requests, downloads, email, previews and legacy CLI Demo calculations. Normal Live monitoring, Historical reporting, thresholds and alerts do not require Demo and remain available while access is disabled.
+- Every Concurrency Count installation or module update initialises Demo access to DISABLED. This is intentional: newly installed module code must not inherit authorisation to generate synthetic CDR records from an earlier module version. Reboots and ordinary service or monitor restarts do not revoke an explicit authorisation; an administrator must run `fwconsole concurrencycount demo --enable` again after an update if Demo is required.
 
 ### v2.2.2
 
@@ -460,7 +460,7 @@ Original retains its straightforward inclusive per-second result contract but pr
 
 At calculation checkpoints, Concurrency Count also observes its PHP process allocation without changing `memory_limit`. For a finite configured limit it reserves the larger of 16 MiB or 20 percent, capped at half the limit for unusually small limits, and stops at the resulting safe ceiling. This is preventive headroom for structured failure handling, serialization, cleanup and FreePBX; it does not claim that PHP hard memory exhaustion can always be recovered afterward. A soft-memory stop retains any previous completed report and suggests Sweep, a shorter range or a narrower endpoint filter. Unlimited or invalid memory-limit values disable this secondary guard rather than inventing a ceiling.
 
-#### Stop and terminal behavior
+#### Stop and terminal behaviour
 
 An active GUI Historical calculation has a cooperative **Stop** control tied to its validated, unique calculation ID. Stop is present only while that calculation is active or stopping; pressing it disables the button, records backend cancellation and lets the shared engine checkpoints stop work cleanly. Aborting the browser request alone is not treated as backend cancellation. After backend cancellation is acknowledged, explicit GUI Stop closes that Historic Report through the normal close path, removing its persisted definition and freeing its slot. Resource-limit, runtime and ordinary calculation failures remain visible and do not automatically close the report. Calculation ID plus browser sequence checks prevent stale or superseded responses from replacing or recreating a newer state.
 
@@ -658,7 +658,7 @@ Prefix examples with `fwconsole concurrencycount`. CLI date boundaries use PBX/s
 
 Omitting `--engine` selects Original; explicit `original` and experimental `sweep` are valid. An explicitly unknown engine is rejected rather than silently falling back to Original. Incompatible management operation classes are rejected before mutation—for example, `--monitor-status --restart-monitor`, `--live --set-refresh=5` or `--list-historical-reports --alerts=off`. `--json` is a modifier, multiple supported settings mutations may be combined, and `--settings` may accompany settings mutations.
 
-The Demo access commands administer permission only. `demo --enable` authorizes the existing GUI Demo functionality but does not run a scenario or generate synthetic CDRs. `demo --disable` revokes authorization for new Demo operations and does not delete existing CDR data. `demo --status` performs no mutation and reports `Demo access: ENABLED` or `Demo access: DISABLED`.
+The Demo access commands administer permission only. `demo --enable` authorises the existing GUI Demo functionality but does not run a scenario or generate synthetic CDRs. `demo --disable` revokes authorisation for new Demo operations and does not delete existing CDR data. `demo --status` performs no mutation and reports `Demo access: ENABLED` or `Demo access: DISABLED`.
 
 Live queries take one snapshot and exit; they do not poll or replace the PM2 worker. The standalone IN1CLICK `concurrency-count` tool remains available for terminal interaction, progress reporting and pause-on-overrun behaviour. Neither interface is universally preferable.
 
@@ -668,7 +668,7 @@ Live queries take one snapshot and exit; they do not poll or replace the PM2 wor
 
 Demo is an optional testing and demonstration facility. Its scenarios can write synthetic CDR records into `asteriskcdrdb`, which is why Demo access is **DISABLED by default**. This is an intentional protection for systems that contain genuine call records; it does not mean that the module is incomplete or incorrectly installed. Normal Concurrency Count operation does not require Demo: Live monitoring, Historical analysis, thresholds and alerts continue to operate normally while Demo access is disabled.
 
-Demo remains visible in the GUI while disabled so administrators can discover it and understand how to authorize it. The visible control is informational and locked; it is not a web permission control. Enabling Demo requires privileged shell access:
+Demo remains visible in the GUI while disabled so administrators can discover it and understand how to authorise it. The visible control is informational and locked; it is not a web permission control. Enabling Demo requires privileged shell access:
 
 ```text
 Privileged CLI
@@ -686,9 +686,9 @@ fwconsole concurrencycount demo --disable
 fwconsole concurrencycount demo --status
 ```
 
-The CLI authorizes or prohibits capability only. It does not start a Demo scenario, generate synthetic calls, or write synthetic CDRs. The GUI cannot grant itself permission. Before any synthetic-data operation, the server independently verifies that privileged Demo access is enabled, including for AJAX, crafted requests, downloads, email, previews and the existing `--mode=demo` CLI calculation path.
+The CLI authorises or prohibits capability only. It does not start a Demo scenario, generate synthetic calls, or write synthetic CDRs. The GUI cannot grant itself permission. Before any synthetic-data operation, the server independently verifies that privileged Demo access is enabled, including for AJAX, crafted requests, downloads, email, previews and the existing `--mode=demo` CLI calculation path.
 
-Fresh installation and the first upgrade from a release without the permission setting initialize Demo access to DISABLED. Once created, the administrator-selected state persists across normal module updates, service restarts and system reboots. Disabling access rejects new Demo operations, does not delete CDR data, and allows an already-running Demo to complete its existing mandatory cleanup.
+Every installation and module update initialises Demo access to DISABLED. This deny-by-default reset is intentional because newly installed module code must not automatically inherit permission to generate synthetic CDR records from the previously installed version. `demo --enable` authorises the currently installed module version only; run it again after an update if Demo is required. Reboots and ordinary service or monitor restarts preserve an explicit authorisation. Disabling access rejects new Demo operations, does not delete CDR data, and allows an already-running Demo to complete its existing mandatory cleanup.
 
 Page 1 of the Demo modal offers an administrator-selectable **Year** (2001-2015, defaulting to 2001 on every fresh opening) alongside the safety acknowledgement; the selection is never persisted and always resets when Demo is reopened. The GUI uses a **Load** dropdown on Page 2 to select Light, Medium or Heavy and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs, constrained to the selected Year. The current scenario remains stable until the Year, Load or profile changes or Randomise is pressed, and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the scenario start day falls within the selected year, which may be any full calendar year from 2001 to 2015. A 31 December start naturally uses 1 January of the following year as the exclusive end boundary, and every profile remains exactly one day. Demo Minimum concurrency defaults to 2. CLI examples are:
 
@@ -719,7 +719,7 @@ Omitted Demo arguments retain their documented defaults. Explicit invalid Demo r
 
 `CCDEMO` followed by exactly eight lowercase hexadecimal characters is reserved for synthetic rows and is always excluded from ordinary Historical SQL and post-fetch processing. Cleanup runs in `finally`; it halves timed-out exact-tag delete batches from 1,000 rows and treats a successful batch shorter than its limit as verified exhaustion, avoiding a second full-table `COUNT(*)` scan. MariaDB `max_statement_time` covers cleanup statements. MySQL Demo is unavailable because `max_execution_time` does not cover `DELETE`; bounded batches and the two-second InnoDB lock-wait limit are retained as additional protections but are not treated as execution deadlines. A durable registry heartbeat is refreshed during an active Demo. Before each later Demo preflight or run, registry entries inactive for five minutes are recovered after fatal error, server kill, database interruption or host crash. A failed recovery remains registered for a later retry. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
 
-The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary. Server-side authorization remains mandatory even when the GUI control is visible or a request is crafted directly.
+The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary. Server-side authorisation remains mandatory even when the GUI control is visible or a request is crafted directly.
 
 ## Architecture at a glance
 
@@ -737,7 +737,7 @@ The Demo acknowledgement gate is a client-side deliberate-use control in additio
 - User-supplied SQL values use prepared statements.
 - Normal Historical reporting is read-only against source CDR. Exclusions never update or delete CDR rows.
 - Demo is the intentional exception: it temporarily inserts and removes tagged synthetic rows.
-- Demo access is disabled by default and can be changed only by the privileged CLI commands; the GUI cannot authorize itself.
+- Demo access is disabled by default and can be changed only by the privileged CLI commands; the GUI cannot authorise itself.
 - The server independently checks Demo access before every synthetic-data operation, regardless of GUI visibility or client-supplied state.
 - Live reads Asterisk through backend AMI handling; the browser has no direct AMI access.
 - Original is the default; experimental engines require explicit selection.
@@ -820,7 +820,7 @@ php tests/AmiChannelSourceTest.php
 php tests/CdrgenAdapterTest.php
 php tests/CdrgenBundleIntegrityTest.php
 php tests/DemoAccessAuthorizationTest.php
-php tests/DemoAccessPersistenceTest.php
+php tests/DemoAccessLifecycleTest.php
 php tests/CliCancellationControlTest.php
 php tests/CsvFormulaSafetyTest.php
 php tests/DemoCleanupServiceTest.php

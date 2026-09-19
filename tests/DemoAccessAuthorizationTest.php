@@ -43,7 +43,7 @@ try { $cc->requireDemoAccess(); } catch (RuntimeException $exception) { $rejecte
 demo_authorization_assert($rejected, 'Disabled Demo access must reject server-side execution.');
 
 $cc->setDemoAccessEnabled(true);
-demo_authorization_assert($cc->isDemoAccessEnabled() === true, 'The authorization API must enable Demo access.');
+demo_authorization_assert($cc->isDemoAccessEnabled() === true, 'The authorisation API must enable Demo access.');
 $cc->requireDemoAccess();
 
 $cc->setDemoAccessEnabled(false);
@@ -78,4 +78,4 @@ demo_authorization_rejects(function () use ($cc): void {
 
 $_REQUEST = [];
 
-echo "Demo access authorization tests passed\n";
+echo "Demo access authorisation tests passed\n";

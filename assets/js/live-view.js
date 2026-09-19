@@ -236,7 +236,7 @@ window._ccLiveLoaded = true;
 	function renderSnapshot(data) {
 		$('#cc-live-message').hide();
 		$('#cc-live-content').show();
-		$('#cc-live-updated-time').attr('datetime', data.generated_at).text(new Date(data.generated_ts * 1000).toLocaleString());
+		$('#cc-live-updated-time').attr('datetime', data.generated_at).text(root.CCDateFormat.localDateTime(data.generated_ts * 1000));
 		updateOverall(data.overall);
 		ensureTrunkCards(data.trunks);
 		Object.keys(data.trunks).forEach(function (trunk) { updateTrunk(trunk, data.trunks[trunk]); });
@@ -704,7 +704,7 @@ window._ccLiveLoaded = true;
 	function renderLiveWall(data) {
 		$('#cc-wall-message').hide();
 		$('#cc-wall-content').css('display', 'grid');
-		$('#cc-wall-updated').text('Last successful update: ' + new Date(data.generated_ts * 1000).toLocaleString());
+		$('#cc-wall-updated').text('Last successful update: ' + root.CCDateFormat.localDateTime(data.generated_ts * 1000));
 		$('#cc-wall-overall-value').text(data.overall.current);
 		$('#cc-wall-overall-status').text(statusLabel(data.overall.status));
 		$('#cc-wall-overall-threshold').text(data.overall.threshold_enabled ? 'Threshold ' + data.overall.threshold : 'Threshold off');

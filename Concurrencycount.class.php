@@ -109,7 +109,7 @@ class Concurrencycount implements \BMO {
 
 	public function install(): void {
 		$this->getSettingsRepository()->install();
-		$this->getSettingsRepository()->initialize(self::DEMO_ACCESS_KEY, false);
+		$this->getSettingsRepository()->set(self::DEMO_ACCESS_KEY, false);
 		try {
 			\FreePBX::Cron()->removeLine(self::LEGACY_MONITOR_CRON_LINE);
 		} catch (\Throwable $exception) {
@@ -265,7 +265,7 @@ class Concurrencycount implements \BMO {
 		$this->getSettingsRepository()->set(self::DEMO_ACCESS_KEY, $enabled);
 	}
 
-	/** Demo can generate synthetic CDR data, so privileged CLI authorization is required; GUI/API callers must not bypass this check. */
+	/** Demo can generate synthetic CDR data, so privileged CLI authorisation is required; GUI/API callers must not bypass this check. */
 	public function requireDemoAccess(): void {
 		if (!$this->isDemoAccessEnabled()) throw new \RuntimeException(_('Demo access is DISABLED. Run fwconsole concurrencycount demo --enable as a privileged system administrator.'));
 	}

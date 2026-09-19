@@ -74,6 +74,7 @@ $runtimeFiles = [
 	'lib/cdrgen/src/Random/RandomSource.php', 'lib/cdrgen/src/Random/SeededRandomSource.php',
 	'lib/cdrgen/src/Random/HashStreamRandomSource.php',
 	'lib/cdrgen/README.md', 'lib/cdrgen/LICENSE',
+	'assets/js/date-format.js',
 	'Services/HistoricalTelemetryCadence.php',
 	'Services/HistoricalResultFloor.php',
 	'Services/AlertMonitorCoordinator.php', 'Services/AmiChannelSource.php',
@@ -89,7 +90,7 @@ foreach ($runtimeFiles as $file) {
 
 $readme = file_get_contents($root . '/README.md');
 contract_assert(strpos($readme, "# Concurrency Count 2.3.0") === 0, 'README release heading mismatch');
-contract_assert(strpos($readme, 'The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary.') !== false, 'README Demo authorization-boundary explanation missing');
+contract_assert(strpos($readme, 'The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary.') !== false, 'README Demo authorisation-boundary explanation missing');
 contract_assert(strpos($readme, 'Demo is an optional testing and demonstration facility') !== false && strpos($readme, 'DISABLED by default') !== false, 'README Demo access rationale missing');
 contract_assert(strpos($readme, 'fwconsole concurrencycount demo --enable') !== false && strpos($readme, 'fwconsole concurrencycount demo --disable') !== false && strpos($readme, 'fwconsole concurrencycount demo --status') !== false, 'README Demo access commands missing');
 contract_assert(strpos($readme, 'administrator/test-PBX feature') === false, 'README must not describe Demo as test-PBX-only');

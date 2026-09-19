@@ -32,6 +32,7 @@ $demoAccessEnabled = isset($demoAccessEnabled) && $demoAccessEnabled === true;
 $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/date-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
@@ -112,15 +113,8 @@ $_ccAssetVer = max(
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
 								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"<?php echo $demoAccessEnabled ? '' : ' disabled aria-disabled="true"'; ?>><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+								<?php if (!$demoAccessEnabled): ?><button type="button" class="btn btn-link" title="A privileged system administrator can enable Demo from the shell: fwconsole concurrencycount demo --enable" aria-label="A privileged system administrator can enable Demo from the shell: fwconsole concurrencycount demo --enable" style="padding:6px 4px;"><i class="fa fa-info-circle" aria-hidden="true"></i></button><?php endif; ?>
 								<button type="button" id="cc-identity-manage" class="btn btn-default" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
-								<?php if (!$demoAccessEnabled): ?>
-								<div id="cc-demo-access-message" class="alert alert-info" style="margin-top:12px; max-width:760px;">
-									<strong><?php echo _('Demo requires administrator access'); ?></strong>
-									<p><?php echo _('Demo scenarios can generate synthetic call records and are disabled by default. This is intentional and does not indicate an installation problem.'); ?></p>
-									<p><?php echo _('A privileged system administrator can enable Demo from the shell:'); ?></p>
-									<code>fwconsole concurrencycount demo --enable</code>
-								</div>
-								<?php endif; ?>
 								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>
@@ -538,6 +532,7 @@ $_ccAssetVer = max(
 </div>
 
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/date-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/demo-scenario.js?v=<?php echo $_ccAssetVer; ?>"></script>
