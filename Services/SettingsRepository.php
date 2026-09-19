@@ -32,6 +32,16 @@ class SettingsRepository {
 		return json_last_error() === JSON_ERROR_NONE ? $decoded : $default;
 	}
 
+	public function has(string $key): bool {
+		$stmt = $this->db->prepare('SELECT 1 FROM `' . self::TABLE . '` WHERE setting_key = :key');
+		$stmt->execute([':key' => $key]);
+		return $stmt->fetchColumn() !== false;
+	}
+
+	public function initialize(string $key, $value): void {
+		if (!$this->has($key)) $this->set($key, $value);
+	}
+
 	public function set(string $key, $value): void {
 		$json = json_encode($value);
 		if ($json === false) throw new \RuntimeException('Unable to encode Concurrency Count setting.');

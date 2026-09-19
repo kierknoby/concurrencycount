@@ -17,12 +17,14 @@
  * @var string $moduleVersion
  * @var array $availableEngines
  * @var string $csrfToken
+ * @var bool $demoAccessEnabled
  */
 if (!defined('FREEPBX_IS_AUTH')) {
 	die('No direct script access allowed');
 }
 $availableEngines = isset($availableEngines) && is_array($availableEngines) ? $availableEngines : [];
 $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
+$demoAccessEnabled = isset($demoAccessEnabled) && $demoAccessEnabled === true;
 
 // Cache-bust based on the newest asset file. If either file changes,
 // browsers see a new URL and refetch. Falls back to time() if filemtime
@@ -109,8 +111,16 @@ $_ccAssetVer = max(
 						<div id="cc-report-landing" class="row">
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
-								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
+								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"<?php echo $demoAccessEnabled ? '' : ' disabled aria-disabled="true"'; ?>><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
 								<button type="button" id="cc-identity-manage" class="btn btn-default" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
+								<?php if (!$demoAccessEnabled): ?>
+								<div id="cc-demo-access-message" class="alert alert-info" style="margin-top:12px; max-width:760px;">
+									<strong><?php echo _('Demo requires administrator access'); ?></strong>
+									<p><?php echo _('Demo scenarios can generate synthetic call records and are disabled by default. This is intentional and does not indicate an installation problem.'); ?></p>
+									<p><?php echo _('A privileged system administrator can enable Demo from the shell:'); ?></p>
+									<code>fwconsole concurrencycount demo --enable</code>
+								</div>
+								<?php endif; ?>
 								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>

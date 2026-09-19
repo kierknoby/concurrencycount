@@ -6,7 +6,7 @@ require_once __DIR__ . '/../Concurrencycount.class.php';
 
 function terminal_cleanup_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
 
-class TerminalCleanupConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} }
+class TerminalCleanupConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} public function isDemoAccessEnabled(): bool { return true; } }
 class TerminalCleanupGuard { public function checkpoint() { throw new RuntimeException('simulated resource failure'); } }
 class TerminalCleanupDb {
 	public $rows = [];

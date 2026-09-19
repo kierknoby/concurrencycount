@@ -1,6 +1,8 @@
-# Concurrency Count 2.2.2
+# Concurrency Count 2.3.0
 
-Updated 18 September 2026.
+Updated 19 September 2026.
+
+> **Not currently suitable for production**
 
 ## Overview
 
@@ -29,7 +31,7 @@ Historical Reports provide three different measurements:
 | **Extension Concurrency** | Overlapping answered CDRs assigned to an individual extension. |
 | **Group Concurrency** | PBX-wide simultaneous extension-side legs, independent of configured FreePBX Ring Groups. |
 
-Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it temporarily creates tagged synthetic CDR rows for accuracy and performance testing, then removes them.
+Concurrency Count does not alter SIP configuration or source CDR records during normal reporting. Historical exclusions and PJSIP Endpoint Classifications are module-owned and reversible. Demo is the deliberate exception: it can temporarily create tagged synthetic CDR rows for accuracy and performance testing, then removes them. Demo is optional and does not need to be enabled for normal Concurrency Count operation.
 
 ## Requirements
 
@@ -240,6 +242,16 @@ fwconsole reload
 If the fetch or reset fails, fix the Git checkout before running `fwconsole ma install`; otherwise FreePBX will simply reinstall whatever older module files are already on disk.
 
 ## Release highlights
+
+### v2.3.0
+
+**Demo security and administration**
+
+- Demo remains visible in its normal GUI location but is **DISABLED by default** because Demo scenarios can write synthetic CDR records into a database that normally contains genuine call records. This default is intentional and does not indicate an incomplete or incorrectly installed module.
+- A privileged system administrator must explicitly authorize Demo with `fwconsole concurrencycount demo --enable` before the GUI Demo workflow can operate. Enabling access authorizes the GUI only; it does not start a scenario or generate synthetic data.
+- `fwconsole concurrencycount demo --disable` rejects new Demo operations without deleting CDR data, and `fwconsole concurrencycount demo --status` reports the authoritative state. The FreePBX GUI cannot grant itself Demo permission.
+- The server checks Demo authorization independently for GUI, AJAX, direct requests, downloads, email, previews and legacy CLI Demo calculations. Normal Live monitoring, Historical reporting, thresholds and alerts do not require Demo and remain available while access is disabled.
+- A newly installed module and the first upgrade from a release without this setting initialize Demo access to DISABLED. An administrator-selected ENABLED or DISABLED state is preserved across normal module updates, service restarts and reboots.
 
 ### v2.2.2
 
@@ -640,16 +652,45 @@ The GUI and `fwconsole concurrencycount` use the same calculations/services wher
 | Monitor diagnostics | `--monitor-status`, `--restart-monitor`, `--monitor` |
 | Historical graph | `--historical-graph=trunk --graph-trunk=gamma --start='...' --end='...' --json` |
 | Historic Report definitions | `--list-historical-reports`, `--show-historical-report=2`, `--delete-historical-report=2` |
+| Demo access | `demo --enable`, `demo --disable`, `demo --status` |
 
 Prefix examples with `fwconsole concurrencycount`. CLI date boundaries use PBX/server local time: `--start=today` is today at `00:00:00`, `--end=today` is the current time, `--start=yesterday` is yesterday at `00:00:00`, and `--end=yesterday` is yesterday at `23:59:59`.
 
 Omitting `--engine` selects Original; explicit `original` and experimental `sweep` are valid. An explicitly unknown engine is rejected rather than silently falling back to Original. Incompatible management operation classes are rejected before mutation—for example, `--monitor-status --restart-monitor`, `--live --set-refresh=5` or `--list-historical-reports --alerts=off`. `--json` is a modifier, multiple supported settings mutations may be combined, and `--settings` may accompany settings mutations.
 
+The Demo access commands administer permission only. `demo --enable` authorizes the existing GUI Demo functionality but does not run a scenario or generate synthetic CDRs. `demo --disable` revokes authorization for new Demo operations and does not delete existing CDR data. `demo --status` performs no mutation and reports `Demo access: ENABLED` or `Demo access: DISABLED`.
+
 Live queries take one snapshot and exit; they do not poll or replace the PM2 worker. The standalone IN1CLICK `concurrency-count` tool remains available for terminal interaction, progress reporting and pause-on-overrun behaviour. Neither interface is universally preferable.
 
 ## Demo
 
-Demo is an administrator accuracy and performance workflow. Page 1 of the Demo modal offers an administrator-selectable **Year** (2001-2015, defaulting to 2001 on every fresh opening) alongside the safety acknowledgement; the selection is never persisted and always resets when Demo is reopened. The GUI uses a **Load** dropdown on Page 2 to select Light, Medium or Heavy and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs, constrained to the selected Year. The current scenario remains stable until the Year, Load or profile changes or Randomise is pressed, and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the scenario start day falls within the selected year, which may be any full calendar year from 2001 to 2015. A 31 December start naturally uses 1 January of the following year as the exclusive end boundary, and every profile remains exactly one day. Demo Minimum concurrency defaults to 2. CLI examples are:
+### Demo security and access
+
+Demo is an optional testing and demonstration facility. Its scenarios can write synthetic CDR records into `asteriskcdrdb`, which is why Demo access is **DISABLED by default**. This is an intentional protection for systems that contain genuine call records; it does not mean that the module is incomplete or incorrectly installed. Normal Concurrency Count operation does not require Demo: Live monitoring, Historical analysis, thresholds and alerts continue to operate normally while Demo access is disabled.
+
+Demo remains visible in the GUI while disabled so administrators can discover it and understand how to authorize it. The visible control is informational and locked; it is not a web permission control. Enabling Demo requires privileged shell access:
+
+```text
+Privileged CLI
+  -> authorises or prohibits Demo capability
+
+FreePBX GUI
+  -> operates Demo only when authorised
+```
+
+Use these commands as a privileged system administrator:
+
+```bash
+fwconsole concurrencycount demo --enable
+fwconsole concurrencycount demo --disable
+fwconsole concurrencycount demo --status
+```
+
+The CLI authorizes or prohibits capability only. It does not start a Demo scenario, generate synthetic calls, or write synthetic CDRs. The GUI cannot grant itself permission. Before any synthetic-data operation, the server independently verifies that privileged Demo access is enabled, including for AJAX, crafted requests, downloads, email, previews and the existing `--mode=demo` CLI calculation path.
+
+Fresh installation and the first upgrade from a release without the permission setting initialize Demo access to DISABLED. Once created, the administrator-selected state persists across normal module updates, service restarts and system reboots. Disabling access rejects new Demo operations, does not delete CDR data, and allows an already-running Demo to complete its existing mandatory cleanup.
+
+Page 1 of the Demo modal offers an administrator-selectable **Year** (2001-2015, defaulting to 2001 on every fresh opening) alongside the safety acknowledgement; the selection is never persisted and always resets when Demo is reopened. The GUI uses a **Load** dropdown on Page 2 to select Light, Medium or Heavy and uses an ephemeral cryptographically random 128-bit token to create a fresh deterministic scenario generated by the pinned CDRgen 1.1.0 reusable core for Trunk, Extension or Group runs, constrained to the selected Year. The current scenario remains stable until the Year, Load or profile changes or Randomise is pressed, and is not restored after reload. Light generates 1,000 mixed calls over one day, Medium 5,000 over one day and Heavy 20,000 over one day; the scenario start day falls within the selected year, which may be any full calendar year from 2001 to 2015. A 31 December start naturally uses 1 January of the following year as the exclusive end boundary, and every profile remains exactly one day. Demo Minimum concurrency defaults to 2. CLI examples are:
 
 **Demo safety:** Demo temporarily writes tagged synthetic records to the CDR database and requires MariaDB. Reserved Demo rows are excluded from ordinary Historical reporting and are removed when the run completes, with recovery available for interrupted runs. Opening Demo always begins with a safety warning. The administrator must acknowledge that temporary synthetic records will be written before proceeding to the Demo controls; this acknowledgement is required every time Demo is opened and is not a persistent setting or permission. For best results, run Demo during a quiet period and allow calculation and cleanup to complete without interruption.
 
@@ -678,7 +719,7 @@ Omitted Demo arguments retain their documented defaults. Explicit invalid Demo r
 
 `CCDEMO` followed by exactly eight lowercase hexadecimal characters is reserved for synthetic rows and is always excluded from ordinary Historical SQL and post-fetch processing. Cleanup runs in `finally`; it halves timed-out exact-tag delete batches from 1,000 rows and treats a successful batch shorter than its limit as verified exhaustion, avoiding a second full-table `COUNT(*)` scan. MariaDB `max_statement_time` covers cleanup statements. MySQL Demo is unavailable because `max_execution_time` does not cover `DELETE`; bounded batches and the two-second InnoDB lock-wait limit are retained as additional protections but are not treated as execution deadlines. A durable registry heartbeat is refreshed during an active Demo. Before each later Demo preflight or run, registry entries inactive for five minutes are recovered after fatal error, server kill, database interruption or host crash. A failed recovery remains registered for a later retry. Demo calls cannot be persistently excluded, and Demo never consumes a Historic Report slot.
 
-The Demo acknowledgement gate is a client-side deliberate-use control, not a separate FreePBX permission or authorization boundary.
+The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary. Server-side authorization remains mandatory even when the GUI control is visible or a request is crafted directly.
 
 ## Architecture at a glance
 
@@ -696,6 +737,8 @@ The Demo acknowledgement gate is a client-side deliberate-use control, not a sep
 - User-supplied SQL values use prepared statements.
 - Normal Historical reporting is read-only against source CDR. Exclusions never update or delete CDR rows.
 - Demo is the intentional exception: it temporarily inserts and removes tagged synthetic rows.
+- Demo access is disabled by default and can be changed only by the privileged CLI commands; the GUI cannot authorize itself.
+- The server independently checks Demo access before every synthetic-data operation, regardless of GUI visibility or client-supplied state.
 - Live reads Asterisk through backend AMI handling; the browser has no direct AMI access.
 - Original is the default; experimental engines require explicit selection.
 
@@ -776,6 +819,8 @@ php tests/AlertDeliveryPathTest.php
 php tests/AmiChannelSourceTest.php
 php tests/CdrgenAdapterTest.php
 php tests/CdrgenBundleIntegrityTest.php
+php tests/DemoAccessAuthorizationTest.php
+php tests/DemoAccessPersistenceTest.php
 php tests/CliCancellationControlTest.php
 php tests/CsvFormulaSafetyTest.php
 php tests/DemoCleanupServiceTest.php
@@ -852,7 +897,6 @@ These tests do not replace real PBX/browser validation.
 
 ## Future hardening
 
-- Add a FreePBX permission or setting before Demo can write CDR rows.
 - Add a dry-run orphan-cleanup command for old `CCDEMO*` rows.
 - Consider a Demo transaction only if safe with deployed CDR engines and FreePBX environments.
 - Consider event-burst coalescing only with guarantees for prompt first-event and trailing reconciliation so short threshold crossings cannot be missed.

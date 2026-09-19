@@ -12,7 +12,8 @@ function contract_assert($condition, $message) {
 	if (!$condition) throw new Exception($message);
 }
 
-contract_assert((string)$module->version === '2.2.2', 'Unexpected module version');
+contract_assert((string)$module->version === '2.3.0', 'Unexpected module version');
+contract_assert(strpos((string)$module->changelog, '*2.3.0 (19 September 2026)*') !== false, '2.3.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.2 (18 September 2026)*') !== false, '2.2.2 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.1 (17 September 2026)*') !== false, '2.2.1 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.2.0 (15 September 2026)*') !== false, '2.2.0 release date missing');
@@ -20,7 +21,7 @@ contract_assert(strpos((string)$module->changelog, '*2.1.1 (28 August 2026)*') !
 contract_assert(strpos((string)$module->changelog, '*2.1.0 (27 August 2026)*') !== false, '2.1.0 release date missing');
 contract_assert(strpos((string)$module->changelog, '*2.0.1 (27 August 2026)*') !== false, '2.0.1 release history missing');
 $mainClass = file_get_contents($root . '/Concurrencycount.class.php');
-contract_assert(strpos($mainClass, "const VERSION = '2.2.2';") !== false, 'Fallback PHP version mismatch');
+contract_assert(strpos($mainClass, "const VERSION = '2.3.0';") !== false, 'Fallback PHP version mismatch');
 $supported = [];
 foreach ($module->supported->version as $version) $supported[] = (string)$version;
 contract_assert(in_array('16.0', $supported, true) && in_array('17.0', $supported, true), 'Both supported versions are required');
@@ -87,8 +88,10 @@ foreach ($runtimeFiles as $file) {
 }
 
 $readme = file_get_contents($root . '/README.md');
-contract_assert(strpos($readme, "# Concurrency Count 2.2.2") === 0, 'README release heading mismatch');
-contract_assert(strpos($readme, 'The Demo acknowledgement gate is a client-side deliberate-use control, not a separate FreePBX permission or authorization boundary.') !== false, 'README Demo authorization-boundary explanation missing');
+contract_assert(strpos($readme, "# Concurrency Count 2.3.0") === 0, 'README release heading mismatch');
+contract_assert(strpos($readme, 'The Demo acknowledgement gate is a client-side deliberate-use control in addition to the privileged access setting; it is not the security boundary.') !== false, 'README Demo authorization-boundary explanation missing');
+contract_assert(strpos($readme, 'Demo is an optional testing and demonstration facility') !== false && strpos($readme, 'DISABLED by default') !== false, 'README Demo access rationale missing');
+contract_assert(strpos($readme, 'fwconsole concurrencycount demo --enable') !== false && strpos($readme, 'fwconsole concurrencycount demo --disable') !== false && strpos($readme, 'fwconsole concurrencycount demo --status') !== false, 'README Demo access commands missing');
 contract_assert(strpos($readme, 'administrator/test-PBX feature') === false, 'README must not describe Demo as test-PBX-only');
 contract_assert(strpos($readme, 'missing permission/feature gate remains a known limitation') === false, 'README must not retain the obsolete Demo permission limitation');
 contract_assert(strpos($readme, 'pre-production checklist') === false, 'README must not retain the obsolete pre-production checklist wording');

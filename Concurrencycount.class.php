@@ -51,7 +51,7 @@ class Concurrencycount implements \BMO {
 	const DEMO_CLEANUP_MAX_RUNTIME = 300;
 	const DEMO_CLEANUP_PHP_MARGIN = 30;
 	/** Fallback only. Authoritative version lives in module.xml and is read by getVersion(). */
-	const VERSION = '2.2.2';
+	const VERSION = '2.3.0';
 	const MAX_ATTEMPTS = 3;
 	const AJAX_COMMANDS = ['calculationdecision', 'historicalprotection', 'demopreflight', 'democallpage', 'wizardstep', 'run', 'cancelcalculation', 'calculationheartbeat', 'calculationtelemetry', 'peakdetails', 'livestatus', 'getsettings', 'savesettings', 'testalertemail', 'monitorstatus', 'restartmonitor', 'historicalgraph', 'download', 'previewfixture', 'email', 'gettrunks', 'gethistoricalendpoints', 'listhistoricalreports', 'createhistoricalreport', 'updatehistoricalreport', 'closehistoricalreport', 'activatehistoricalreport', 'reorderhistoricalreports', 'getidentityclassifications', 'saveidentityclassification', 'resetidentityclassification', 'resetallidentityclassifications', 'listexcludedcalls', 'excludecall', 'excludepeakcalls', 'restoreexcludedcall', 'restoreexcludedgroup', 'restoreallexcludedcalls'];
 	const CSRF_SESSION_KEY = 'concurrencycount_csrf_token';
@@ -65,6 +65,7 @@ class Concurrencycount implements \BMO {
 	const DEMO_RUN_KEY_PREFIX = 'demo_run:';
 	const ALERT_DELIVERY_STATUS_KEY = 'alert_delivery_status';
 	const ALERT_TEST_STATUS_KEY = 'alert_test_status';
+	const DEMO_ACCESS_KEY = 'demo_access';
 	const LEGACY_MONITOR_CRON_LINE = '* * * * * /usr/sbin/fwconsole concurrencycount --monitor --quiet >/dev/null 2>&1';
 	const MONITOR_PROCESS_NAME = 'concurrencycount-alert-monitor';
 	const MAIL_PROCESS_NAME = 'concurrencycount-alert-mailer';
@@ -108,6 +109,7 @@ class Concurrencycount implements \BMO {
 
 	public function install(): void {
 		$this->getSettingsRepository()->install();
+		$this->getSettingsRepository()->initialize(self::DEMO_ACCESS_KEY, false);
 		try {
 			\FreePBX::Cron()->removeLine(self::LEGACY_MONITOR_CRON_LINE);
 		} catch (\Throwable $exception) {
@@ -251,7 +253,21 @@ class Concurrencycount implements \BMO {
 			'moduleVersion' => $this->getVersion(),
 			'availableEngines' => $this->getAvailableEngines(),
 			'csrfToken' => $this->getCsrfToken(),
+			'demoAccessEnabled' => $this->isDemoAccessEnabled(),
 		]);
+	}
+
+	public function isDemoAccessEnabled(): bool {
+		return $this->getSettingsRepository()->get(self::DEMO_ACCESS_KEY, false) === true;
+	}
+
+	public function setDemoAccessEnabled(bool $enabled): void {
+		$this->getSettingsRepository()->set(self::DEMO_ACCESS_KEY, $enabled);
+	}
+
+	/** Demo can generate synthetic CDR data, so privileged CLI authorization is required; GUI/API callers must not bypass this check. */
+	public function requireDemoAccess(): void {
+		if (!$this->isDemoAccessEnabled()) throw new \RuntimeException(_('Demo access is DISABLED. Run fwconsole concurrencycount demo --enable as a privileged system administrator.'));
 	}
 
 	/**
@@ -1547,6 +1563,10 @@ class Concurrencycount implements \BMO {
 		$previousIgnoreUserAbort = null;
 		$preserveControlForWarning = false;
 		if ($mode === null) return ['status' => false, 'message' => _('Invalid mode entered. Please enter trunks, extensions, group, or demo.')];
+		if ($mode === 'demo') {
+			try { $this->requireDemoAccess(); }
+			catch (\Throwable $exception) { return ['status' => false, 'message' => $exception->getMessage()]; }
+		}
 		if ($calculationId !== '') {
 			try {
 				$runtimeAllowanceSeconds = self::MAX_RUNTIME;
@@ -2094,6 +2114,7 @@ class Concurrencycount implements \BMO {
 	 * Dispatch by mode.
 	 */
 	public function calculate(string $mode, string $start, string $end, bool $confirm_overrun = false, array $options = []): array {
+		if ($mode === 'demo') $this->requireDemoAccess();
 		// PHP is only a backstop. Monotonic checkpoints enforce the calculation
 		// allowance; this headroom lets a logical timeout enter mandatory cleanup.
 		set_time_limit(($this->workerControl !== null ? 86400 : self::MAX_RUNTIME) + self::DEMO_CLEANUP_MAX_RUNTIME + self::DEMO_CLEANUP_PHP_MARGIN);
@@ -2199,6 +2220,7 @@ class Concurrencycount implements \BMO {
 	 */
 	private function handleDemoPreflight(): array {
 		try {
+			$this->requireDemoAccess();
 			$size = $this->normaliseDemoSize($_REQUEST['demo_size'] ?? 'light');
 			$rows = $this->normaliseDemoRows($_REQUEST['demo_rows'] ?? 0, $size);
 			$capabilities = $this->configureHistoricalQueryDeadline();
@@ -2228,6 +2250,7 @@ class Concurrencycount implements \BMO {
 	}
 	private function handleDemoCallPage(): array {
 		try {
+			$this->requireDemoAccess();
 			$page = filter_var($_REQUEST['page'] ?? 1, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
 			if ($page === false) throw new \InvalidArgumentException(_('Invalid Demo audit page.'));
 			$result = \FreePBX\modules\Concurrencycount\Services\DemoSyntheticCallCollection::fetchPage((string)($_REQUEST['audit_token'] ?? ''), $this->guiCalculationOwner(), (int)$page);
@@ -2645,6 +2668,7 @@ class Concurrencycount implements \BMO {
 	}
 
 	private function insertDemoCdrRow(array $row): array {
+		$this->requireDemoAccess();
 		$columns = $this->getCdrColumns();
 		$insert_columns = [];
 		$placeholders = [];
@@ -3287,6 +3311,7 @@ class Concurrencycount implements \BMO {
 		}
 
 		try {
+			$this->requireDemoAccess();
 			$report = $this->normaliseDemoReport(isset($options['demo_report']) ? $options['demo_report'] : 'extension');
 			$size = $this->normaliseDemoSize(isset($options['demo_size']) ? $options['demo_size'] : 'light');
 			$row_count = $this->normaliseDemoRows(isset($options['demo_rows']) ? $options['demo_rows'] : 0, $size);

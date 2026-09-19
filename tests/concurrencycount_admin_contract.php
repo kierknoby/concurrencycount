@@ -69,6 +69,8 @@ admin_contract_assert(strpos($view, 'data-csrf-token=') !== false && strpos($vie
 admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download, and fixture preview must send CSRF tokens');
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');
 admin_contract_assert(strpos($view, 'Demo requires MariaDB.') !== false && strpos($view, 'temporary synthetic calls') !== false, 'Demo safety disclaimer missing');
+admin_contract_assert(strpos($class, "const DEMO_ACCESS_KEY = 'demo_access';") !== false && strpos($class, 'initialize(self::DEMO_ACCESS_KEY, false)') !== false && strpos($class, 'function requireDemoAccess') !== false, 'Central Demo access enforcement or install initialization missing');
+admin_contract_assert(strpos($view, 'Demo requires administrator access') !== false && strpos($view, 'fwconsole concurrencycount demo --enable') !== false && strpos($view, 'disabled aria-disabled="true"') !== false, 'Disabled Demo must remain visible and explain privileged access');
 admin_contract_assert(strpos($view, 'cc-download') !== false && strpos($view, 'cc-email-send') !== false, 'Download/email controls missing');
 admin_contract_assert(substr_count($view, "_('Minimum concurrency')") === 2, 'Historical and Demo minimum concurrency labels missing');
 admin_contract_assert(strpos($view, 'id="cc-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2"') !== false && strpos($view, 'Leave blank to show all details') === false, 'Historical Minimum concurrency must visibly default to and enforce 2 without obsolete blank-floor wording');
@@ -461,7 +463,7 @@ admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancell
 admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
 admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.2.2', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.3.0', 'Admin contract version mismatch');
 
 /* Demo deliberate-use gate must remain a local UI acknowledgement, separate from preflight. */
 admin_contract_assert(strpos($view, 'id="cc-demo-page-1"') !== false && strpos($view, 'Page 1 of 2') !== false && strpos($view, 'id="cc-demo-page-2"') !== false && strpos($view, 'Page 2 of 2') !== false, 'Demo must expose both numbered pages');

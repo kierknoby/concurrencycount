@@ -29,6 +29,7 @@ function demo_lifecycle_set($target, string $name, $value): void {
 
 class DemoLifecycleConcurrencycount extends \FreePBX\modules\Concurrencycount {
 	public function __construct() {}
+	public function isDemoAccessEnabled(): bool { return true; }
 	public function getTrunks(): array { return ['carrier']; }
 }
 
