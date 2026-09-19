@@ -895,7 +895,15 @@ git diff --check
 
 These tests do not replace real PBX/browser validation.
 
-## Future hardening
+## Known limitations
+
+### Module class size
+
+`Concurrencycount.class.php` has grown significantly as functionality has expanded and currently contains more responsibilities than is desirable for long-term maintenance. This is acknowledged technical debt. A future release is planned to separate these responsibilities into smaller, focused services while preserving the existing FreePBX-facing module interface and behaviour.
+
+That refactor has deliberately not been included in 2.3.0 to avoid introducing unnecessary regression risk alongside the Demo security and authorisation changes.
+
+### Future hardening
 
 - Add a dry-run orphan-cleanup command for old `CCDEMO*` rows.
 - Consider a Demo transaction only if safe with deployed CDR engines and FreePBX environments.
@@ -903,7 +911,6 @@ These tests do not replace real PBX/browser validation.
 - Define an automation-safe CLI runtime-overrun confirmation or `--force` policy and a consistent JSON success/error envelope.
 - Add FreePBX backup/restore integration for module-owned persisted state.
 - Add real FreePBX 16/17 integration coverage for mail, CDR schema variation, permissions and browsers.
-- Decompose the main module class in a future minor release rather than during release hardening.
 
 ## Uninstalling
 

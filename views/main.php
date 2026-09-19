@@ -45,7 +45,7 @@ $_ccAssetVer = max(
 ?>
 <link rel="stylesheet" href="modules/concurrencycount/assets/css/concurrencycount.css?v=<?php echo $_ccAssetVer; ?>">
 
-<div class="concurrencycount" data-csrf-token="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+<div class="concurrencycount" data-csrf-token="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>" data-demo-access-enabled="<?php echo $demoAccessEnabled ? 'true' : 'false'; ?>">
 	<input type="hidden" name="token" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
 	<div class="row">
 		<div class="col-sm-12">
@@ -112,9 +112,8 @@ $_ccAssetVer = max(
 						<div id="cc-report-landing" class="row">
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
-								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"<?php echo $demoAccessEnabled ? '' : ' disabled aria-disabled="true"'; ?>><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
-								<?php if (!$demoAccessEnabled): ?><button type="button" class="btn btn-link" title="A privileged system administrator can enable Demo from the shell: fwconsole concurrencycount demo --enable" aria-label="A privileged system administrator can enable Demo from the shell: fwconsole concurrencycount demo --enable" style="padding:6px 4px;"><i class="fa fa-info-circle" aria-hidden="true"></i></button><?php endif; ?>
-								<button type="button" id="cc-identity-manage" class="btn btn-default" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
+								<span class="cc-demo-launch-wrap" title="<?php echo $demoAccessEnabled ? _('Disable Demo from the shell: fwconsole concurrencycount demo --disable') : _('Enable Demo from the shell: fwconsole concurrencycount demo --enable'); ?>"><button type="button" id="cc-demo-launch" class="btn <?php echo $demoAccessEnabled ? 'btn-default' : 'btn-danger'; ?>"<?php echo $demoAccessEnabled ? '' : ' disabled aria-disabled="true"'; ?>><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button></span>
+								<button type="button" id="cc-identity-manage" class="btn btn-warning" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
 								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>

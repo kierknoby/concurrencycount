@@ -217,6 +217,7 @@ window._ccLoaded = true;
 	}
 
 	function showDemoPrompt() {
+		if ($('.concurrencycount').attr('data-demo-access-enabled') !== 'true') return;
 		resetDemoGate();
 		$('#cc-results').hide();
 		setStatus('', null);
