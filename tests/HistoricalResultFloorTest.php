@@ -33,7 +33,7 @@ $perName = [
 	'trunk_entities' => ['zero' => [], 'one' => [], 'two' => [], 'three' => [], 'boundary' => ['id' => 2], 'peak' => ['id' => 3]],
 ];
 $unchanged = $floor->apply($perName, null);
-floor_assert($unchanged['per_name'] === $perName['per_name'] && $unchanged['minimum_concurrency'] === null, 'Optional Demo floor behavior must remain available');
+floor_assert($unchanged['per_name'] === $perName['per_name'] && $unchanged['minimum_concurrency'] === null, 'Optional Demo floor behaviour must remain available');
 $filtered = $floor->apply($perName, 4);
 floor_assert($filtered['per_name'] === ['boundary' => 4, 'peak' => 5], 'Per-name floor must be inclusive');
 floor_assert(array_keys($filtered['peak_occurrences']) === ['boundary', 'peak'], 'Trunk occurrences must follow visible trunks');

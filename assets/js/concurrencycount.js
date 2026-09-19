@@ -171,7 +171,7 @@ window._ccLoaded = true;
 		el.removeClass('alert-info alert-warning alert-danger alert-success');
 		if (!msg) { el.hide(); return; }
 
-		var time = new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+		var time = window.CCDateFormat.localTime(new Date());
 		var timeHtml = ' <small class="text-muted">' + escapeHtml(time) + '</small>';
 
 		if (level === 'running') {
@@ -217,6 +217,7 @@ window._ccLoaded = true;
 	}
 
 	function showDemoPrompt() {
+		if ($('.concurrencycount').attr('data-demo-access-enabled') !== 'true') return;
 		resetDemoGate();
 		$('#cc-results').hide();
 		setStatus('', null);
@@ -1515,7 +1516,7 @@ window._ccLoaded = true;
 
 	function formatDisplayDate(value) {
 		var date = window.CCDateRange.parseDate(value);
-		return date ? date.toLocaleDateString([], {day: 'numeric', month: 'short', year: 'numeric'}) : value;
+		return date ? window.CCDateFormat.localDate(date) : value;
 	}
 
 	function askMode() {

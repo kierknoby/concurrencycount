@@ -272,20 +272,20 @@
 	};
 
 	function formatTime(timestamp) {
-		return new Date(timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+		return root.CCDateFormat.localTime(timestamp * 1000);
 	}
 
 	function formatAxisTimestamp(timestamp, span) {
 		var date = new Date(timestamp * 1000);
 		if (span <= 86400) return formatTime(timestamp);
-		if (span <= 7 * 86400) return date.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
-		if (span <= 120 * 86400) return date.toLocaleDateString([], {month: 'short', day: 'numeric'});
-		return date.toLocaleDateString([], {month: 'short', year: 'numeric'});
+		if (span <= 7 * 86400) return root.CCDateFormat.localDateTime(date);
+		if (span <= 120 * 86400) return root.CCDateFormat.localDate(date);
+		return root.CCDateFormat.localYearMonth(date);
 	}
 
 	function formatPointTimestamp(timestamp, span) {
 		if (span <= 86400) return formatTime(timestamp);
-		return new Date(timestamp * 1000).toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+		return root.CCDateFormat.localDateTime(timestamp * 1000);
 	}
 
 	root.ConcurrencyChart = ConcurrencyChart;

@@ -14,7 +14,7 @@ require_once __DIR__ . '/../Concurrencycount.class.php';
 
 function legacy_preflight_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
 
-class LegacyPreflightConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} }
+class LegacyPreflightConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} public function isDemoAccessEnabled(): bool { return true; } }
 class LegacyPreflightStatement {
 	private $db; private $sql; private $affected = 0;
 	public function __construct($db, string $sql) { $this->db = $db; $this->sql = $sql; }

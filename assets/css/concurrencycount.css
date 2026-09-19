@@ -1009,6 +1009,20 @@ body:has(.concurrencycount) #page_body {
 	font-size: 0.95em;
 }
 
+.cc-demo-launch-wrap {
+	display: inline-block;
+	margin-left: 8px;
+}
+
+.cc-demo-launch-wrap #cc-demo-launch {
+	margin-left: 0;
+}
+
+#cc-demo-launch.btn-danger[disabled],
+#cc-demo-launch.btn-danger[aria-disabled="true"] {
+	opacity: 0.55;
+}
+
 /* Bootstrap's grid/utility CSS can override the bare [hidden] attribute with display:block;
    scope a !important rule to the Demo modal so the hidden-property state model keeps working. */
 #cc-demo [hidden] {
