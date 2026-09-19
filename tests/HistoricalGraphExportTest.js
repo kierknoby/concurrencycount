@@ -1,5 +1,6 @@
 'use strict';
 
+global.CCDateFormat = require('../assets/js/date-format.js');
 const exporter = require('../assets/js/historical-graph-export.js');
 const generator = require('../assets/js/historical-svg-chart.js');
 function assert(condition, message) { if (!condition) throw new Error(message); }

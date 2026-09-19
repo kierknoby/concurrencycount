@@ -17,12 +17,14 @@
  * @var string $moduleVersion
  * @var array $availableEngines
  * @var string $csrfToken
+ * @var bool $demoAccessEnabled
  */
 if (!defined('FREEPBX_IS_AUTH')) {
 	die('No direct script access allowed');
 }
 $availableEngines = isset($availableEngines) && is_array($availableEngines) ? $availableEngines : [];
 $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
+$demoAccessEnabled = isset($demoAccessEnabled) && $demoAccessEnabled === true;
 
 // Cache-bust based on the newest asset file. If either file changes,
 // browsers see a new URL and refetch. Falls back to time() if filemtime
@@ -30,6 +32,7 @@ $csrfToken = isset($csrfToken) ? (string)$csrfToken : '';
 $_ccAssetVer = max(
 	@filemtime(__DIR__ . '/../assets/js/concurrencycount.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/date-range.js') ?: 0,
+	@filemtime(__DIR__ . '/../assets/js/date-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/telemetry-format.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/historical-run-state.js') ?: 0,
 	@filemtime(__DIR__ . '/../assets/js/concurrency-charts.js') ?: 0,
@@ -42,7 +45,7 @@ $_ccAssetVer = max(
 ?>
 <link rel="stylesheet" href="modules/concurrencycount/assets/css/concurrencycount.css?v=<?php echo $_ccAssetVer; ?>">
 
-<div class="concurrencycount" data-csrf-token="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+<div class="concurrencycount" data-csrf-token="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>" data-demo-access-enabled="<?php echo $demoAccessEnabled ? 'true' : 'false'; ?>">
 	<input type="hidden" name="token" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
 	<div class="row">
 		<div class="col-sm-12">
@@ -109,8 +112,8 @@ $_ccAssetVer = max(
 						<div id="cc-report-landing" class="row">
 							<div class="col-sm-12">
 								<button type="button" id="cc-launch" class="btn btn-primary"><i class="fa fa-play"></i> <?php echo _('Start Historical Report'); ?></button>
-								<button type="button" id="cc-demo-launch" class="btn btn-default" style="margin-left:8px;"><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button>
-								<button type="button" id="cc-identity-manage" class="btn btn-default" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
+								<span class="cc-demo-launch-wrap" title="<?php echo $demoAccessEnabled ? _('Disable Demo from the shell: fwconsole concurrencycount demo --disable') : _('Enable Demo from the shell: fwconsole concurrencycount demo --enable'); ?>"><button type="button" id="cc-demo-launch" class="btn <?php echo $demoAccessEnabled ? 'btn-default' : 'btn-danger'; ?>"<?php echo $demoAccessEnabled ? '' : ' disabled aria-disabled="true"'; ?>><i class="fa fa-flask"></i> <?php echo _('Run Demo'); ?></button></span>
+								<button type="button" id="cc-identity-manage" class="btn btn-warning" style="margin-left:8px;" aria-haspopup="dialog"><i class="fa fa-tags"></i> <?php echo _('Endpoint Classifications'); ?></button>
 								<div id="cc-report-limit-message" class="alert alert-warning" style="display:none; margin-top:12px;"></div>
 							</div>
 						</div>
@@ -528,6 +531,7 @@ $_ccAssetVer = max(
 </div>
 
 <script src="modules/concurrencycount/assets/js/date-range.js?v=<?php echo $_ccAssetVer; ?>"></script>
+<script src="modules/concurrencycount/assets/js/date-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/telemetry-format.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/historical-run-state.js?v=<?php echo $_ccAssetVer; ?>"></script>
 <script src="modules/concurrencycount/assets/js/demo-scenario.js?v=<?php echo $_ccAssetVer; ?>"></script>

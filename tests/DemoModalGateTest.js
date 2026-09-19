@@ -12,6 +12,7 @@ const elements = {};
 const collections = {};
 const handlers = {};
 const ajaxRequests = [];
+const accessState = {enabled: false};
 const ids = [
 	'cc-demo', 'cc-demo-launch', 'cc-demo-page-1', 'cc-demo-page-2',
 	'cc-demo-acknowledge', 'cc-demo-proceed', 'cc-demo-year', 'cc-demo-error',
@@ -78,6 +79,7 @@ function $(selector) {
 	// escapeHtml() round-trips a value through a detached <div> for entity escaping; reproduce that here.
 	if (selector === '<div>') { let raw = ''; const escaper = {text(value) { raw = value; return escaper; }, html() { return htmlEscape(raw); }}; return escaper; }
 	if (selector && selector.id) return collectionFor('#' + selector.id);
+	if (selector === '.concurrencycount') return {attr(name) { return name === 'data-demo-access-enabled' ? (accessState.enabled ? 'true' : 'false') : undefined; }};
 	if (selector && typeof selector === 'object') return collectionFor('__object__');
 	return collectionFor(selector);
 }
@@ -167,6 +169,10 @@ function renderedScenarioYear() {
 	return match[1];
 }
 
+const requestsBeforeDeniedLaunch = ajaxRequests.length;
+trigger('cc-demo-launch', 'click');
+assert(elementFor('cc-demo-year').value === '' && ajaxRequests.length === requestsBeforeDeniedLaunch, 'DOM-tampered disabled Demo button must not open while rendered access state is false');
+accessState.enabled = true;
 trigger('cc-demo-launch', 'click');
 assertFreshPage(runState(), 'fresh open must show only the unchecked Page 1 gate with Year defaulted to 2001');
 resolveLatestPreflight();

@@ -3,7 +3,7 @@ if (!function_exists('_')) { function _($message) { return $message; } }
 if (!interface_exists('BMO')) { interface BMO {} }
 require_once __DIR__ . '/../Concurrencycount.class.php';
 function no_controller_assert($condition, string $message): void { if (!$condition) throw new Exception($message); }
-class NoControllerConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} }
+class NoControllerConcurrencycount extends \FreePBX\modules\Concurrencycount { public function __construct() {} public function isDemoAccessEnabled(): bool { return true; } }
 class NoControllerGuard { public $checks = 0; public function checkpoint() { $this->checks++; } }
 class NoControllerDeadlineDb { public $version; public $exec = []; public $queries = []; public $indexes; public $engine = 'InnoDB'; public function __construct($version, $indexes = null) { $this->version = $version; $this->indexes = $indexes === null ? [['INDEX_NAME' => 'calldate', 'SEQ_IN_INDEX' => 1, 'COLUMN_NAME' => 'calldate', 'SUB_PART' => null]] : $indexes; } public function query($sql) { $this->queries[] = $sql; return new NoControllerDeadlineStatement($this->version, $this->indexes, $this->engine, $sql); } public function exec($sql) { $this->exec[] = $sql; } }
 class NoControllerDeadlineStatement { private $version; private $indexes; private $engine; private $sql; public function __construct($version, $indexes, $engine, $sql) { $this->version = $version; $this->indexes = $indexes; $this->engine = $engine; $this->sql = $sql; } public function fetchColumn() { return strpos($this->sql, 'SELECT ENGINE') === 0 ? $this->engine : $this->version; } public function fetchAll($mode = null) { return $this->indexes; } }

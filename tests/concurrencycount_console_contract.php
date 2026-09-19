@@ -9,6 +9,17 @@ function console_contract_assert($condition, string $message): void {
 }
 
 console_contract_assert(strpos($console, "->setName('concurrencycount')") !== false, 'Console command name changed');
+console_contract_assert(strpos($console, "->addArgument('demo', InputArgument::OPTIONAL") !== false, 'Demo access command argument missing');
+$demoAccessOptions = [
+	['enable', 'Demo access'],
+	['disable', 'Demo authorisation'],
+	['status', 'Demo access'],
+];
+foreach ($demoAccessOptions as $option) {
+	console_contract_assert(strpos($console, "->addOption('" . $option[0] . "', null, InputOption::VALUE_NONE") !== false, 'Demo access option missing: --' . $option[0]);
+}
+console_contract_assert(strpos($console, 'Enable Demo access? Demo scenarios can generate synthetic CDR records.') !== false, 'Enable confirmation must warn about synthetic CDR records');
+console_contract_assert(strpos($console, 'does not start Demo or generate data') !== false, 'Enable help must distinguish authorisation from running Demo');
 $options = [
 	['mode', 'm', 'VALUE_REQUIRED'],
 	['start', 's', 'VALUE_REQUIRED'],
@@ -42,7 +53,7 @@ foreach ($newOptions as $option) {
 	$needle = "->addOption('" . $option[0] . "', null, InputOption::" . $option[1];
 	console_contract_assert(strpos($console, $needle) !== false, 'Management option missing: --' . $option[0]);
 }
-console_contract_assert(substr_count($console, '->addOption(') === count($options) + count($newOptions), 'Unexpected console option count');
+console_contract_assert(substr_count($console, '->addOption(') === count($options) + count($newOptions) + count($demoAccessOptions), 'Unexpected console option count');
 console_contract_assert(strpos($console, '$cc->normaliseStartDate($start_raw)') !== false, 'Console start-date normalization changed');
 console_contract_assert(strpos($console, '$cc->normaliseEndDate($end_raw)') !== false, 'Console end-date normalization changed');
 console_contract_assert(strpos($console, '$cc->calculate($mode, $start, $end, true, [') !== false, 'Console calculation path changed');

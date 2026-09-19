@@ -1,5 +1,6 @@
 'use strict';
 
+global.CCDateFormat = require('../assets/js/date-format.js');
 const svg = require('../assets/js/historical-svg-chart.js');
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function close(actual, expected, message) { if (Math.abs(actual - expected) > 0.000001) throw new Error(message + ': expected ' + expected + ', got ' + actual); }

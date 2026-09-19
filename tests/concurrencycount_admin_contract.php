@@ -8,6 +8,7 @@ $root = dirname(__DIR__);
 $class = file_get_contents($root . '/Concurrencycount.class.php');
 $view = file_get_contents($root . '/views/main.php');
 $javascript = file_get_contents($root . '/assets/js/concurrencycount.js');
+$dateFormatJavascript = file_get_contents($root . '/assets/js/date-format.js');
 $demoScenarioJavascript = file_get_contents($root . '/assets/js/demo-scenario.js');
 $css = file_get_contents($root . '/assets/css/concurrencycount.css');
 $liveJavascript = file_get_contents($root . '/assets/js/live-view.js');
@@ -38,8 +39,10 @@ function admin_contract_assert($condition, $message) {
 }
 
 $orderHelperTag = strpos($view, 'assets/js/cc-historical-report-order.js?v=<?php echo $_ccAssetVer; ?>');
+$dateFormatTag = strpos($view, 'assets/js/date-format.js?v=<?php echo $_ccAssetVer; ?>');
 $mainScriptTag = strpos($view, 'assets/js/concurrencycount.js?v=<?php echo $_ccAssetVer; ?>');
-admin_contract_assert($orderHelperTag !== false && $mainScriptTag !== false && $orderHelperTag < $mainScriptTag, 'Historical report order helper must load before concurrencycount.js');
+admin_contract_assert($orderHelperTag !== false && $dateFormatTag !== false && $mainScriptTag !== false && $orderHelperTag < $mainScriptTag && $dateFormatTag < $mainScriptTag, 'Shared browser helpers must load before concurrencycount.js');
+admin_contract_assert(strpos($view, "filemtime(__DIR__ . '/../assets/js/date-format.js')") !== false && strpos($dateFormatJavascript, 'localDateTime') !== false && strpos($javascript, 'CCDateFormat.localDate') !== false, 'ISO-style local date formatting helper must be loaded and used by the GUI');
 admin_contract_assert(strpos($view, "filemtime(__DIR__ . '/../assets/js/cc-historical-report-order.js')") !== false, 'Historical report order helper mtime must participate in browser cache busting');
 
 admin_contract_assert(strpos($class, 'const AJAX_COMMANDS') !== false, 'Central AJAX command list missing');
@@ -69,13 +72,18 @@ admin_contract_assert(strpos($view, 'data-csrf-token=') !== false && strpos($vie
 admin_contract_assert(substr_count($javascript, 'token:') >= 3, 'AJAX, download, and fixture preview must send CSRF tokens');
 admin_contract_assert(strpos($javascript, 'Sweep is experimental') !== false, 'Sweep experimental wording missing');
 admin_contract_assert(strpos($view, 'Demo requires MariaDB.') !== false && strpos($view, 'temporary synthetic calls') !== false, 'Demo safety disclaimer missing');
+admin_contract_assert(strpos($class, "const DEMO_ACCESS_KEY = 'demo_access';") !== false && strpos($class, 'set(self::DEMO_ACCESS_KEY, false)') !== false && strpos($class, 'function requireDemoAccess') !== false, 'Central Demo access enforcement or install initialisation missing');
+admin_contract_assert(strpos($view, 'data-demo-access-enabled=') !== false && strpos($view, 'cc-demo-launch-wrap') !== false && strpos($view, 'Disable Demo from the shell: fwconsole concurrencycount demo --disable') !== false && strpos($view, 'Enable Demo from the shell: fwconsole concurrencycount demo --enable') !== false && strpos($view, "'btn-default' : 'btn-danger'") !== false && strpos($view, 'disabled aria-disabled="true"') !== false && strpos($view, 'fa-info-circle') === false && strpos($view, 'cc-demo-access-message') === false, 'Run Demo must be the only disabled-state information surface and expose enable/disable shell tooltip text');
+admin_contract_assert(strpos($view, 'id="cc-identity-manage" class="btn btn-warning"') !== false, 'Endpoint Classifications must use the warning button style');
+admin_contract_assert(strpos($css, '.cc-demo-launch-wrap') !== false && strpos($css, '#cc-demo-launch.btn-danger[disabled]') !== false && strpos($css, 'opacity: 0.55') !== false, 'Disabled Run Demo must have scoped softened danger styling');
+admin_contract_assert(strpos($javascript, "data-demo-access-enabled') !== 'true'") !== false, 'Client-side Demo launch guard must respect rendered authorisation state');
 admin_contract_assert(strpos($view, 'cc-download') !== false && strpos($view, 'cc-email-send') !== false, 'Download/email controls missing');
 admin_contract_assert(substr_count($view, "_('Minimum concurrency')") === 2, 'Historical and Demo minimum concurrency labels missing');
 admin_contract_assert(strpos($view, 'id="cc-minimum-concurrency" class="form-control" min="2" step="1" inputmode="numeric" value="2"') !== false && strpos($view, 'Leave blank to show all details') === false, 'Historical Minimum concurrency must visibly default to and enforce 2 without obsolete blank-floor wording');
 admin_contract_assert(strpos($javascript, 'function readMinimumConcurrency') !== false && strpos($javascript, 'minimum_concurrency:') !== false, 'Minimum concurrency validation or request propagation missing');
 admin_contract_assert(strpos($view, 'id="cc-maximum-runtime"') !== false && strpos($view, 'min="5" max="1440"') !== false && substr_count($view, 'HistoricalReportsService::DEFAULT_MAXIMUM_RUNTIME_MINUTES') >= 3 && strpos($javascript, 'function readMaximumRuntimeMinutes') !== false, 'Historical Maximum runtime must expose server-derived minute and second defaults with matching client-side bounds and validation');
 admin_contract_assert(strpos($javascript, 'runtime_remaining: initialRuntimeAllowance') !== false && strpos($javascript, 'runtime_allowance_seconds: initialRuntimeAllowance') !== false, 'Fresh GUI telemetry must present the configured report allowance before the first authoritative poll');
-admin_contract_assert(strpos($historicalReportsService, 'DEFAULT_MAXIMUM_RUNTIME_MINUTES = 60') !== false && strpos($historicalReportsService, "'maximum_runtime_minutes' => \$maximumRuntimeMinutes") !== false, 'Maximum runtime must be normalized and persisted in the report definition');
+admin_contract_assert(strpos($historicalReportsService, 'DEFAULT_MAXIMUM_RUNTIME_MINUTES = 60') !== false && strpos($historicalReportsService, "'maximum_runtime_minutes' => \$maximumRuntimeMinutes") !== false, 'Maximum runtime must be normalised and persisted in the report definition');
 admin_contract_assert(strpos($class, 'HistoricalResultFloor') !== false && strpos($class, "[1, 1, 'complete']") < strpos($class, 'return $floorService->apply($result'), 'Minimum concurrency must be applied only after calculation completion');
 admin_contract_assert(strpos($liveJavascript, "command: 'historicalgraph'") !== false && strpos($liveJavascript, 'minimum_concurrency: result.minimum_concurrency') !== false, 'Historical graph must receive its report floor through the shared workspace script');
 admin_contract_assert(strpos($class, "return \$floorService->applyGraph(\$graph, \$minimumConcurrency);") !== false, 'Historical graph floor must be applied after exact graph calculation');
@@ -461,7 +469,7 @@ admin_contract_assert(strpos($stopHandler, "setStatus('Unable to confirm cancell
 admin_contract_assert(strpos($stopHandler, 'run.stopping = false') !== false && strpos($stopHandler, "prop('disabled', false)") !== false, 'Failed cancellation must permit a safe retry');
 admin_contract_assert(strpos($javascript, "if (nextTarget === 'historical') $('#cc-launch').trigger('focus')") !== false, 'Closing the last report must return focus to Start Historical Report');
 admin_contract_assert(strpos($css, '#page_body') !== false && strpos($css, 'cc-table-scroll') !== false, 'Responsive containment/table scrolling missing');
-admin_contract_assert((string)$module->version === '2.2.2', 'Admin contract version mismatch');
+admin_contract_assert((string)$module->version === '2.3.0', 'Admin contract version mismatch');
 
 /* Demo deliberate-use gate must remain a local UI acknowledgement, separate from preflight. */
 admin_contract_assert(strpos($view, 'id="cc-demo-page-1"') !== false && strpos($view, 'Page 1 of 2') !== false && strpos($view, 'id="cc-demo-page-2"') !== false && strpos($view, 'Page 2 of 2') !== false, 'Demo must expose both numbered pages');
@@ -739,7 +747,7 @@ admin_contract_assert(
 	substr_count($liveJavascript, "$('#cc-live-wall-config-modal').modal('show')") === 1,
 	'Live Wall launch and configuration must be hidden and functionally unavailable on mobile widths'
 );
-admin_contract_assert(strpos($wallTransitionCode, 'requestLiveWallFullscreen()') !== false && strpos($wallTransitionCode, 'exitLiveWall') !== false && strpos($wallTransitionCode, 'document.exitFullscreen()') !== false, 'Live Wall fullscreen request and Exit Live Wall behavior must remain independent');
+admin_contract_assert(strpos($wallTransitionCode, 'requestLiveWallFullscreen()') !== false && strpos($wallTransitionCode, 'exitLiveWall') !== false && strpos($wallTransitionCode, 'document.exitFullscreen()') !== false, 'Live Wall fullscreen request and Exit Live Wall behaviour must remain independent');
 admin_contract_assert(strpos($view, 'cc-live-wall') < strpos($view, 'cc-live-settings-modal'), 'Live Wall must be a top-level presentation, not nested inside settings');
 $wallMarkup = substr($view, strpos($view, '<section id="cc-live-wall"'), strpos($view, '<div class="modal fade concurrencycount" id="cc-live-settings-modal"') - strpos($view, '<section id="cc-live-wall"'));
 foreach (['Hide Trunk', 'Unhide', 'Start Monitoring', 'Stop Monitoring', 'Thresholds & protection', 'Move earlier', 'Move later'] as $mutation) {
@@ -784,7 +792,7 @@ admin_contract_assert(strpos($javascript, 'Minimum concurrency not reached') ===
 admin_contract_assert(strpos($javascript, ".prop('hidden', !meaningful).attr('aria-hidden', meaningful ? 'false' : 'true')") !== false, 'Empty Historical result warnings must be visually and accessibly hidden');
 admin_contract_assert(strpos($class, "GET_LOCK('concurrencycount_gui_historical', 5)") !== false, 'GUI calculation admission/cancel/heartbeat mutations must be serialized server-side');
 admin_contract_assert(strpos($class, 'session_write_close()') !== false, 'Long GUI calculations must continue releasing the PHP session lock');
-admin_contract_assert(strpos($class, 'admitGui($calculationId, $owner, $runtimeAllowanceSeconds)') !== false && strpos($class, "'admission_busy' => true") !== false, 'Backend must reject a second owned GUI run and initialize its authoritative report allowance before engine entry');
+admin_contract_assert(strpos($class, 'admitGui($calculationId, $owner, $runtimeAllowanceSeconds)') !== false && strpos($class, "'admission_busy' => true") !== false, 'Backend must reject a second owned GUI run and initialise its authoritative report allowance before engine entry');
 admin_contract_assert(strpos($historicalCalculationControl, 'const GUI_LEASE_SECONDS = 20') !== false && strpos($historicalCalculationControl, 'function heartbeat(') !== false && strpos($historicalCalculationControl, 'function shouldStop(') !== false, 'Calculation-specific twenty-second GUI lease is incomplete');
 admin_contract_assert(strpos($console, 'admitGui') === false && strpos($console, 'calculationheartbeat') === false, 'GUI admission and heartbeat must not affect CLI calculations');
 admin_contract_assert(strpos($class, "'runtime_started_at'") !== false && strpos($class, '$control->runtimeStartedAt($calculationId, $owner)') !== false, 'GUI calculations must use the server-owned original runtime origin');

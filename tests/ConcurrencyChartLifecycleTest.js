@@ -21,7 +21,8 @@ function canvasStub(width, height) {
 function ResizeObserverStub(callback) { this.callback = callback; this.target = null; this.disconnected = false; }
 ResizeObserverStub.prototype.observe = function (target) { this.target = target; };
 ResizeObserverStub.prototype.disconnect = function () { this.disconnected = true; this.target = null; };
-const windowStub = {devicePixelRatio: 2, listeners: {}, ResizeObserver: ResizeObserverStub, addEventListener: function (name, handler) { this.listeners[name] = handler; }, removeEventListener: function (name, handler) { if (this.listeners[name] === handler) delete this.listeners[name]; }};
+const dateFormat = require('../assets/js/date-format.js');
+const windowStub = {CCDateFormat: dateFormat, devicePixelRatio: 2, listeners: {}, ResizeObserver: ResizeObserverStub, addEventListener: function (name, handler) { this.listeners[name] = handler; }, removeEventListener: function (name, handler) { if (this.listeners[name] === handler) delete this.listeners[name]; }};
 const sandbox = {window: windowStub};
 vm.runInNewContext(fs.readFileSync(__dirname + '/../assets/js/concurrency-charts.js', 'utf8'), sandbox);
 const Chart = windowStub.ConcurrencyChart;
@@ -55,7 +56,7 @@ assert(typeof Chart === 'function', 'Live View and Live Wall retain the existing
 
 const fullscreenWall = {requestFullscreen: function () { return {catch: function () {}}; }};
 const fullscreenDocument = {fullscreenElement: null};
-const helperWindow = {_ccLiveLoaded: true, setTimeout: function () {}};
+const helperWindow = {CCDateFormat: dateFormat, _ccLiveLoaded: true, setTimeout: function () {}};
 vm.runInNewContext(fs.readFileSync(__dirname + '/../assets/js/live-view.js', 'utf8'), {window: helperWindow});
 const fullscreen = helperWindow.CCLiveWallFullscreen;
 const presentation = helperWindow.CCLiveWallPresentation;

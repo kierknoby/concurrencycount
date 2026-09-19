@@ -7,6 +7,7 @@
  *   fwconsole concurrencycount --mode=extension --start=... --end=...
  *   fwconsole concurrencycount --mode=group --start=... --end=... --csv
  *   fwconsole concurrencycount --mode=demo
+ *   fwconsole concurrencycount demo --enable|--disable|--status
  *
  * Mode accepts the same abbreviations as the original bash CLI
  * (trunks/trunk/.../t, extensions/ext/.../e, groups/group/.../g), plus demo.
@@ -15,8 +16,10 @@
 namespace FreePBX\Console\Command;
 
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Output\OutputInterface;
 use FreePBX\modules\Concurrencycount\HistoricalCalculationCancelled;
 use FreePBX\modules\Concurrencycount\Services\CliCancellationControl;
@@ -27,6 +30,10 @@ class Concurrencycount extends Command {
 	protected function configure() {
 		$this->setName('concurrencycount')
 			->setDescription('Calculate maximum concurrent PJSIP calls per trunk, extension, group, or demo fixture')
+			->addArgument('demo', InputArgument::OPTIONAL, 'Demo access administration command: demo')
+			->addOption('enable', null, InputOption::VALUE_NONE, 'Authorise GUI Demo functionality; does not start Demo or generate data')
+			->addOption('disable', null, InputOption::VALUE_NONE, 'Revoke Demo authorisation; does not delete CDR data')
+			->addOption('status', null, InputOption::VALUE_NONE, 'Report Demo access as ENABLED or DISABLED')
 			->addOption('mode', 'm', InputOption::VALUE_REQUIRED, 'Mode: trunk, extension, group, or demo (abbreviations accepted)', 'trunk')
 			->addOption('start', 's', InputOption::VALUE_REQUIRED, 'Start date YYYY-MM-DD HH:MM:SS (or shorthand)')
 			->addOption('end', 'e', InputOption::VALUE_REQUIRED, 'End date YYYY-MM-DD HH:MM:SS (or shorthand)')
@@ -63,6 +70,15 @@ class Concurrencycount extends Command {
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output) {
+		$demoArgument = $input->getArgument('demo');
+		$accessOptionRequested = $input->getOption('enable') || $input->getOption('disable') || $input->getOption('status');
+		if ($demoArgument !== null) {
+			return $this->handleDemoAccessCommand($input, $output);
+		}
+		if ($accessOptionRequested) {
+			$output->writeln('<error>Demo access options require the demo command.</error>');
+			return 1;
+		}
 		$mode_raw = $input->getOption('mode');
 		$start_raw = $input->getOption('start');
 		$end_raw = $input->getOption('end');
@@ -216,6 +232,37 @@ class Concurrencycount extends Command {
 		$output->writeln('');
 		$output->writeln('<comment>' . $results['warning'] . '</comment>');
 		$output->writeln('');
+		return 0;
+	}
+
+	private function handleDemoAccessCommand(InputInterface $input, OutputInterface $output): int {
+		$cc = \FreePBX::Concurrencycount();
+		if ($input->getArgument('demo') !== 'demo') {
+			$output->writeln('<error>Unknown command. Use demo with --enable, --disable, or --status.</error>');
+			return 1;
+		}
+		$actions = [];
+		foreach (['enable', 'disable', 'status'] as $action) if ($input->getOption($action)) $actions[] = $action;
+		if (count($actions) !== 1) {
+			$output->writeln('<error>Use exactly one of --enable, --disable, or --status with the demo command.</error>');
+			return 1;
+		}
+		$action = $actions[0];
+		if ($action === 'status') {
+			$output->writeln('Demo access: ' . ($cc->isDemoAccessEnabled() ? 'ENABLED' : 'DISABLED'));
+			return 0;
+		}
+		$enabled = $action === 'enable';
+		$message = $enabled
+			? 'Enable Demo access? Demo scenarios can generate synthetic CDR records. This authorises the GUI only; it does not start Demo or generate data. (y/N) '
+			: 'Disable Demo access? New Demo operations will be rejected; existing CDR data will not be deleted. (y/N) ';
+		$question = new ConfirmationQuestion($message, false);
+		if (!$this->getHelper('question')->ask($input, $output, $question)) {
+			$output->writeln('<comment>No changes made.</comment>');
+			return 0;
+		}
+		$cc->setDemoAccessEnabled($enabled);
+		$output->writeln('Demo access: ' . ($enabled ? 'ENABLED' : 'DISABLED'));
 		return 0;
 	}
 
